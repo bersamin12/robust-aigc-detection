@@ -7,6 +7,8 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
+from aigcdet.data.splits import assign_splits
+
 MANIFEST_COLUMNS = [
     "path",       # absolute path to the normalised PNG
     "label",      # 0 = authentic, 1 = AI-generated
@@ -19,6 +21,12 @@ MANIFEST_COLUMNS = [
 ]
 
 SPLITS = ("train", "val_internal", "heldout_generator", "benchmark")
+
+#: Distinct fake "generator families" in the synthetic fixture. Plural on
+#: purpose: with a single generator name the fixture could not exercise the
+#: held-out-generator split at all, and a bank built from it made Plan 2's
+#: train_rung raise "bank has no val_internal rows".
+DUMMY_GENERATORS = ("dummygen_a", "dummygen_b", "dummygen_c")
 
 
 def validate_manifest(df: pd.DataFrame) -> None:
@@ -79,8 +87,19 @@ def make_dummy_manifest(n: int, out_dir: str, rng: np.random.Generator) -> pd.Da
     Fakes are given a mild low-pass bias so a trivial classifier can reach
     above-chance accuracy; that makes end-to-end training smoke tests meaningful.
 
+    Fakes are spread over `DUMMY_GENERATORS`, and the splits are assigned by
+    the real `assign_splits` with the last present generator held out, so a
+    bank built from this fixture exercises the train / val_internal /
+    heldout_generator paths rather than one uniform "train" block. n needs to
+    be large enough for `val_fraction` to land at least one row in
+    val_internal (a few dozen; the 500-row default is comfortable) and for
+    every generator to appear at all.
+
     Paths recorded in the manifest are absolute, so they remain valid from any
     working directory when read by downstream tasks.
+
+    Deterministic given `rng`: the split seed is drawn from it, not from
+    global state.
     """
     out_dir_abs = os.path.abspath(out_dir)
     os.makedirs(out_dir_abs, exist_ok=True)
@@ -95,11 +114,14 @@ def make_dummy_manifest(n: int, out_dir: str, rng: np.random.Generator) -> pd.Da
         rows.append({
             "path": p,
             "label": label,
-            "generator": "dummygen" if label else "",
+            "generator": DUMMY_GENERATORS[(i // 2) % len(DUMMY_GENERATORS)] if label else "",
             "source": "dummy",
             "licence": "CC0",
             "width": 64,
             "height": 64,
-            "split": "train",
+            "split": "",
         })
-    return pd.DataFrame(rows, columns=MANIFEST_COLUMNS)
+    df = pd.DataFrame(rows, columns=MANIFEST_COLUMNS)
+    present = [g for g in DUMMY_GENERATORS if (df["generator"] == g).any()]
+    return assign_splits(df, heldout_generators=present[-1:],
+                         seed=int(rng.integers(0, 2**31 - 1)))
