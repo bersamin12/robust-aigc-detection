@@ -128,13 +128,18 @@ def build_dataset(
         raise ValueError(f"no images found under {raw}")
     print(f"scanned {len(raw_df)} raw images")
 
-    # Reject a missing key AND a falsy value (e.g. `{"real_src": ""}`) --
-    # either one would otherwise flow through to a blank `licence` column,
-    # the exact outcome the fail-loud requirement exists to prevent.
-    missing_licences = sorted(s for s in set(raw_df["source"]) if not licences.get(s))
+    # Reject a missing key, a falsy value (e.g. `{"real_src": ""}` or
+    # `null`), AND a whitespace-only value (e.g. `"   "`) -- all four flow
+    # through to a blank-in-substance `licence` column otherwise. A
+    # whitespace-only entry is the same missing provenance the fail-loud
+    # requirement exists to prevent, just wearing different clothes: it
+    # looks populated to a presence check while carrying nothing usable.
+    missing_licences = sorted(
+        s for s in set(raw_df["source"]) if not str(licences.get(s, "")).strip()
+    )
     if missing_licences:
         raise ValueError(
-            f"LICENCES.json has no usable (non-empty) entry for source(s) "
+            f"LICENCES.json has no usable (non-blank) entry for source(s) "
             f"{missing_licences}. Record every dataset's licence at "
             "acquisition time (spec §4.5) before building the manifest.")
 

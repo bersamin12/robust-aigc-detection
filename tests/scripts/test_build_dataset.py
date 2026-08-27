@@ -211,6 +211,23 @@ def test_blank_licence_value_raises_loudly(tmp_path):
         )
 
 
+def test_whitespace_only_licence_value_raises_loudly(tmp_path):
+    raw_dir = tmp_path / "raw"
+    rng = np.random.default_rng(0)
+    _write_images(str(raw_dir), "real_src", "real", 5, rng)
+    # A whitespace-only value is truthy in Python, so a plain falsy check
+    # would let it through -- it looks populated to a presence check while
+    # carrying nothing usable, the same blank provenance wearing different
+    # clothes.
+    with open(raw_dir / "LICENCES.json", "w") as f:
+        f.write(json.dumps({"real_src": "   "}) + "\n")
+    with pytest.raises(ValueError, match="real_src"):
+        bd.build_dataset(
+            str(raw_dir), str(tmp_path / "out"), str(tmp_path / "demo"),
+            str(tmp_path / "manifest.parquet"), docs_dir=str(tmp_path / "docs"),
+        )
+
+
 def _small_raw_tree(raw_dir, rng):
     # Needs >=2 generators clearing MIN_HELDOUT_IMAGES so the full pipeline
     # (including choose_heldout_generators) actually succeeds on the first
