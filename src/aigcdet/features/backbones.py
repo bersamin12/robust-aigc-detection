@@ -21,8 +21,12 @@ import cv2
 import numpy as np
 import torch
 
-# ImageNet statistics; CLIP/SigLIP2/DINOv3 all ship close variants and the
-# difference is immaterial for a frozen feature extractor.
+# ImageNet statistics, applied uniformly to all three backbones. CLIP and
+# SigLIP2 were each pretrained with their own mean/std, not ImageNet's; using
+# one shared normalisation here is an unverified simplification -- it has not
+# been measured against per-backbone stats -- not a finding that the
+# difference is immaterial. Revisit with a real comparison if a backbone's
+# features underperform expectation.
 _MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 _STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 

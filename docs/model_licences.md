@@ -34,7 +34,10 @@ summary line. Checked 2026-08-27/28.
   the weights are the same ones distributed in OpenAI's `openai/CLIP` GitHub repository,
   which carries an MIT `LICENSE` file. Treating the HF mirror as MIT-licensed is the
   standard reading used throughout the ecosystem (e.g. `openai/clip-vit-base-patch32`
-  and siblings all ship the same code/weights under that repo's licence).
+  and siblings all ship the same code/weights under that repo's licence). Note the
+  ambiguity this reading carries: the MIT text speaks of "the Software" and never
+  explicitly names trained model weights, so applying a source-code licence to a
+  checkpoint is an ecosystem-standard practice, not a textually settled one.
 - **SD 1.5 VAE.** CreativeML Open RAIL-M permits commercial and non-commercial use but
   attaches use-based restrictions (Attachment A) prohibiting specific harmful end-uses
   (e.g. generating illegal, discriminatory, or non-consensual content). This project
