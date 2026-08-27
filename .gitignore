@@ -9,10 +9,11 @@ venv/
 .ipynb_checkpoints/
 
 # --- Data: never commit imagery or derived banks ---
-# Raw and normalised datasets are acquired by scripts/acquire_data.py.
-data/raw/
-data/normalized/
-data/interim/
+# Everything under data/ is acquired or generated: real datasets by
+# scripts/acquire_data.py, synthetic fixtures by make_dummy_manifest.
+# Ignore the whole tree rather than named subdirectories, so a stray
+# `git add -A` can never commit gigabytes of imagery.
+data/
 *.parquet
 *.npy
 *.npz
@@ -35,3 +36,6 @@ docs/contact_sheets/
 scratch/
 *.log
 .DS_Store
+
+# --- Subagent-driven-development scratch (ledger, briefs, review packages) ---
+.superpowers/
