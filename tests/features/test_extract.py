@@ -126,3 +126,66 @@ def test_extract_bank_rejects_a_manifest_with_a_duplicated_index(tmp_path, monke
 
     with pytest.raises(ValueError, match="duplicated"):
         extract.extract_bank(dupes, "fake", str(tmp_path / "bank_dupe"), seed=3, device="cpu")
+
+
+# --- H3: the LOTO bank must differ by one family and NOTHING else ----------
+
+def _op_count_histogram(exclude, n=30_000, seed=20260827):
+    from aigcdet.features.extract import _sample_recipe_excluding
+
+    rng = np.random.default_rng(seed)
+    ks = [len(_sample_recipe_excluding(rng, exclude).ops) for _ in range(n)]
+    return np.bincount(ks, minlength=4)[1:], float(np.mean(ks))
+
+
+def test_excluding_a_family_does_not_change_the_op_count_distribution():
+    """The A3-vs-A3-LOTO comparison exists to isolate ONE transform family.
+    The previous rejection sampler discarded whole recipes containing the
+    excluded family, which throws away long chains disproportionately (an
+    excluded family is likelier to appear in a 3-op chain than a 1-op one):
+    measured mean 1.993 ops with no exclusion vs 1.827 with
+    exclude=("noise",), so the LOTO bank trained on ~8% lighter augmentation
+    overall. That violates the project's "identical view coverage across
+    compared rungs" hard constraint in the one comparison it was written to
+    bind. Fixed seeds, so this is deterministic rather than flaky.
+    """
+    from scipy import stats
+
+    base_counts, base_mean = _op_count_histogram(())
+    loto_counts, loto_mean = _op_count_histogram(("noise",))
+
+    assert abs(base_mean - loto_mean) < 0.03, (base_mean, loto_mean)
+    _chi2, p, _dof, _exp = stats.chi2_contingency(
+        np.vstack([base_counts, loto_counts]))
+    assert p > 0.01, f"op-count distributions differ (chi2 p={p:.4g})"
+
+
+def test_op_count_stays_uniform_even_when_two_families_are_excluded():
+    """Two exclusions made the old bias worse (mean 1.630). With four kept
+    families a 1-3 op chain is still fully available, so the distribution must
+    be unchanged."""
+    _base_counts, base_mean = _op_count_histogram(())
+    _counts, mean = _op_count_histogram(("jpeg", "blur"))
+    assert abs(base_mean - mean) < 0.03, (base_mean, mean)
+
+
+def test_exclusion_removes_only_the_named_family():
+    """Every kept family must still be reachable -- restricting the pool must
+    not accidentally narrow it further."""
+    from aigcdet.augment.recipes import FAMILIES
+    from aigcdet.features.extract import _sample_recipe_excluding
+
+    rng = np.random.default_rng(7)
+    seen = set()
+    for _ in range(5_000):
+        for op in _sample_recipe_excluding(rng, ("noise",)).ops:
+            seen.add(op.name)
+    assert seen == set(FAMILIES) - {"noise"}
+
+
+def test_excluding_every_family_fails_loudly():
+    from aigcdet.augment.recipes import FAMILIES
+    from aigcdet.features.extract import _sample_recipe_excluding
+
+    with pytest.raises(ValueError, match="no transform families"):
+        _sample_recipe_excluding(np.random.default_rng(0), tuple(FAMILIES))
