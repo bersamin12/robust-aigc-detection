@@ -81,14 +81,26 @@ def test_train_rung_restores_global_rng_state_and_does_not_init_cuda(tmp_path):
     """train_rung must seed module init reproducibly (nn.Linear.reset_parameters
     has no generator param) without leaking that seed into the caller's global
     torch RNG state, and must never touch CUDA (device="cpu" throughout, and
-    fork_rng(devices=[]) must not itself initialise a CUDA context)."""
+    fork_rng(devices=[]) must not itself initialise a CUDA context).
+
+    Both properties are asserted as "unchanged across the call", not as an
+    absolute state of the process. The CUDA half used to read
+    `assert not torch.cuda.is_initialized()`, which is a claim about the whole
+    process rather than about train_rung: the @pytest.mark.gpu skip guards call
+    `torch.cuda.mem_get_info()`, which creates a CUDA context as a side effect
+    before deciding to skip, so a plain `pytest` run failed here while
+    `pytest -m "not gpu"` passed. Two correct-looking pieces of code,
+    incompatible only in composition. What this test is actually for is that
+    train_rung does not initialise CUDA -- which stays true, and stays
+    checkable, whether or not something earlier in the session already did."""
     cfg = RungConfig(name="a1", bank_dir=_learnable_bank(tmp_path), epochs=3,
                      use_augmented=True, out_dir=str(tmp_path / "out_rng"))
     before = torch.random.get_rng_state()
+    cuda_before = torch.cuda.is_initialized()
     train_rung(cfg)
     after = torch.random.get_rng_state()
     assert torch.equal(before, after)
-    assert not torch.cuda.is_initialized()
+    assert torch.cuda.is_initialized() == cuda_before
 
 
 def test_a4_shaped_run_with_recon_trains_and_produces_a_plausible_auc(tmp_path):
