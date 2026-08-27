@@ -13,7 +13,12 @@ venv/
 # scripts/acquire_data.py, synthetic fixtures by make_dummy_manifest.
 # Ignore the whole tree rather than named subdirectories, so a stray
 # `git add -A` can never commit gigabytes of imagery.
-data/
+# Anchored to the repo root (leading slash): a bare `data/` also matches
+# `src/aigcdet/data/` and `tests/data/` by basename at any depth, which
+# silently hid new files added under those package directories (found while
+# adding src/aigcdet/data/audit.py and tests/data/test_audit.py in Task 8;
+# the pre-existing files there predate the rule that broke this).
+/data/
 *.parquet
 *.npy
 *.npz
