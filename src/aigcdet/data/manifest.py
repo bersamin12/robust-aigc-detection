@@ -18,6 +18,48 @@ MANIFEST_COLUMNS = [
     "split",      # "train" | "val_internal" | "heldout_generator" | "benchmark"
 ]
 
+SPLITS = ("train", "val_internal", "heldout_generator", "benchmark")
+
+
+def validate_manifest(df: pd.DataFrame) -> None:
+    """Fail loudly on a manifest that violates its own documented contract.
+
+    Every one of these checks corresponds to a defect that reached the end of
+    Plan 1 undetected: COCO val2017 carrying `label = 1`, a dataset name
+    standing in for a generator family, and relative paths written under a
+    column documented as absolute. They are cheap, and they are the last
+    gate before the file is frozen — feature banks index against it
+    positionally, so a manifest that is wrong is wrong for every later plan.
+    """
+    missing = [c for c in MANIFEST_COLUMNS if c not in df.columns]
+    if missing:
+        raise ValueError(f"manifest missing columns: {missing}")
+
+    problems: list[str] = []
+
+    bad_labels = sorted(set(df["label"].unique()) - {0, 1})
+    if bad_labels:
+        problems.append(f"label must be 0 or 1, found {bad_labels}")
+
+    bad_splits = sorted(set(df["split"].unique()) - set(SPLITS))
+    if bad_splits:
+        problems.append(f"split must be one of {list(SPLITS)}, found {bad_splits}")
+
+    dupes = df["path"][df["path"].duplicated()].unique().tolist()
+    if len(dupes):
+        problems.append(
+            f"{len(dupes)} duplicated path(s), e.g. {dupes[:3]}; rows must be "
+            "one-per-image for positional indexing to be meaningful")
+
+    relative = [p for p in df["path"] if not os.path.isabs(str(p))]
+    if relative:
+        problems.append(
+            f"{len(relative)} relative path(s), e.g. {relative[:3]}; `path` is "
+            "documented as absolute and is read from other working directories")
+
+    if problems:
+        raise ValueError("invalid manifest: " + "; ".join(problems))
+
 
 def write_manifest(df: pd.DataFrame, path: str) -> None:
     missing = [c for c in MANIFEST_COLUMNS if c not in df.columns]
