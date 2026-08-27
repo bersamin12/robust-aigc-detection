@@ -75,6 +75,11 @@ def consistency_loss(logit_clean: torch.Tensor, logit_deg: torch.Tensor,
 
     `hidden_clean`/`hidden_deg` must be the classifier's trainable hidden
     state h_c, never a frozen/cached embedding (see module docstring).
+
+    This function does not detach either side itself: callers that want the
+    clean branch to act as a fixed target (rather than both branches meeting
+    in the middle by collapsing the representation, as `total_loss` does via
+    `.detach()` on `logit_clean`/`hidden_clean`) must detach it before calling.
     """
     pred = _kl_bernoulli(logit_clean, logit_deg)
     feat = F.mse_loss(hidden_deg, hidden_clean)
