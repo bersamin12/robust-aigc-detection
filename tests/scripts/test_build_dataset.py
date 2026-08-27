@@ -15,7 +15,7 @@ import pytest
 from PIL import Image
 
 from aigcdet.data.manifest import read_manifest
-from aigcdet.data.splits import MIN_HELDOUT_IMAGES
+from aigcdet.data.splits import DEFAULT_SEED, MIN_HELDOUT_IMAGES
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(os.path.dirname(_HERE))
@@ -128,7 +128,7 @@ def test_end_to_end_pipeline(tmp_path):
     held = splits_meta["heldout_generators"]
     assert len(held) == 2
     assert set(held) <= set(GENS)
-    assert splits_meta["seed"] == 20260827
+    assert splits_meta["seed"] == DEFAULT_SEED
 
     # Exactly one leak (the planted duplicate) was dropped, and it came from
     # the training side: real_src had N_REAL images, one is gone.
@@ -193,3 +193,75 @@ def test_end_to_end_pipeline(tmp_path):
 
     # --- The audit and split-report side effects exist under docs_dir. ---
     assert os.path.exists(os.path.join(docs_dir, "data_audit.md"))
+
+
+def test_blank_licence_value_raises_loudly(tmp_path):
+    raw_dir = tmp_path / "raw"
+    rng = np.random.default_rng(0)
+    _write_images(str(raw_dir), "real_src", "real", 5, rng)
+    # LICENCES.json has an entry for "real_src", but it's blank -- the same
+    # missing provenance the fail-loud requirement exists to prevent,
+    # arriving through a malformed value instead of a missing key.
+    with open(raw_dir / "LICENCES.json", "w") as f:
+        f.write(json.dumps({"real_src": ""}) + "\n")
+    with pytest.raises(ValueError, match="real_src"):
+        bd.build_dataset(
+            str(raw_dir), str(tmp_path / "out"), str(tmp_path / "demo"),
+            str(tmp_path / "manifest.parquet"), docs_dir=str(tmp_path / "docs"),
+        )
+
+
+def _small_raw_tree(raw_dir, rng):
+    # Needs >=2 generators clearing MIN_HELDOUT_IMAGES so the full pipeline
+    # (including choose_heldout_generators) actually succeeds on the first
+    # build -- the overwrite guard is tested on the *second* call.
+    for g in GENS[:2]:
+        _write_images(str(raw_dir), "wildfake", g, N_PER_GEN, rng)
+    _write_images(str(raw_dir), "real_src", "real", 5, rng)
+    with open(raw_dir / "LICENCES.json", "w") as f:
+        f.write(json.dumps({"real_src": "CC0"}) + "\n")
+        f.write(json.dumps({"wildfake": "CC0"}) + "\n")
+
+
+def test_refuses_to_overwrite_an_existing_manifest_without_force(tmp_path):
+    raw_dir = tmp_path / "raw"
+    manifest_path = tmp_path / "manifest.parquet"
+    rng = np.random.default_rng(0)
+    _small_raw_tree(raw_dir, rng)
+    os.makedirs(tmp_path / "demo", exist_ok=True)
+
+    bd.build_dataset(
+        str(raw_dir), str(tmp_path / "out"), str(tmp_path / "demo"),
+        str(manifest_path), docs_dir=str(tmp_path / "docs"),
+    )
+    assert manifest_path.exists()
+    first_mtime = manifest_path.stat().st_mtime_ns
+
+    with pytest.raises(FileExistsError, match="already exists"):
+        bd.build_dataset(
+            str(raw_dir), str(tmp_path / "out"), str(tmp_path / "demo"),
+            str(manifest_path), docs_dir=str(tmp_path / "docs"),
+        )
+    # The refusal happened before any work was redone: the file on disk is
+    # untouched.
+    assert manifest_path.stat().st_mtime_ns == first_mtime
+
+
+def test_force_overwrites_an_existing_manifest(tmp_path):
+    raw_dir = tmp_path / "raw"
+    manifest_path = tmp_path / "manifest.parquet"
+    rng = np.random.default_rng(0)
+    _small_raw_tree(raw_dir, rng)
+    os.makedirs(tmp_path / "demo", exist_ok=True)
+
+    bd.build_dataset(
+        str(raw_dir), str(tmp_path / "out"), str(tmp_path / "demo"),
+        str(manifest_path), docs_dir=str(tmp_path / "docs"),
+    )
+    df = bd.build_dataset(
+        str(raw_dir), str(tmp_path / "out"), str(tmp_path / "demo"),
+        str(manifest_path), docs_dir=str(tmp_path / "docs"), force=True,
+    )
+    on_disk = read_manifest(str(manifest_path))
+    expected_n = N_PER_GEN * 2 + 5
+    assert len(df) == len(on_disk) == expected_n
