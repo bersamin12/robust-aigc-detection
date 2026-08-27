@@ -76,7 +76,16 @@ def train_rung(cfg: RungConfig) -> dict:
     train_idx = np.where(split == "train")[0]
     val_idx = np.where(split == "val_internal")[0]
     if len(val_idx) == 0:
-        raise ValueError("bank has no val_internal rows; check the manifest splits")
+        # Name what the bank DOES contain: this fires after Stage A has
+        # already been paid for (8-13 h on Kaggle), so "check the manifest
+        # splits" is not enough to act on.
+        present = {str(s): int(n) for s, n in
+                   zip(*np.unique(split, return_counts=True))}
+        raise ValueError(
+            "bank has no val_internal rows, so the val AUC every rung reports "
+            f"cannot be computed. This bank contains splits {present}. Re-extract "
+            "with `--split train,val_internal` -- Stage A must cover both, in one "
+            "bank (scripts/extract_features.py)")
 
     # nn.Module.reset_parameters() has no generator parameter, so seeding the
     # global RNG is the ordinary way to make module init reproducible. Contain
