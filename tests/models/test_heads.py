@@ -18,16 +18,32 @@ def test_classifier_head_shapes():
     assert out["logit"].shape == (5,) and out["hidden"].shape == (5, 512)
 
 
+def test_degradation_head_output_depends_on_input():
+    """Guards against a stub that returns input-independent output: the shape
+    and severity-range checks above would not catch that, but two distinct
+    inputs must produce distinct presence/severity/embedding here."""
+    h = DegradationHead(dim_in=32)
+    a = h(torch.zeros(4, 32))
+    b = h(torch.ones(4, 32))
+    assert not torch.allclose(a["presence"], b["presence"])
+    assert not torch.allclose(a["severity"], b["severity"])
+    assert not torch.allclose(a["embedding"], b["embedding"])
+
+
 def test_film_changes_the_hidden_state_and_plain_head_ignores_cond():
-    torch.manual_seed(0)
-    f = torch.randn(3, 32)
-    cond = torch.randn(3, 256)
-    film = ClassifierHead(dim_in=32, use_film=True)
-    a = film(f, cond)["hidden"]
-    b = film(f, torch.zeros_like(cond))["hidden"]
-    assert not torch.allclose(a, b)
-    plain = ClassifierHead(dim_in=32, use_film=False)
-    assert torch.allclose(plain(f, cond)["hidden"], plain(f)["hidden"])
+    # fork_rng(devices=[]) forks only the CPU RNG (never touches CUDA, so no
+    # GPU process starts) and restores it on exit, so the manual_seed below
+    # cannot leak into later tests' unseeded randomness.
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(0)
+        f = torch.randn(3, 32)
+        cond = torch.randn(3, 256)
+        film = ClassifierHead(dim_in=32, use_film=True)
+        a = film(f, cond)["hidden"]
+        b = film(f, torch.zeros_like(cond))["hidden"]
+        assert not torch.allclose(a, b)
+        plain = ClassifierHead(dim_in=32, use_film=False)
+        assert torch.allclose(plain(f, cond)["hidden"], plain(f)["hidden"])
 
 
 def test_detector_without_recon_matches_feature_width():
