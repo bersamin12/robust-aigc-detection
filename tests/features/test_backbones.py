@@ -125,3 +125,135 @@ def test_embedding_is_deterministic():
     a = embed(model, spec, img, device="cuda")
     b = embed(model, spec, img, device="cuda")
     np.testing.assert_allclose(a, b, rtol=1e-4, atol=1e-4)
+
+
+# --------------------------------------------------------------------------
+# embed()'s tensor contract, per backbone, on CPU.
+#
+# These build the SAME architecture each registry entry names, at toy width,
+# from a locally-constructed config: no download, no GPU, no weights. That is
+# what would have caught C1 on day 1 -- `embed` asserted one input contract
+# (`model(pixel_values=(B, 3, H, W))`) across three backbones that do not share
+# one, and SigLIP2 could not be embedded at all.
+# --------------------------------------------------------------------------
+
+_TINY = dict(hidden_size=32, intermediate_size=64, num_hidden_layers=2,
+             num_attention_heads=4)
+_TINY_PATCH = 16
+_TINY_IMAGE = 64          # 4 x 4 = 16 patches
+
+
+def _tiny_tower(name: str):
+    """(vision tower, spec) for `name`'s real architecture at toy width.
+
+    The returned spec keeps every contract-bearing field of the registry entry
+    -- `input_format`, `patch_size`, `num_prefix_tokens` -- and only shrinks
+    `image_size`/`dim`/`params`, so a wrong input_format or prefix-token count
+    in `BACKBONES` fails here.
+    """
+    from dataclasses import replace
+
+    real = BACKBONES[name]
+    if name == "dinov3l":
+        from transformers import DINOv3ViTConfig, DINOv3ViTModel
+        # num_register_tokens=4 plus DINOv3's CLS token == the registry's
+        # num_prefix_tokens=5, so the real value is exercised, not a stand-in.
+        model = DINOv3ViTModel(DINOv3ViTConfig(
+            patch_size=_TINY_PATCH, image_size=_TINY_IMAGE,
+            num_register_tokens=real.num_prefix_tokens - 1, **_TINY))
+    elif name == "siglip2l":
+        from transformers import Siglip2VisionConfig, Siglip2VisionModel
+        model = Siglip2VisionModel(Siglip2VisionConfig(
+            patch_size=_TINY_PATCH, image_size=_TINY_IMAGE,
+            num_patches=(_TINY_IMAGE // _TINY_PATCH) ** 2, num_channels=3, **_TINY))
+    elif name == "clipl":
+        from transformers import CLIPVisionConfig, CLIPVisionModel
+        model = CLIPVisionModel(CLIPVisionConfig(
+            patch_size=_TINY_PATCH, image_size=_TINY_IMAGE, **_TINY))
+    else:
+        raise AssertionError(f"no tiny tower recipe for {name!r}")
+
+    # The same unwrapping load_backbone does.
+    model = getattr(model, "vision_model", model).eval()
+    spec = replace(real, image_size=_TINY_IMAGE, dim=_TINY["hidden_size"], params=0)
+    return model, spec
+
+
+@pytest.mark.parametrize("name", sorted(BACKBONES))
+def test_embed_tensor_contract_holds_for_every_backbone_on_cpu(name):
+    from aigcdet.features.backbones import embed
+
+    model, spec = _tiny_tower(name)
+    rng = np.random.default_rng(0)
+    imgs = [rng.integers(0, 256, (120, 200, 3), dtype=np.uint8) for _ in range(3)]
+
+    out = embed(model, spec, imgs, device="cpu", batch_size=2)
+
+    assert out.shape == (3, spec.dim)
+    assert out.dtype == np.float32
+    assert np.isfinite(out).all()
+    # Not a constant/stub: three different images must give three different
+    # pooled vectors.
+    assert len({tuple(np.round(r, 5)) for r in out}) == 3
+
+
+@pytest.mark.parametrize("name", sorted(BACKBONES))
+def test_num_prefix_tokens_matches_the_real_architecture(name):
+    """`embed` strips `spec.num_prefix_tokens` before pooling. If that count is
+    wrong for an architecture, pooling silently averages a CLS/register token
+    into the patch mean (or drops a real patch) and nothing else notices."""
+    import torch
+
+    from aigcdet.features.backbones import model_inputs
+
+    model, spec = _tiny_tower(name)
+    rng = np.random.default_rng(1)
+    imgs = [rng.integers(0, 256, (90, 90, 3), dtype=np.uint8) for _ in range(2)]
+
+    with torch.inference_mode():
+        h = model(**model_inputs(spec, imgs, "cpu", torch.float32)).last_hidden_state
+
+    expected_patches = (spec.image_size // _TINY_PATCH) ** 2
+    assert h.shape[1] - spec.num_prefix_tokens == expected_patches
+    assert h.shape[-1] == spec.dim
+
+
+def test_every_registry_entry_declares_a_supported_input_format():
+    from aigcdet.features.backbones import INPUT_FORMATS, INPUT_SIGLIP2_PATCHES
+
+    for spec in BACKBONES.values():
+        assert spec.input_format in INPUT_FORMATS
+        if spec.input_format == INPUT_SIGLIP2_PATCHES:
+            assert spec.patch_size > 0
+            assert spec.image_size % spec.patch_size == 0
+
+
+def test_spec_rejects_an_unusable_input_contract():
+    from aigcdet.features.backbones import INPUT_SIGLIP2_PATCHES, BackboneSpec
+
+    with pytest.raises(ValueError, match="input_format"):
+        BackboneSpec("bad", "none", 384, 1024, 0, 1, input_format="conv2d")
+    with pytest.raises(ValueError, match="patch_size"):
+        BackboneSpec("bad", "none", 384, 1024, 0, 1,
+                     input_format=INPUT_SIGLIP2_PATCHES)
+    with pytest.raises(ValueError, match="divisible"):
+        BackboneSpec("bad", "none", 100, 1024, 0, 1,
+                     input_format=INPUT_SIGLIP2_PATCHES, patch_size=16)
+
+
+def test_patchify_matches_the_transformers_reference_implementation():
+    """SigLIP2's patch_embedding is a Linear over flattened patches, so the
+    element ORDER inside each patch is part of the weight contract. Pin it
+    against the transformers implementation the real processor uses."""
+    from transformers.models.siglip2.image_processing_siglip2 import (
+        convert_image_to_patches,
+    )
+
+    from aigcdet.features.backbones import _patchify
+
+    rng = np.random.default_rng(3)
+    arr = rng.normal(size=(2, 64, 48, 3)).astype(np.float32)
+    ours, n_h, n_w = _patchify(arr, 16)
+    assert (n_h, n_w) == (4, 3)
+    for b in range(2):
+        np.testing.assert_array_equal(ours[b], convert_image_to_patches(arr[b], 16))
