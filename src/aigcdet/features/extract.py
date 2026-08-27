@@ -29,20 +29,28 @@ from aigcdet.features.proxies import proxy_vector
 
 
 def _sample_recipe_excluding(rng: np.random.Generator, exclude: tuple[str, ...]) -> Recipe:
-    """Rejection-sample a recipe that avoids whole transform families.
+    """Sample a recipe drawn only from the families not in `exclude`.
 
     Used for the leave-one-transform-out run (spec §4.6): the excluded family
     must be entirely absent from training so evaluation on it measures
     generalisation to an unanticipated degradation.
+
+    This restricts the family POOL rather than rejection-sampling whole
+    recipes. Rejection sampling was confounding the one comparison this
+    function exists to enable: an excluded family is likelier to appear in a
+    3-op chain than in a 1-op chain, so rejecting whole recipes discards long
+    ones disproportionately. Measured over 30,000 draws, no exclusion gave a
+    mean of 2.005 ops and `exclude=("noise",)` gave 1.834 -- the LOTO bank
+    trained on ~8.5% lighter augmentation overall, not just one fewer family,
+    violating the project's "identical view coverage across compared rungs"
+    hard constraint.
     """
     if not exclude:
         return sample_training_recipe(rng)
-    for _ in range(200):
-        r = sample_training_recipe(rng)
-        if all(o.name not in exclude for o in r.ops):
-            return r
-    kept = [f for f in FAMILIES if f not in exclude]
-    raise RuntimeError(f"could not sample a recipe avoiding {exclude} from {kept}")
+    kept = tuple(f for f in FAMILIES if f not in exclude)
+    if not kept:
+        raise ValueError(f"excluding {exclude} leaves no transform families to sample")
+    return sample_training_recipe(rng, families=kept)
 
 
 def extract_bank(

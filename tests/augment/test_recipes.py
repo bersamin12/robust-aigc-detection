@@ -79,3 +79,25 @@ def test_sampler_output_applies_cleanly():
     for _ in range(50):
         out = sample_training_recipe(rng).apply(img, rng)
         assert out.shape == img.shape and out.dtype == np.uint8
+
+
+def test_sample_training_recipe_can_be_restricted_to_a_family_subset():
+    """The leave-one-transform-out bank restricts the family POOL rather than
+    rejection-sampling whole recipes (see
+    `aigcdet.features.extract._sample_recipe_excluding`), so this parameter is
+    what keeps the LOTO comparison unconfounded."""
+    rng = np.random.default_rng(0)
+    kept = ("jpeg", "blur")
+    lengths = set()
+    for _ in range(500):
+        r = sample_training_recipe(rng, families=kept)
+        assert all(o.name in kept for o in r.ops)
+        lengths.add(len(r.ops))
+    # max_ops is clamped to the number of available families: with 2 kept
+    # families a 3-op chain of DISTINCT families is impossible.
+    assert lengths == {1, 2}
+
+
+def test_sample_training_recipe_rejects_an_empty_family_pool():
+    with pytest.raises(ValueError, match="families must not be empty"):
+        sample_training_recipe(np.random.default_rng(0), families=())

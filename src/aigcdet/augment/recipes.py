@@ -112,8 +112,23 @@ def _sample_params(name: str, rng: np.random.Generator) -> dict:
     raise KeyError(name)
 
 
-def sample_training_recipe(rng: np.random.Generator, max_ops: int = 3) -> Recipe:
-    """1 to `max_ops` chained ops from distinct families (spec §5)."""
-    k = int(rng.integers(1, max_ops + 1))
-    chosen = rng.choice(np.array(FAMILIES), size=k, replace=False)
+def sample_training_recipe(rng: np.random.Generator, max_ops: int = 3,
+                            families: tuple[str, ...] = FAMILIES) -> Recipe:
+    """1 to `max_ops` chained ops from distinct families (spec §5).
+
+    `families` restricts which families may be drawn, for the
+    leave-one-transform-out bank (spec §4.6). It is applied by sampling the
+    chain length FIRST and then choosing over the kept families -- never by
+    rejection-sampling whole recipes, which biases towards shorter chains
+    (an excluded family is likelier to appear in a 3-op recipe than a 1-op
+    one, so rejection throws away long recipes disproportionately). The
+    project's "identical view coverage across compared rungs" constraint
+    binds exactly the A3-vs-A3-LOTO comparison this exists for: the two banks
+    must differ by one family and nothing else, not by overall augmentation
+    strength.
+    """
+    if not families:
+        raise ValueError("families must not be empty")
+    k = int(rng.integers(1, min(max_ops, len(families)) + 1))
+    chosen = rng.choice(np.array(families), size=k, replace=False)
     return Recipe(tuple(Op(str(n), _sample_params(str(n), rng)) for n in chosen))
