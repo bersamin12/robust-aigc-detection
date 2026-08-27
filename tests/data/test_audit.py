@@ -48,3 +48,42 @@ def test_audit_flags_empty_when_classes_match(tmp_path):
         paths.append(_write(tmp_path / f"f{i}.png", (512, 512), "PNG"))
         labels.append(1); sources.append("b")
     assert audit_flags(audit_table(paths, labels, sources)) == []
+
+
+def test_audit_flags_catch_confound_diluted_by_pooling_across_sources(tmp_path):
+    """A within-class confound that a naive class-pooled comparison misses.
+
+    The real class mixes a ~500px source with a ~2000px source. Their median
+    of medians is 1250, which sits within 1.5x of the fake class's 1024 --
+    close enough that the class-level (pooled) comparison alone reports
+    nothing, even though *each* real source individually differs sharply
+    from the fake class, and the two real sources differ sharply from each
+    other. That per-source and within-class shape is exactly what a
+    classifier could exploit, and exactly what the class-level check cannot
+    see once it has already pooled the class.
+    """
+    paths, labels, sources = [], [], []
+    for i in range(4):
+        paths.append(_write(tmp_path / f"coco{i}.jpg", (500, 375), "JPEG", 85))
+        labels.append(0); sources.append("coco_val2017")
+    for i in range(4):
+        paths.append(_write(tmp_path / f"big{i}.jpg", (2000, 1500), "JPEG", 85))
+        labels.append(0); sources.append("big_real_src")
+    for i in range(8):
+        paths.append(_write(tmp_path / f"sdxl{i}.jpg", (1024, 768), "JPEG", 85))
+        labels.append(1); sources.append("sdxl")
+
+    flags = audit_flags(audit_table(paths, labels, sources))
+
+    # The pooled class-level check stays silent: median([500, 2000]) = 1250
+    # is within 1.5x of the fake class's 1024.
+    assert not any("Resolution confound: median width" in f for f in flags)
+
+    # Per-source vs. the opposite class, pooled: each real source alone is
+    # more than 1.5x off from the fake class's 1024.
+    assert any("coco_val2017" in f and "resolution" in f.lower() for f in flags)
+    assert any("big_real_src" in f and "resolution" in f.lower() for f in flags)
+
+    # Within-class heterogeneity: the two real sources are more than 1.5x
+    # apart from each other, invisible to any comparison that pools first.
+    assert any("coco_val2017" in f and "big_real_src" in f for f in flags)
