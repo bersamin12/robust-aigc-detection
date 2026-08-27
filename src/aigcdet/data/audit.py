@@ -15,6 +15,7 @@ from itertools import combinations
 import numpy as np
 import pandas as pd
 from PIL import Image
+from tqdm import tqdm
 
 from aigcdet.features.proxies import estimate_jpeg_quality
 
@@ -29,7 +30,11 @@ def audit_table(paths: list[str], labels: list[int], sources: list[str]) -> pd.D
     """One row per (source, label): n, dominant format, median width/height,
     median estimated JPEG quality."""
     rows = []
-    for p, lab, src in zip(paths, labels, sources):
+    # ~20 minutes at 100k images, entirely serial. `disable=None` shows the
+    # bar on a TTY and stays silent in tests and logs, so an operator can
+    # tell this apart from a hang without a progress bar in the test output.
+    for p, lab, src in tqdm(zip(paths, labels, sources), total=len(paths),
+                            desc="audit", unit="img", disable=None):
         with Image.open(p) as im:
             fmt, (w, h) = im.format, im.size
             q = estimate_jpeg_quality(np.asarray(im.convert("RGB")), p)

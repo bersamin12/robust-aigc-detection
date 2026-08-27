@@ -38,6 +38,26 @@ def test_eval_grid_is_the_union_of_twenty_conditions():
     assert set(EVAL_GRID) == set(CORE_CONDITIONS) | set(COMPOSITE_SCENARIOS)
 
 
+def test_eval_grid_keys_and_their_order_are_the_frozen_contract():
+    """EVAL_GRID's INSERTION ORDER is load-bearing: Plan 3's extract_eval_bank
+    raises unless the first key is "clean" (every other condition is scored
+    relative to it). Nothing pinned that, nor the exact key spellings that
+    downstream tables index by -- note `noise_s0.1`, which is what
+    f"noise_s{0.10}" produces, not `noise_s0.10`.
+    """
+    assert list(EVAL_GRID)[0] == "clean"
+    assert list(EVAL_GRID) == [
+        "clean",
+        "jpeg_q90", "jpeg_q70", "jpeg_q50", "jpeg_q30",
+        "blur_s0.5", "blur_s1.0", "blur_s2.0",
+        "resize_0.5", "resize_0.25",
+        "noise_s0.02", "noise_s0.05", "noise_s0.1",
+        "jitter_20", "crop_80",
+        "social_repost", "messaging_app", "screenshot", "filtered_upload",
+        "low_light_share",
+    ]
+
+
 def test_heldout_severity_conditions_are_flagged():
     # q=70 and sigma=1.0 sit inside the bands the training sampler excludes
     assert "jpeg_q70" in HELDOUT_SEVERITY_CONDITIONS
