@@ -43,6 +43,19 @@ def test_threshold_at_fpr_actually_holds_that_fpr(separable):
     assert realised <= 0.02
 
 
+def test_accuracy_at_threshold_matches_hand_computed_value():
+    # thr=0.5; predictions = (s >= thr) = [0, 1, 0, 1, 1, 1].
+    # Matches y=[0,0,1,1,0,1] at indices 0, 3, 5 -> 3/6 correct, a genuine mix
+    # of hits and misses (not perfect separation). Verified: a flipped `>`
+    # instead of `>=` mis-scores the boundary element (s[4] == thr) and gives
+    # 4/6 instead; swapping y and the thresholded predictions inside the
+    # function gives 0/6, since y is already 0/1 and s is not. Both wrong
+    # implementations diverge from the correct 0.5 computed here.
+    y = np.array([0, 0, 1, 1, 0, 1])
+    s = np.array([0.1, 0.6, 0.3, 0.9, 0.5, 0.7])
+    assert M.accuracy_at_threshold(y, s, 0.5) == pytest.approx(0.5)
+
+
 def test_ece_is_zero_for_perfectly_calibrated_predictions():
     rng = np.random.default_rng(3)
     p = rng.uniform(0.05, 0.95, 20000)
