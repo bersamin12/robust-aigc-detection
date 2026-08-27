@@ -80,9 +80,15 @@ def test_audit_flags_catch_confound_diluted_by_pooling_across_sources(tmp_path):
     assert not any("Resolution confound: median width" in f for f in flags)
 
     # Per-source vs. the opposite class, pooled: each real source alone is
-    # more than 1.5x off from the fake class's 1024.
-    assert any("coco_val2017" in f and "resolution" in f.lower() for f in flags)
-    assert any("big_real_src" in f and "resolution" in f.lower() for f in flags)
+    # more than 1.5x off from the fake class's 1024. Assert the comparison
+    # target itself (1024, the fake class's pooled width), not merely that
+    # a flag mentioning the source exists -- a comparison against the
+    # source's own class would also produce a flag mentioning the source,
+    # but it would not name 1024.
+    assert any("coco_val2017" in f and "resolution" in f.lower() and "1024" in f
+               for f in flags)
+    assert any("big_real_src" in f and "resolution" in f.lower() and "1024" in f
+               for f in flags)
 
     # Within-class heterogeneity: the two real sources are more than 1.5x
     # apart from each other, invisible to any comparison that pools first.
