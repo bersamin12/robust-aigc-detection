@@ -5,8 +5,8 @@ import pandas as pd
 import pytest
 
 from aigcdet.data.manifest import (
-    MANIFEST_COLUMNS, make_dummy_manifest, read_manifest, validate_manifest,
-    write_manifest,
+    DUMMY_GENERATORS, MANIFEST_COLUMNS, make_dummy_manifest, read_manifest,
+    validate_manifest, write_manifest,
 )
 
 
@@ -149,3 +149,32 @@ def test_dummy_manifest_paths_are_absolute(tmp_path, monkeypatch):
         # Verify the absolute path is within tmp_path
         assert str(path).startswith(str(tmp_path)), \
             f"Path {path} is not within tmp_path {tmp_path}"
+
+
+def test_dummy_manifest_exercises_all_three_splits_and_several_generators(tmp_path):
+    """The fixture exists so Plans 2 and 3 can be built without real data.
+    All 500 rows being split="train" with one generator meant a bank built
+    from it raised "bank has no val_internal rows", and
+    choose_heldout_generators had nothing to choose between.
+    """
+    df = make_dummy_manifest(200, str(tmp_path / "img"), np.random.default_rng(0))
+
+    assert set(df["split"]) == {"train", "val_internal", "heldout_generator"}
+    fake_gens = set(df[df["label"] == 1]["generator"])
+    assert len(fake_gens) >= 3 and fake_gens <= set(DUMMY_GENERATORS)
+    assert set(df[df["label"] == 0]["generator"]) == {""}
+
+    # The held-out generator is genuinely held out, exactly as a real
+    # manifest's would be.
+    held = set(df[df["split"] == "heldout_generator"]["generator"])
+    assert len(held) == 1
+    assert not held & set(df[df["split"] != "heldout_generator"]["generator"])
+
+    validate_manifest(df)
+
+
+def test_dummy_manifest_split_assignment_is_deterministic_under_its_rng(tmp_path):
+    a = make_dummy_manifest(60, str(tmp_path / "a"), np.random.default_rng(3))
+    b = make_dummy_manifest(60, str(tmp_path / "b"), np.random.default_rng(3))
+    assert a["split"].tolist() == b["split"].tolist()
+    assert a["generator"].tolist() == b["generator"].tolist()
