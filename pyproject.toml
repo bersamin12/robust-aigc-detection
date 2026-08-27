@@ -10,6 +10,12 @@ requires-python = ">=3.11"
 dependencies = [
     "numpy>=1.26", "pillow>=10", "scipy>=1.11", "opencv-python-headless>=4.9",
     "pandas>=2.1", "pyarrow>=14", "scikit-learn>=1.4", "tqdm>=4.66", "pyyaml>=6",
+    # torch and transformers are imported from src/ (models, train, features),
+    # so a clean `pip install -e .` without them yields an unimportable
+    # package. Lower bounds only, deliberately loose: the project environment
+    # already carries torch 2.10 / transformers 5.3 and these must not fight
+    # it. transformers>=4.53 is the floor that has DINOv3 and SigLIP2.
+    "torch>=2.0", "transformers>=4.53",
 ]
 
 [project.optional-dependencies]

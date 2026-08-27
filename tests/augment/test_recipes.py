@@ -101,3 +101,17 @@ def test_sample_training_recipe_can_be_restricted_to_a_family_subset():
 def test_sample_training_recipe_rejects_an_empty_family_pool():
     with pytest.raises(ValueError, match="families must not be empty"):
         sample_training_recipe(np.random.default_rng(0), families=())
+
+
+def test_n_families_has_one_source_of_truth():
+    """`heads.py` hardcoded 6 while `bank.py` used len(FAMILIES). Adding a
+    seventh transform family would have produced a shape mismatch between the
+    bank's presence/severity arrays and the degradation head's outputs at
+    training time rather than at edit time."""
+    from aigcdet.augment.recipes import N_FAMILIES
+    from aigcdet.features import bank as bank_mod
+    from aigcdet.models import heads as heads_mod
+
+    assert N_FAMILIES == len(FAMILIES)
+    assert bank_mod.N_FAMILIES is N_FAMILIES
+    assert heads_mod.N_FAMILIES is N_FAMILIES

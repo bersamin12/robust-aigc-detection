@@ -14,6 +14,13 @@ from aigcdet.augment.ops import OP_FUNCS
 
 FAMILIES: tuple[str, ...] = ("jpeg", "blur", "resize", "noise", "jitter", "crop")
 
+#: Width of every per-family vector in the project: the bank's presence and
+#: severity arrays, and the degradation head's two output layers. Defined here,
+#: beside FAMILIES, so those two never drift apart -- heads.py used to hardcode
+#: 6 while bank.py used len(FAMILIES), and adding a seventh family would have
+#: produced a shape mismatch at training time rather than at edit time.
+N_FAMILIES: int = len(FAMILIES)
+
 # Held-out severity bands (spec §4.6): the eval grid's q=70 and sigma=1.0
 # conditions must be unseen severities at evaluation time, so the training
 # sampler must never draw parameters inside these bands.

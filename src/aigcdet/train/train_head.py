@@ -50,20 +50,38 @@ class RungConfig:
     manifest_path: str | None = None
 
 
-def _eval_auc(model, bank, idx, use_recon, device) -> float:
+def _eval_auc(model, bank, idx, use_recon, device, view: int = 0) -> float:
+    """ROC-AUC over `idx` for ONE cached view. `view=0` is the clean view."""
     model.eval()
-    f = torch.from_numpy(np.asarray(bank.feats[idx, 0]).astype(np.float32)).to(device)
+    f = torch.from_numpy(np.asarray(bank.feats[idx, view]).astype(np.float32)).to(device)
     r = None
     if use_recon:
         if bank.recon is None:
             raise ValueError(
                 "bank has no recon features; run attach_recon before evaluating "
                 "a use_recon=True rung (see PairedSampler for the same check)")
-        r = torch.from_numpy(np.asarray(bank.recon[idx, 0]).astype(np.float32)).to(device)
+        r = torch.from_numpy(
+            np.asarray(bank.recon[idx, view]).astype(np.float32)).to(device)
     with torch.no_grad():
         s = model(f, r)["logit"].cpu().numpy()
     model.train()
     return roc_auc(bank.meta["label"].to_numpy()[idx], s)
+
+
+def _eval_aucs(model, bank, idx, use_recon, device) -> dict[str, float]:
+    """Both headline numbers for a rung.
+
+    `val_auc` is the clean-view AUC (view 0). It is kept because Plan 3 and
+    this plan's completion criterion both reference it -- but on its own it
+    measures the ONE condition where robustness training helps least, so A0
+    (clean views only) may well win it while being the weakest rung under
+    degradation. `val_auc_mean_views` averages the AUC over every cached view,
+    clean and augmented alike, which is the ladder's actual thesis.
+    """
+    per_view = [_eval_auc(model, bank, idx, use_recon, device, view=v)
+                for v in range(bank.config["n_views"])]
+    return {"val_auc": per_view[0],
+            "val_auc_mean_views": float(np.mean(per_view))}
 
 
 def train_rung(cfg: RungConfig) -> dict:
@@ -140,7 +158,7 @@ def train_rung(cfg: RungConfig) -> dict:
             opt.step()
         history.append(parts)
 
-    val_auc = _eval_auc(model, bank, val_idx, cfg.use_recon, cfg.device)
+    aucs = _eval_aucs(model, bank, val_idx, cfg.use_recon, cfg.device)
     out_dir = os.path.join(cfg.out_dir, cfg.name)
     os.makedirs(out_dir, exist_ok=True)
     ckpt = os.path.join(out_dir, "checkpoint.pt")
@@ -148,13 +166,22 @@ def train_rung(cfg: RungConfig) -> dict:
                 "config": asdict(cfg),
                 "dim_feat": bank.config["dim"],
                 "backbone": bank.config["backbone"]}, ckpt)
+    result = {**aucs, "history": history}
     with open(os.path.join(out_dir, "result.json"), "w") as f:
-        json.dump({"val_auc": val_auc, "history": history}, f, indent=2)
-    return {"checkpoint": ckpt, "val_auc": val_auc, "history": history}
+        json.dump(result, f, indent=2)
+    return {"checkpoint": ckpt, **result}
 
 
 def load_detector(checkpoint_path: str, device: str = "cpu") -> tuple[Detector, dict]:
-    ck = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    """Rebuild a trained Detector from its checkpoint.
+
+    `weights_only=True` is deliberate and must stay: Plan 4 ships a checkpoint
+    the public downloads, and the permissive loader executes arbitrary pickle
+    opcodes. Everything train_rung saves -- tensors, `asdict(cfg)` (plain
+    dicts/str/int/float/bool after the nested LossWeights is flattened), and
+    two scalars -- is inside the safe allowlist.
+    """
+    ck = torch.load(checkpoint_path, map_location=device, weights_only=True)
     cfg = ck["config"]
     model = Detector(dim_feat=ck["dim_feat"], use_recon=cfg["use_recon"],
                      use_film=cfg["use_film"]).to(device)

@@ -114,3 +114,67 @@ def test_a7_shaped_run_with_film_trains_and_produces_a_plausible_auc(tmp_path):
     assert model.use_film is True
     assert model.classifier.use_film is True
     assert meta["config"]["use_film"] is True
+
+
+# --- M1: the clean-view AUC is not the only number a rung reports ----------
+
+def _bank_clean_separable_only(tmp_path, n=120, dim=4):
+    """View 0 separates the classes cleanly; every augmented view is the same
+    constant for both classes, so it carries no signal at all. A mean-over-
+    views AUC must therefore land near (1.0 + 10*0.5)/11, far below the clean
+    number -- which is exactly the blind spot the clean-only metric has."""
+    w = BankWriter(str(tmp_path / "bc"), n, N_VIEWS, dim, "t", 0)
+    for i in range(n):
+        label = i % 2
+        feats = np.zeros((N_VIEWS, dim), np.float32)
+        feats[0] = 3.0 if label else -3.0
+        pres = np.zeros((N_VIEWS, 6), np.float32); pres[1:, 0] = 1.0
+        sev = np.zeros((N_VIEWS, 6), np.float32); sev[1:, 0] = 0.6
+        w.write_image(i, {"path": f"/p{i}", "label": label, "generator": f"g{i % 2}",
+                          "source": "s", "split": "train" if i < 100 else "val_internal"},
+                      feats=feats, presence=pres, severity=sev,
+                      proxies=np.zeros((N_VIEWS, 3), np.float32),
+                      recipes=["[]"] * N_VIEWS)
+    w.close()
+    return str(tmp_path / "bc")
+
+
+def test_result_reports_both_the_clean_and_the_mean_over_views_auc(tmp_path):
+    import json
+
+    cfg = RungConfig(name="a0", bank_dir=_learnable_bank(tmp_path), epochs=10,
+                     use_augmented=False, out_dir=str(tmp_path / "out_m1"))
+    res = train_rung(cfg)
+
+    assert 0.0 <= res["val_auc"] <= 1.0
+    assert 0.0 <= res["val_auc_mean_views"] <= 1.0
+    with open(tmp_path / "out_m1" / "a0" / "result.json") as f:
+        saved = json.load(f)
+    assert saved["val_auc"] == res["val_auc"]
+    assert saved["val_auc_mean_views"] == res["val_auc_mean_views"]
+
+
+def test_mean_over_views_auc_is_not_the_clean_auc_under_another_name(tmp_path):
+    """A0 wins the clean-view number on this bank while being useless on every
+    augmented view. If val_auc_mean_views were a copy of val_auc, or read view
+    0 for every view, this would not separate them."""
+    cfg = RungConfig(name="a0", bank_dir=_bank_clean_separable_only(tmp_path),
+                     epochs=10, use_augmented=False,
+                     out_dir=str(tmp_path / "out_m1b"))
+    res = train_rung(cfg)
+
+    assert res["val_auc"] > 0.95
+    # (1.0 + 10 * 0.5) / 11 == 0.5454...
+    assert abs(res["val_auc_mean_views"] - (res["val_auc"] + 10 * 0.5) / 11) < 0.02
+    assert res["val_auc_mean_views"] < 0.6
+
+
+def test_checkpoint_loads_under_the_strict_weights_only_loader(tmp_path):
+    """load_detector uses weights_only=True, and Plan 4 ships a checkpoint the
+    public downloads. Nothing train_rung saves may drift outside the safe
+    allowlist."""
+    cfg = RungConfig(name="a1", bank_dir=_learnable_bank(tmp_path), epochs=2,
+                     use_augmented=True, out_dir=str(tmp_path / "out_l1"))
+    res = train_rung(cfg)
+    ck = torch.load(res["checkpoint"], map_location="cpu", weights_only=True)
+    assert set(ck) == {"state_dict", "config", "dim_feat", "backbone"}
