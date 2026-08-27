@@ -14,6 +14,13 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# Only needed by aigcdet.features.recon's reconstruction branch (spec §3.3):
+# the SD 1.5 VAE (via diffusers) and LPIPS. Neither is installed in this
+# project's dev/test environment and neither should be -- see
+# project-constraints.md's no-GPU/no-download limits. recon.py imports both
+# lazily, inside load_recon_models, so the package stays importable and
+# testable (with a stub standing in for the real models) without them.
+recon = ["diffusers>=0.30", "lpips>=0.1.4"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
