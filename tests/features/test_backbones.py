@@ -30,9 +30,23 @@ def test_registry_has_the_three_planned_backbones():
         assert spec.num_prefix_tokens >= 1 or spec.name == "siglip2l"  # at least a CLS token to strip, except SigLIP2 which has none
 
 
-def test_total_parameter_budget_is_documented_under_2b():
-    # Sum of the two backbones we ship plus the auxiliary models (spec constraint).
+def test_two_shipped_backbones_stay_under_1b_working_ceiling():
+    # A tighter working budget for the two backbones this project trains against
+    # day to day (dinov3l + siglip2l). clipl is a third registry entry not summed
+    # here -- see test_full_registry_stays_under_the_2b_hackathon_hard_limit for
+    # the constraint that actually gates the hackathon submission.
     assert BACKBONES["dinov3l"].params + BACKBONES["siglip2l"].params < 1_000_000_000
+
+
+def test_full_registry_stays_under_the_2b_hackathon_hard_limit():
+    # The hackathon's real, hard constraint (project-constraints.md): every model
+    # load_backbone can load, summed, must stay under 2B parameters total. This
+    # sums every BACKBONES entry -- including clipl, which the tighter working
+    # ceiling above does not cover -- and leaves documented margin for the
+    # auxiliary models Task 4 adds (SD 1.5 VAE ~84M params, LPIPS AlexNet ~2.5M
+    # params; neither is registered in BACKBONES).
+    total = sum(spec.params for spec in BACKBONES.values())
+    assert total < 2_000_000_000
 
 
 def test_backbone_params_are_positive_and_real_looking():
@@ -56,6 +70,36 @@ def test_squish_preserves_pixel_content():
     out = squish(img, 64)
     assert out.std() > 0
     assert not np.array_equal(out, np.zeros_like(out))
+
+
+def test_squish_distorts_aspect_ratio_by_known_factor():
+    # squish must stretch x and y independently, not letterbox/pad-and-resize.
+    # A resize that preserved content aspect ratio would pass
+    # test_squish_ignores_aspect_ratio (it only checks output shape) while
+    # quietly changing what every backbone sees -- random resized cropping and
+    # aspect-preserving resizes were both rejected for this project because
+    # they can destroy the localised forensic cues detection depends on. Pin
+    # the distortion itself: a square marker must come out as a rectangle whose
+    # dimensions match squish's independent x/y scale factors.
+    h, w, size = 100, 300, 384
+    img = np.zeros((h, w, 3), dtype=np.uint8)
+    img[10:20, 10:20] = 255  # a 10x10 white square, aspect ratio 1:1
+
+    out = squish(img, size)
+
+    mask = out[..., 0] > 128
+    rows = np.where(mask.any(axis=1))[0]
+    cols = np.where(mask.any(axis=0))[0]
+    out_height = int(rows.max() - rows.min() + 1)
+    out_width = int(cols.max() - cols.min() + 1)
+
+    expected_height = round(10 * size / h)  # independent y scale: 384/100 -> ~38
+    expected_width = round(10 * size / w)   # independent x scale: 384/300 -> ~13
+    assert abs(out_height - expected_height) <= 3
+    assert abs(out_width - expected_width) <= 3
+    # The square must become a visibly non-square rectangle: a letterboxed or
+    # otherwise aspect-preserving resize would keep it square here.
+    assert out_height != out_width
 
 
 @pytest.mark.gpu
