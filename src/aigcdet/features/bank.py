@@ -160,7 +160,7 @@ class BankWriter:
         """Write atomically: a kill mid-write must leave the last good
         checkpoint, not a truncated parquet file."""
         df = pd.DataFrame(rows)
-        if sort_by is not None:
+        if sort_by is not None and not df.empty:
             df = df.sort_values(sort_by)
         final = os.path.join(self.path, name)
         tmp = final + ".tmp"
