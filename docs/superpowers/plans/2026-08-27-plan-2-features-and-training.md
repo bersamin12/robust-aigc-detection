@@ -645,7 +645,7 @@ def extract_bank(
 """Stage A CLI.
 
     python scripts/extract_features.py --manifest data/manifest.parquet \
-        --backbone dinov3l --out banks/dinov3l --split train
+        --backbone dinov3l --out banks/dinov3l --split train,val_internal
     # leave-one-transform-out bank for the A3-LOTO run:
     python scripts/extract_features.py --manifest data/manifest.parquet \
         --backbone dinov3l --out banks/dinov3l_loto --exclude noise
