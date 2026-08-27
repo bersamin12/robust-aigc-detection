@@ -79,6 +79,9 @@ def main() -> None:
 
         bank = FeatureBank.open(a.out)
         attach_recon_to_bank(bank, df, device=a.device)
+        # Post-condition on a multi-hour job: recon.npy must cover every view
+        # of every row, or A3-vs-A4 compares different augmentation budgets.
+        bank.check_invariants()
         return
 
     if not a.backbone:

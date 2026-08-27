@@ -189,3 +189,70 @@ def test_excluding_every_family_fails_loudly():
 
     with pytest.raises(ValueError, match="no transform families"):
         _sample_recipe_excluding(np.random.default_rng(0), tuple(FAMILIES))
+
+
+# --- H1/M3/L5: what extract_bank records about its own inputs and output ---
+
+def test_extract_bank_stores_the_manifest_row_id_not_its_write_position(tmp_path, monkeypatch):
+    """The replay key (seed, row_id, view_idx) must live in the bank. Before
+    it did, `attach_recon_to_bank` had to recover it from a manifest the
+    caller passed in, which nothing verified."""
+    from aigcdet.features import extract
+    from aigcdet.features.backbones import BackboneSpec
+
+    spec = BackboneSpec("fake", "none", 64, 4, 1, 0)
+    monkeypatch.setattr(extract, "load_backbone", lambda n, device: (None, spec))
+    monkeypatch.setattr(extract, "embed",
+                        lambda m, s, imgs, device, batch_size=16:
+                            np.zeros((len(imgs), s.dim), np.float32))
+
+    df = make_dummy_manifest(6, str(tmp_path / "img_rid"), np.random.default_rng(0))
+    shard = df.iloc[3:6]                       # index labels 3, 4, 5
+    out = extract.extract_bank(shard, "fake", str(tmp_path / "bank_rid"),
+                                seed=11, device="cpu")
+    b = FeatureBank.open(out)
+    np.testing.assert_array_equal(b.row_ids, [3, 4, 5])
+    assert b.meta["image_idx"].tolist() == [0, 1, 2]
+
+
+def test_extract_bank_records_the_manifest_fingerprint(tmp_path, monkeypatch):
+    from aigcdet.features import extract
+    from aigcdet.features.backbones import BackboneSpec
+    from aigcdet.features.bank import manifest_fingerprint
+
+    spec = BackboneSpec("fake", "none", 64, 4, 1, 0)
+    monkeypatch.setattr(extract, "load_backbone", lambda n, device: (None, spec))
+    monkeypatch.setattr(extract, "embed",
+                        lambda m, s, imgs, device, batch_size=16:
+                            np.zeros((len(imgs), s.dim), np.float32))
+
+    df = make_dummy_manifest(5, str(tmp_path / "img_fp"), np.random.default_rng(0))
+    out = extract.extract_bank(df, "fake", str(tmp_path / "bank_fp"), seed=1,
+                                device="cpu")
+    b = FeatureBank.open(out)
+    assert b.config["manifest_sha256"] == manifest_fingerprint(df)
+    b.verify_against_manifest(df)
+    with pytest.raises(ValueError, match="not the manifest the bank was built from"):
+        b.verify_against_manifest(df.assign(path=df["path"] + ".bak"))
+
+
+def test_extract_bank_checks_the_invariants_of_what_it_just_wrote(tmp_path, monkeypatch):
+    """The cheapest possible post-condition on a job that runs for hours."""
+    from aigcdet.features import extract
+    from aigcdet.features.backbones import BackboneSpec
+
+    spec = BackboneSpec("fake", "none", 64, 4, 1, 0)
+    monkeypatch.setattr(extract, "load_backbone", lambda n, device: (None, spec))
+    monkeypatch.setattr(extract, "embed",
+                        lambda m, s, imgs, device, batch_size=16:
+                            np.zeros((len(imgs), s.dim), np.float32))
+
+    calls: list[str] = []
+    real_check = FeatureBank.check_invariants
+    monkeypatch.setattr(FeatureBank, "check_invariants",
+                        lambda self: (calls.append(self.path), real_check(self)))
+
+    df = make_dummy_manifest(3, str(tmp_path / "img_inv"), np.random.default_rng(0))
+    out = extract.extract_bank(df, "fake", str(tmp_path / "bank_inv"), seed=1,
+                                device="cpu")
+    assert calls == [out]

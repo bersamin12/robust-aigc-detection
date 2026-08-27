@@ -1,8 +1,9 @@
 """On-disk feature bank: contract #2 from spec §7.1.
 
 Layout:
-    bank/config.json     backbone, dim, n_views, n_images, seed
-    bank/meta.parquet    N rows, image-level: path,label,generator,source,split
+    bank/config.json     backbone, dim, n_views, n_images, seed, manifest_sha256
+    bank/meta.parquet    N rows, image-level:
+                         image_idx,row_id,path,label,generator,source,split
     bank/views.parquet   N*V rows: image_idx,view_idx,recipe_json
     bank/feats.npy       (N, V, D) float16   -- the ViT embedding
     bank/presence.npy    (N, V, 6) float32   -- degradation-head targets
@@ -20,9 +21,24 @@ from. `config.json` records backbone, seed, view count and row count, and
 positions the arrays use, so `FeatureBank.verify_against_manifest` can catch
 a bank built against a different (e.g. re-split) manifest with one call,
 rather than requiring every caller to remember to check.
+
+`row_id` is the row's index label in the FROZEN manifest, and it is stored
+because it is load-bearing, not merely informative: `extract_bank` derives
+every view's RNG from `(seed, row_id, view_idx)`, so it is the only key that
+can replay a cached view's exact pixels. Before it was stored,
+`recon.attach_recon_to_bank` had to recover it from the index of a manifest
+the caller passed in -- making that caller's index an unverifiable,
+silently-corrupting input (a `reset_index()`ed frame passed
+`verify_against_manifest` and replayed every noise view wrongly).
+
+`config.json` records `manifest_sha256`, a fingerprint of the manifest's
+`path` column, so a bank carries an identity link back to the manifest it was
+built from instead of relying on a human to hand `verify_against_manifest`
+the right file.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 
@@ -36,9 +52,23 @@ N_FAMILIES = len(FAMILIES)   # presence/severity are per degradation family
 RECON_DIM = 12
 
 
+def manifest_fingerprint(manifest_df: pd.DataFrame) -> str:
+    """sha256 over the manifest's `path` column, in row order.
+
+    The bank is aligned to the manifest positionally, so the ordered path list
+    IS the bank's notion of "which manifest, which rows, in which order". A
+    re-split, a re-filter or a re-ordering all change it.
+    """
+    h = hashlib.sha256()
+    for path in manifest_df["path"]:
+        h.update(str(path).encode("utf-8"))
+        h.update(b"\n")
+    return h.hexdigest()
+
+
 class BankWriter:
     def __init__(self, out_dir: str, n_images: int, n_views: int, dim: int,
-                 backbone: str, seed: int):
+                 backbone: str, seed: int, manifest_sha256: str | None = None):
         os.makedirs(out_dir, exist_ok=True)
         self.path = out_dir
         self.n_views = n_views
@@ -57,16 +87,25 @@ class BankWriter:
         self._meta: list[dict] = []
         self._views: list[dict] = []
         self._config = {"backbone": backbone, "dim": dim,
-                         "n_views": n_views, "n_images": n_images, "seed": seed}
+                         "n_views": n_views, "n_images": n_images, "seed": seed,
+                         "manifest_sha256": manifest_sha256}
 
     def write_image(self, idx: int, meta_row: dict, feats: np.ndarray,
                      presence: np.ndarray, severity: np.ndarray,
-                     proxies: np.ndarray, recipes: list[str]) -> None:
+                     proxies: np.ndarray, recipes: list[str],
+                     row_id: int | None = None) -> None:
+        """Write one image's views. `row_id` is its index label in the frozen
+        manifest -- the RNG key every view's pixels are reproducible from. It
+        defaults to `idx`, which is correct only for a bank built from a
+        manifest with a contiguous 0..n-1 index; `extract_bank` always passes
+        the real label."""
         self.feats[idx] = feats.astype(np.float16)
         self.presence[idx] = presence
         self.severity[idx] = severity
         self.proxies[idx] = proxies
-        self._meta.append({"image_idx": idx, **meta_row})
+        self._meta.append({"image_idx": idx,
+                            "row_id": idx if row_id is None else int(row_id),
+                            **meta_row})
         for v, rj in enumerate(recipes):
             self._views.append({"image_idx": idx, "view_idx": v, "recipe_json": rj})
 
@@ -96,16 +135,42 @@ class FeatureBank:
         self.proxies = np.load(os.path.join(path, "proxies.npy"), mmap_mode="r")
         rp = os.path.join(path, "recon.npy")
         self.recon = np.load(rp, mmap_mode="r") if os.path.exists(rp) else None
-        self._recipe_lookup = {
-            (int(r.image_idx), int(r.view_idx)): r.recipe_json
-            for r in self._views.itertuples()
-        }
+        self._recipe_lookup: dict[tuple[int, int], str] | None = None
 
     @classmethod
     def open(cls, path: str) -> "FeatureBank":
         return cls(path)
 
+    @property
+    def row_ids(self) -> np.ndarray:
+        """Each row's index label in the frozen manifest, in bank row order.
+
+        This is the RNG key component every view's pixels were derived from
+        (`extract_bank`), so replaying a cached view must read it from HERE and
+        never from a manifest the caller happens to pass in.
+        """
+        if "row_id" not in self.meta.columns:
+            raise ValueError(
+                f"bank at {self.path} has no row_id column in meta.parquet; it "
+                "predates row_id being stored and its views cannot be replayed "
+                "reliably. Re-extract it.")
+        return self.meta["row_id"].to_numpy()
+
     def recipe_json(self, image_idx: int, view_idx: int) -> str:
+        """The recipe JSON for one view.
+
+        The (image_idx, view_idx) -> json dict is built on FIRST use, not in
+        `__init__`: at 100k images x 11 views it is a 1.1M-entry dict costing
+        ~10 s and several hundred MB, and `train_rung` -- which opens the bank
+        for every rung -- only ever needs `recipe_json(i, 0)` via
+        `check_invariants`. Callers that never ask for a recipe now pay
+        nothing.
+        """
+        if self._recipe_lookup is None:
+            self._recipe_lookup = {
+                (int(r.image_idx), int(r.view_idx)): r.recipe_json
+                for r in self._views.itertuples()
+            }
         return self._recipe_lookup[(image_idx, view_idx)]
 
     def attach_recon(self, arr: np.ndarray) -> None:
@@ -123,7 +188,22 @@ class FeatureBank:
         features (spec's "manifest is frozen once written" constraint) and
         produces a slightly worse number nobody can explain. This makes that
         failure loud instead of requiring a caller to think to check it.
+
+        When the bank recorded a `manifest_sha256`, that fingerprint is checked
+        first: it fails fast, and it names the mismatch as an identity problem
+        ("this is not the manifest this bank was built from") rather than as a
+        single misaligned row.
         """
+        recorded = self.config.get("manifest_sha256")
+        if recorded is not None:
+            actual = manifest_fingerprint(manifest_df)
+            if actual != recorded:
+                raise ValueError(
+                    "this is not the manifest the bank was built from: bank "
+                    f"config.json records manifest_sha256={recorded[:16]}..., "
+                    f"the supplied manifest fingerprints to {actual[:16]}... "
+                    "(the fingerprint covers the path column, in row order, so "
+                    "a re-split, re-filter or re-order all change it)")
         if len(manifest_df) != len(self.meta):
             raise ValueError(
                 f"manifest has {len(manifest_df)} rows but bank has "
@@ -139,6 +219,16 @@ class FeatureBank:
                     f"{m_path!r} != bank path {b_path!r}")
 
     def check_invariants(self) -> None:
+        # row_id keys every view's RNG, so a duplicate would mean two images
+        # sharing one replay key -- the same class of defect extract_bank's
+        # duplicated-index guard exists to prevent, checked again on the
+        # written artefact.
+        ids = self.row_ids
+        if len(np.unique(ids)) != len(ids):
+            raise ValueError(
+                "meta.parquet has duplicate row_id values; each row's views are "
+                "keyed on (seed, row_id, view_idx), so duplicates make two "
+                "images replay to the same pixels")
         if float(np.asarray(self.presence)[:, 0, :].sum()) != 0.0:
             raise ValueError("view 0 must be the undegraded view, but it has "
                               "non-zero degradation presence")

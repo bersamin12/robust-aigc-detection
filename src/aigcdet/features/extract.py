@@ -24,7 +24,12 @@ from tqdm import tqdm
 
 from aigcdet.augment.recipes import FAMILIES, Recipe, sample_training_recipe
 from aigcdet.features.backbones import embed, load_backbone
-from aigcdet.features.bank import N_VIEWS, BankWriter
+from aigcdet.features.bank import (
+    N_VIEWS,
+    BankWriter,
+    FeatureBank,
+    manifest_fingerprint,
+)
 from aigcdet.features.proxies import proxy_vector
 
 
@@ -91,7 +96,8 @@ def extract_bank(
             "against other shards) -- otherwise deduplicate the index first.")
 
     model, spec = load_backbone(backbone_name, device=device)
-    writer = BankWriter(out_dir, len(df), n_views, spec.dim, backbone_name, seed)
+    writer = BankWriter(out_dir, len(df), n_views, spec.dim, backbone_name, seed,
+                        manifest_sha256=manifest_fingerprint(df))
 
     rows = enumerate(tqdm(df.iterrows(), total=len(df), desc=f"extract:{backbone_name}"))
     for write_idx, (row_id, row) in rows:
@@ -146,6 +152,7 @@ def extract_bank(
             {"path": row["path"], "label": int(row["label"]),
              "generator": row["generator"], "source": row["source"],
              "split": row["split"]},
+            row_id=rid,
             feats=feats,
             presence=np.stack([l["presence"] for l in labels]),
             severity=np.stack([l["severity"] for l in labels]),
@@ -153,4 +160,10 @@ def extract_bank(
             recipes=[r.to_json() for r in recipes],
         )
     writer.close()
+    # The cheapest possible post-condition on a job that just ran for hours:
+    # re-open what was written and check the bank's own invariants (view 0
+    # clean in both presence and recipe encodings, row_ids unique). A bank
+    # that violates them is unusable downstream, and finding that out here
+    # costs seconds instead of a second extraction.
+    FeatureBank.open(out_dir).check_invariants()
     return out_dir
