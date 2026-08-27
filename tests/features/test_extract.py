@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import pytest
 
 from aigcdet.data.manifest import make_dummy_manifest
@@ -97,3 +98,31 @@ def test_extraction_is_reproducible_for_a_fixed_seed(tmp_path, monkeypatch):
     a = FeatureBank.open(extract.extract_bank(df, "fake", str(tmp_path / "b1"), seed=5, device="cpu"))
     c = FeatureBank.open(extract.extract_bank(df, "fake", str(tmp_path / "b2"), seed=5, device="cpu"))
     np.testing.assert_allclose(np.asarray(a.feats), np.asarray(c.feats))
+
+
+def test_extract_bank_rejects_a_manifest_with_a_duplicated_index(tmp_path, monkeypatch):
+    """extract_bank keys each image's RNG on its manifest index label
+    (test_extraction_is_shard_independent_... above is why). If two rows
+    share a label -- e.g. pd.concat of two manifest pieces that each kept
+    their own default RangeIndex -- those two different images would
+    silently draw identical views instead of failing loudly, so this must
+    be a checked precondition, not an assumed one.
+    """
+    from aigcdet.features import extract
+    from aigcdet.features.backbones import BackboneSpec
+
+    spec = BackboneSpec("fake", "none", 64, 4, 1, 0)
+    # Defensive: the guard must fire before load_backbone/embed are ever
+    # called, but monkeypatch them anyway so a regression that removes the
+    # guard fails on an assertion, never by starting a real GPU load.
+    monkeypatch.setattr(extract, "load_backbone", lambda n, device: (None, spec))
+    monkeypatch.setattr(extract, "embed",
+                        lambda m, s, imgs, device, batch_size=16:
+                            np.zeros((len(imgs), s.dim), np.float32))
+
+    a = make_dummy_manifest(3, str(tmp_path / "part_a"), np.random.default_rng(0))
+    b = make_dummy_manifest(3, str(tmp_path / "part_b"), np.random.default_rng(1))
+    dupes = pd.concat([a, b])  # both parts carry a fresh 0,1,2 RangeIndex
+
+    with pytest.raises(ValueError, match="duplicated"):
+        extract.extract_bank(dupes, "fake", str(tmp_path / "bank_dupe"), seed=3, device="cpu")

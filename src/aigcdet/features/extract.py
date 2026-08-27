@@ -1,13 +1,10 @@
 """Stage A (spec §3.1): images x (1 clean + K augmented views) -> feature bank.
 
 Runs once per backbone. Everything downstream trains on the output in minutes.
-Per-image RNG is derived from (seed, the row's manifest index label) so
-extraction is reproducible and resumable at any chunk boundary: an image gets
-the same views no matter which shard or session processes it, or in what
-order, because its generator never depends on any other image having been
-processed first, and the key survives a caller slicing `manifest_df` into
-shards (as long as the slice keeps the original index -- do not
-`reset_index` a shard before calling `extract_bank`).
+Per-image RNG is derived from (seed, the row's manifest index label), not from
+a running stream advanced per image or from this call's local loop position
+-- see the comment in the loop below for why, and what that requires of a
+caller that slices `manifest_df`.
 """
 from __future__ import annotations
 
@@ -55,19 +52,25 @@ def extract_bank(
     View 0 is always the clean, unmodified image with an empty recipe
     (`FeatureBank.check_invariants` enforces this on the output). Views 1..
     n_views-1 are sampled augmented recipes, one recipe drawn per view from a
-    generator derived from (seed, the row's manifest index label) alone --
-    never from a single stream advanced across images -- so a shard restarted
-    at any image reproduces exactly what an uninterrupted run would have
-    produced there, and two shards of the same bank stay consistent with each
-    other. This requires `manifest_df` to carry its original index label when
-    it is a slice of a larger manifest (do not `reset_index` a shard before
-    calling this).
+    generator keyed on each row's manifest index label (see the loop below
+    for why, and what that requires of a caller that slices `manifest_df`).
 
     `exclude_families` forbids an entire transform family (spec FAMILIES
     names) from every sampled recipe in the bank, supporting the A3-LOTO
     ablation run (spec §4.6).
     """
     df = manifest_df if limit is None else manifest_df.iloc[:limit]
+
+    if not df.index.is_unique:
+        dupes = df.index[df.index.duplicated()].unique().tolist()
+        raise ValueError(
+            f"manifest_df index has {len(dupes)} duplicated label(s), e.g. "
+            f"{dupes[:3]!r}; extract_bank keys each image's RNG on its index "
+            "label, so a duplicate would make two different images silently "
+            "draw identical views. Call df.reset_index(drop=True) yourself "
+            "only if you accept that as a single, self-contained bank (never "
+            "on a slice of a larger manifest you intend to compare or merge "
+            "against other shards) -- otherwise deduplicate the index first.")
 
     model, spec = load_backbone(backbone_name, device=device)
     writer = BankWriter(out_dir, len(df), n_views, spec.dim, backbone_name, seed)
@@ -83,7 +86,15 @@ def extract_bank(
         # physical image would draw different views depending on which shard
         # processed it. The index label survives that slicing as long as the
         # caller does not reset it, so this stays stable across shards,
-        # sessions, and restarts, independent of processing order.
+        # sessions, and restarts, independent of processing order. The
+        # uniqueness check above is what makes "index label uniquely
+        # identifies an image" a checked precondition rather than an assumed
+        # one. int(row_id) also assumes an integer-valued index -- true for
+        # every manifest this project produces (write_manifest/read_manifest
+        # round-trip a plain RangeIndex; a boolean --split filter and
+        # sort_values/sample preserve integer labels rather than replacing
+        # them) -- and would raise on a string-ID manifest, which is not a
+        # schema this project has.
         rng = np.random.default_rng([seed, int(row_id)])
         with Image.open(row["path"]) as im:
             base = np.asarray(im.convert("RGB"), dtype=np.uint8)
