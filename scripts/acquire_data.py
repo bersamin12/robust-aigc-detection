@@ -78,8 +78,7 @@ def acquire_wildfake(out: str, limit: int, generators: list[str]) -> None:
         "WildFake layout must be inspected before subsetting. Run:\n"
         "  python -c \"from modelscope.hub.api import HubApi; "
         "print(HubApi().get_dataset_files('hy2628982280/WildFake'))\"\n"
-        f"then pull only the folders for: {generators}, writing each to "
-        + os.path.join(out, "wildfake", "<generator>") + os.sep + "."
+        f"then pull only the folders for: {generators}, writing to {out}/wildfake/<generator>/."
     )
 
 

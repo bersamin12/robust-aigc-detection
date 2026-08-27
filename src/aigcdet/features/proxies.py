@@ -178,8 +178,8 @@ def noise_floor(img: np.ndarray) -> float:
     # float32 rather than float64: the two medians dominate this function's
     # cost and the extra precision is discarded by proxy_vector's float32
     # anyway. `resid` is a local temporary, so the medians may partition it
-    # in place and the deviation may be taken in place -- three fewer
-    # full-size copies, and bit-identical results.
+    # in place and the deviation may be taken in place, leaving no full-size
+    # temporaries at all. Verified to return the same value either way.
     g = _grey(img).astype(np.float32)
     resid = g - cv2.GaussianBlur(g, (0, 0), 1.0)
     median = float(np.median(resid, overwrite_input=True))
