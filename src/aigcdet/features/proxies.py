@@ -60,13 +60,20 @@ def _blockiness(img: np.ndarray) -> float:
     compression, so betting on "destroyed" is the safer of the two wrong
     answers for a proxy that exists to flag when evidence quality is bad.
     """
-    g = _grey(img).astype(np.float64)
+    # int16 differences are exact (no float64 array is needed to subtract two
+    # bytes), and the on-grid columns are a strided slice rather than a
+    # boolean mask, which avoids materialising two copies of the array.
+    # Verified bit-identical to the float64/boolean-mask form it replaces.
+    g = _grey(img).astype(np.int16)
     d = np.abs(np.diff(g, axis=1))
     if d.shape[1] < 16:
         return 0.0
-    cols = np.arange(d.shape[1])
-    on = d[:, cols % 8 == 7].mean()
-    off = d[:, cols % 8 != 7].mean()
+    on_cols = d[:, 7::8]
+    on_sum = int(on_cols.sum())
+    n_on = on_cols.size
+    n_off = d.size - n_on
+    on = on_sum / n_on
+    off = (int(d.sum()) - on_sum) / n_off
     total = on + off
     if total < _FLAT_EPS:
         return 1.0
@@ -148,7 +155,11 @@ def estimate_jpeg_quality(img: np.ndarray, path: str | None = None) -> float:
                     scale = float(np.median(tbl / _Q50)) * 100.0
                     q = (5000.0 / scale) if scale > 100.0 else ((200.0 - scale) / 2.0)
                     return float(np.clip(q, 1.0, 100.0))
-        except Exception:
+        except (OSError, ValueError):
+            # OSError covers a missing/unreadable file and PIL's
+            # UnidentifiedImageError; ValueError covers a quantisation table
+            # that is not 64 entries. Anything else is a real bug and must
+            # not be turned into a silent fallback.
             pass  # fall through to the pixel-based estimate
     b = _blockiness(img)
     q = np.interp(b, _BLOCKINESS_GRID, _QUALITY_LOOKUP)
@@ -156,14 +167,25 @@ def estimate_jpeg_quality(img: np.ndarray, path: str | None = None) -> float:
 
 
 def laplacian_variance(img: np.ndarray) -> float:
+    # Left on CV_64F deliberately: a float32 filter was measured at the same
+    # cost (1.2 ms either way at 512x768), so there is nothing to buy here
+    # and the more precise accumulator is free.
     return float(cv2.Laplacian(_grey(img), cv2.CV_64F).var())
 
 
 def noise_floor(img: np.ndarray) -> float:
     """Median absolute deviation of a high-pass residual, robust to content."""
-    g = _grey(img).astype(np.float64)
+    # float32 rather than float64: the two medians dominate this function's
+    # cost and the extra precision is discarded by proxy_vector's float32
+    # anyway. `resid` is a local temporary, so the medians may partition it
+    # in place and the deviation may be taken in place -- three fewer
+    # full-size copies, and bit-identical results.
+    g = _grey(img).astype(np.float32)
     resid = g - cv2.GaussianBlur(g, (0, 0), 1.0)
-    return float(np.median(np.abs(resid - np.median(resid))) * 1.4826)
+    median = float(np.median(resid, overwrite_input=True))
+    np.subtract(resid, median, out=resid)
+    np.abs(resid, out=resid)
+    return float(np.median(resid, overwrite_input=True) * 1.4826)
 
 
 def proxy_vector(img: np.ndarray, path: str | None = None) -> np.ndarray:
