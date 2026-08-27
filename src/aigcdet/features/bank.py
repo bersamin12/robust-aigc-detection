@@ -15,9 +15,11 @@ whole clean/degraded pairing depend on it, so it is checked, not assumed.
 
 The bank is written once (on a GPU machine) and read many times elsewhere,
 including on Kaggle, indexed positionally against the manifest it was built
-from. `config.json` records backbone, seed, view count and row count so a
-mismatched pairing -- a bank built against a different manifest -- is at
-least detectable rather than silently assumed correct.
+from. `config.json` records backbone, seed, view count and row count, and
+`meta.parquet` duplicates the manifest's own per-row columns at the same row
+positions the arrays use, so `FeatureBank.verify_against_manifest` can catch
+a bank built against a different (e.g. re-split) manifest with one call,
+rather than requiring every caller to remember to check.
 """
 from __future__ import annotations
 
@@ -27,7 +29,7 @@ import os
 import numpy as np
 import pandas as pd
 
-from aigcdet.augment.recipes import FAMILIES
+from aigcdet.augment.recipes import FAMILIES, Recipe
 
 N_VIEWS = 11          # 1 clean + 10 augmented (spec §3.1, K=10)
 N_FAMILIES = len(FAMILIES)   # presence/severity are per degradation family
@@ -89,7 +91,7 @@ class FeatureBank:
         self.meta = pd.read_parquet(os.path.join(path, "meta.parquet"))
         self._views = pd.read_parquet(os.path.join(path, "views.parquet"))
         self.feats = np.load(os.path.join(path, "feats.npy"), mmap_mode="r")
-        self.presence = np.load(os.path.join(path, "presence.npy"), mmap_mode="r+")
+        self.presence = np.load(os.path.join(path, "presence.npy"), mmap_mode="r")
         self.severity = np.load(os.path.join(path, "severity.npy"), mmap_mode="r")
         self.proxies = np.load(os.path.join(path, "proxies.npy"), mmap_mode="r")
         rp = os.path.join(path, "recon.npy")
@@ -113,9 +115,45 @@ class FeatureBank:
         np.save(os.path.join(self.path, "recon.npy"), arr.astype(np.float32))
         self.recon = np.load(os.path.join(self.path, "recon.npy"), mmap_mode="r")
 
+    def verify_against_manifest(self, manifest_df: pd.DataFrame) -> None:
+        """Check the bank's rows are still positionally aligned with `manifest_df`.
+
+        Rows are positional: array index i is manifest row i. A re-split after
+        the bank was written silently misaligns labels against cached
+        features (spec's "manifest is frozen once written" constraint) and
+        produces a slightly worse number nobody can explain. This makes that
+        failure loud instead of requiring a caller to think to check it.
+        """
+        if len(manifest_df) != len(self.meta):
+            raise ValueError(
+                f"manifest has {len(manifest_df)} rows but bank has "
+                f"{len(self.meta)} rows -- bank is not aligned with this manifest")
+        meta_sorted = self.meta.sort_values("image_idx").reset_index(drop=True)
+        manifest_paths = manifest_df["path"].reset_index(drop=True)
+        for i in range(len(manifest_df)):
+            m_path = manifest_paths.iloc[i]
+            b_path = meta_sorted.iloc[i]["path"]
+            if m_path != b_path:
+                raise ValueError(
+                    f"manifest/bank row {i} misaligned: manifest path "
+                    f"{m_path!r} != bank path {b_path!r}")
+
     def check_invariants(self) -> None:
         if float(np.asarray(self.presence)[:, 0, :].sum()) != 0.0:
             raise ValueError("view 0 must be the undegraded view, but it has "
                               "non-zero degradation presence")
+        # presence and recipe_json are two independent encodings of the same
+        # fact (what happened to a view); checking presence alone would miss
+        # the two falling out of sync, so cross-check the recipe against it.
+        n_images = len(self.meta)
+        for i in range(n_images):
+            recipe = Recipe.from_json(self.recipe_json(i, 0))
+            if recipe.ops != ():
+                raise ValueError(
+                    f"view 0 must be the undegraded view, but image {i}'s "
+                    f"recipe_json encodes a non-empty recipe: {recipe.ops!r}")
         if self.recon is not None and self.recon.shape[1] != self.config["n_views"]:
+            # Unreachable through the public API -- attach_recon already
+            # enforces this shape at write time -- so this guards against
+            # external corruption of recon.npy, not a normal API path.
             raise ValueError("recon view coverage must match feats (spec §3.3)")
