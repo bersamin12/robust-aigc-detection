@@ -1,0 +1,13 @@
+# STRETCH: + FiLM conditioning
+#
+# A5 (second backbone) and A6 (TTA) are not separate training configs: A5
+# trains a3.yaml against a second bank and fuses scores at evaluation time,
+# and A6 is an inference-time option. Both are handled in Plan 3, so this
+# file jumps from a4 straight to a7.
+name: a7
+use_augmented: true
+use_degradation: true
+use_consistency: true
+use_recon: true
+use_film: true
+epochs: 30

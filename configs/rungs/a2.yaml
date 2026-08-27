@@ -1,0 +1,8 @@
+# + auxiliary degradation loss
+name: a2
+use_augmented: true
+use_degradation: true
+use_consistency: false
+use_recon: false
+use_film: false
+epochs: 30

@@ -1,0 +1,8 @@
+# Linear probe, clean only (= UniversalFakeDetect)
+name: a0
+use_augmented: false
+use_degradation: false
+use_consistency: false
+use_recon: false
+use_film: false
+epochs: 30

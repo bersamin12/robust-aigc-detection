@@ -1,0 +1,8 @@
+# + reconstruction features r  (kill criterion applies)
+name: a4
+use_augmented: true
+use_degradation: true
+use_consistency: true
+use_recon: true
+use_film: false
+epochs: 30
