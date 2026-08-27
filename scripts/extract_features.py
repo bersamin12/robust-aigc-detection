@@ -17,12 +17,26 @@ alone is rejected -- after the full extraction has already been paid for.
     # raises rather than silently misaligning:
     python scripts/extract_features.py --manifest data/manifest.parquet \
         --out banks/dinov3l --split train,val_internal --recon
+
+Stage A takes 8-13 h per bank, against Kaggle's 30 h/week free tier, so it is
+built to be interrupted. `--resume` continues into the same --out, skipping
+rows already written; `--workers N` runs the CPU stage (decode, augment,
+proxies) in N subprocesses while this process feeds the GPU. Independent
+shards -- disjoint slices of the SAME manifest, extracted in separate
+sessions -- are recombined by `scripts/merge_banks.py`; because every view's
+pixels depend only on (seed, row_id, view_idx), a sharded bank is identical
+to one extracted in a single run.
+
+    python scripts/extract_features.py --manifest data/manifest.parquet \
+        --backbone dinov3l --out banks/dinov3l --split train,val_internal \
+        --resume --workers 4
 """
 from __future__ import annotations
 
 import argparse
 
 from aigcdet.data.manifest import read_manifest
+from aigcdet.features.bank import CHECKPOINT_EVERY
 from aigcdet.features.extract import extract_bank
 
 
@@ -64,6 +78,16 @@ def main() -> None:
     ap.add_argument("--exclude", default="", help="comma-separated families to exclude")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--batch-size", type=int, default=16)
+    ap.add_argument("--resume", action="store_true",
+                     help="continue an interrupted extraction into --out, skipping "
+                          "the rows already written (the same manifest, split, "
+                          "backbone and seed must be given)")
+    ap.add_argument("--checkpoint-every", type=int, default=CHECKPOINT_EVERY,
+                     help="flush meta/views parquet every N images; this is also "
+                          "how much work a session timeout can cost")
+    ap.add_argument("--workers", type=int, default=0,
+                     help="subprocesses running the CPU stage (decode, augment, "
+                          "proxies) while this process feeds the GPU; 0 = inline")
     ap.add_argument("--recon", action="store_true",
                      help="attach the reconstruction branch (spec section 3.3) to the "
                           "existing bank at --out for all of its cached views, instead "
@@ -88,7 +112,9 @@ def main() -> None:
         ap.error("--backbone is required unless --recon is given")
     extract_bank(df, a.backbone, a.out, seed=20260827, device=a.device,
                  limit=a.limit, batch_size=a.batch_size,
-                 exclude_families=tuple(f for f in a.exclude.split(",") if f))
+                 exclude_families=tuple(f for f in a.exclude.split(",") if f),
+                 resume=a.resume, checkpoint_every=a.checkpoint_every,
+                 workers=a.workers)
 
 
 if __name__ == "__main__":

@@ -14,8 +14,20 @@ lets `aigcdet.features.recon.attach_recon_to_bank` replay a cached view's
 exact pixels later from nothing but its stored recipe: it does not need to
 replay the sampling step at all, only re-derive the same apply-time
 generator from the same key.
+
+That same property is what makes this stage survivable on a session-limited
+machine, which it has to be: 8-13 h per bank against Kaggle's 30 h/week free
+tier. Three mechanisms use it, and none of them changes a single pixel:
+`resume=True` continues an interrupted run into the same directory (the
+metadata is checkpointed as it goes -- see `bank.BankWriter`); `workers > 0`
+runs the CPU stage in a process pool while this process feeds the GPU; and
+`bank.merge_banks` concatenates independently-extracted shards afterwards.
 """
 from __future__ import annotations
+
+import collections
+import itertools
+from typing import Iterable, Iterator
 
 import numpy as np
 import pandas as pd
@@ -25,6 +37,7 @@ from tqdm import tqdm
 from aigcdet.augment.recipes import FAMILIES, Recipe, sample_training_recipe
 from aigcdet.features.backbones import embed, load_backbone
 from aigcdet.features.bank import (
+    CHECKPOINT_EVERY,
     N_VIEWS,
     BankWriter,
     FeatureBank,
@@ -58,6 +71,107 @@ def _sample_recipe_excluding(rng: np.random.Generator, exclude: tuple[str, ...])
     return sample_training_recipe(rng, families=kept)
 
 
+#: One image's CPU work, as a picklable argument tuple for `_prepare_image`.
+PrepareTask = tuple  # (write_idx, row_id, path, n_views, seed, exclude_families)
+
+
+def _prepare_image(task: PrepareTask) -> dict:
+    """Everything for one image that runs on the CPU, before the GPU forward.
+
+    Decoding, recipe sampling, augmentation and the handcrafted proxies -- the
+    measured ~199 ms/image that dominates Stage A and is currently serialised
+    behind the GPU. This is a module-level function of a plain tuple so it can
+    be dispatched to a process pool: a view's pixels depend ONLY on
+    `(seed, row_id, view_idx)` and its own image file, and nothing here is
+    shared or mutated, so running it in another process is safe by
+    construction and bit-identical to running it inline.
+    """
+    write_idx, row_id, path, n_views, seed, exclude_families = task
+    with Image.open(path) as im:
+        base = np.asarray(im.convert("RGB"), dtype=np.uint8)
+
+    # View 0 is always the clean view (bank invariant) -- no sampling.
+    # Views 1..n_views-1 each get their own fresh generator, keyed on
+    # (seed, row_id, view index), to pick their recipe. This is a SEPARATE
+    # generator instance from the one used to apply that same view below --
+    # both are re-derived from the same key rather than one shared stream
+    # threaded through both steps, so how many draws the sampling step
+    # happens to consume never shifts where the apply step's own draws (the
+    # noise op's realisation, the only op that reads `rng`) land. That is
+    # what makes a view's pixels reproducible from nothing but
+    # (seed, row_id, view index) and its own stored recipe -- see the module
+    # docstring, and `recon.attach_recon_to_bank`, which relies on exactly
+    # this to replay cached views without re-sampling them.
+    recipes = [Recipe(())]
+    for v in range(1, n_views):
+        sample_rng = np.random.default_rng([seed, row_id, v])
+        recipes.append(_sample_recipe_excluding(sample_rng, exclude_families))
+
+    views = [r.apply(base, np.random.default_rng([seed, row_id, v]))
+             for v, r in enumerate(recipes)]
+    labels = [r.labels() for r in recipes]
+    return {
+        "write_idx": write_idx,
+        "row_id": row_id,
+        "views": views,
+        "recipes": [r.to_json() for r in recipes],
+        "presence": np.stack([l["presence"] for l in labels]),
+        "severity": np.stack([l["severity"] for l in labels]),
+        "proxies": np.stack([proxy_vector(view_img) for view_img in views]),
+    }
+
+
+def _iter_prepared(tasks: Iterable[PrepareTask], workers: int) -> Iterator[dict]:
+    """Yield `_prepare_image(task)` in task order, optionally in parallel.
+
+    `workers <= 1` runs inline, which is the default and is exactly the
+    previous behaviour. Otherwise a process pool is kept at most `2 * workers`
+    images in flight: `Executor.map` would submit every task at once, and one
+    image's views are ~8.6 MB at short-side 512, so an unbounded queue would
+    hold the whole dataset in memory. (`Executor.map`'s `buffersize` argument
+    that would do this for us is Python 3.14+; Kaggle runs 3.11.)
+
+    The pool uses the "spawn" start method, which re-imports the caller's
+    `__main__`. A script that calls `extract_bank` at module level therefore
+    has to put it behind `if __name__ == "__main__":` (as
+    `scripts/extract_features.py` does); otherwise use `workers=0`.
+    """
+    if workers <= 1:
+        for task in tasks:
+            yield _prepare_image(task)
+        return
+
+    import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor
+
+    # "spawn", not the Linux default "fork": this process holds a CUDA context
+    # (the backbone is already loaded) and is multi-threaded, and forking
+    # either of those is a documented deadlock/corruption hazard. Spawned
+    # children re-import this module and call `_prepare_image`, which needs no
+    # inherited state -- that is exactly why it takes a plain tuple.
+    pending: collections.deque = collections.deque()
+    remaining = iter(tasks)
+    with ProcessPoolExecutor(max_workers=workers,
+                             mp_context=multiprocessing.get_context("spawn")) as pool:
+        try:
+            for task in itertools.islice(remaining, 2 * workers):
+                pending.append(pool.submit(_prepare_image, task))
+        except RuntimeError as exc:                     # pragma: no cover
+            raise RuntimeError(
+                "could not start the worker pool. workers > 0 uses the 'spawn' "
+                "start method (this process holds a CUDA context, which must "
+                "never be forked), and spawn re-imports the caller's __main__ "
+                "module -- so the call to extract_bank must sit behind "
+                '`if __name__ == "__main__":`. Otherwise pass workers=0.'
+            ) from exc
+        while pending:
+            done = pending.popleft()
+            nxt = next(remaining, None)
+            if nxt is not None:
+                pending.append(pool.submit(_prepare_image, nxt))
+            yield done.result()
+
+
 def extract_bank(
     manifest_df: pd.DataFrame,
     backbone_name: str,
@@ -68,6 +182,9 @@ def extract_bank(
     limit: int | None = None,
     exclude_families: tuple[str, ...] = (),
     batch_size: int = 16,
+    resume: bool = False,
+    checkpoint_every: int = CHECKPOINT_EVERY,
+    workers: int = 0,
 ) -> str:
     """Extract a feature bank from `manifest_df` and write it to `out_dir`.
 
@@ -81,6 +198,18 @@ def extract_bank(
     `exclude_families` forbids an entire transform family (spec FAMILIES
     names) from every sampled recipe in the bank, supporting the A3-LOTO
     ablation run (spec §4.6).
+
+    `resume=True` continues an extraction into an existing `out_dir`, skipping
+    the rows already written (see `BankWriter`). The same `manifest_df`,
+    `seed`, `backbone_name` and `n_views` must be given -- `BankWriter`
+    refuses a resume whose config disagrees with what is on disk.
+    `checkpoint_every` controls how often the metadata is flushed, which is
+    also how much work a kill can cost.
+
+    `workers` runs the CPU stage (decode, augment, proxies) in that many
+    subprocesses while this process feeds the GPU. It is bit-identical to the
+    serial path -- a view's pixels depend only on
+    `(seed, row_id, view_idx)` -- and 0 or 1 means inline.
     """
     df = manifest_df if limit is None else manifest_df.iloc[:limit]
 
@@ -97,67 +226,53 @@ def extract_bank(
 
     model, spec = load_backbone(backbone_name, device=device)
     writer = BankWriter(out_dir, len(df), n_views, spec.dim, backbone_name, seed,
-                        manifest_sha256=manifest_fingerprint(df))
+                        manifest_sha256=manifest_fingerprint(df),
+                        resume=resume, checkpoint_every=checkpoint_every)
 
-    rows = enumerate(tqdm(df.iterrows(), total=len(df), desc=f"extract:{backbone_name}"))
-    for write_idx, (row_id, row) in rows:
-        # Keyed on the row's own index label -- its position in the frozen
-        # manifest -- not on write_idx (this call's local array position). A
-        # shard/session may be handed a slice of the full manifest (e.g.
-        # `full_df.iloc[40000:50000]`, which preserves original index
-        # labels); write_idx would then restart at 0 for every shard and
-        # collide in RNG-key space with another shard's images, so the same
-        # physical image would draw different views depending on which shard
-        # processed it. The index label survives that slicing as long as the
-        # caller does not reset it, so this stays stable across shards,
-        # sessions, and restarts, independent of processing order. The
-        # uniqueness check above is what makes "index label uniquely
-        # identifies an image" a checked precondition rather than an assumed
-        # one. int(row_id) also assumes an integer-valued index -- true for
-        # every manifest this project produces (write_manifest/read_manifest
-        # round-trip a plain RangeIndex; a boolean --split filter and
-        # sort_values/sample preserve integer labels rather than replacing
-        # them) -- and would raise on a string-ID manifest, which is not a
-        # schema this project has.
-        rid = int(row_id)
-        with Image.open(row["path"]) as im:
-            base = np.asarray(im.convert("RGB"), dtype=np.uint8)
+    # Each image's RNG is keyed on the row's own index label -- its position
+    # in the frozen manifest -- not on write_idx (this call's local array
+    # position). A shard/session may be handed a slice of the full manifest
+    # (e.g. `full_df.iloc[40000:50000]`, which preserves original index
+    # labels); write_idx would then restart at 0 for every shard and collide
+    # in RNG-key space with another shard's images, so the same physical
+    # image would draw different views depending on which shard processed it.
+    # The index label survives that slicing as long as the caller does not
+    # reset it, so this stays stable across shards, sessions, and restarts,
+    # independent of processing order -- which is also what makes `resume`
+    # and `bank.merge_banks` safe. The uniqueness check above is what makes
+    # "index label uniquely identifies an image" a checked precondition
+    # rather than an assumed one. int(row_id) also assumes an integer-valued
+    # index -- true for every manifest this project produces
+    # (write_manifest/read_manifest round-trip a plain RangeIndex; a boolean
+    # --split filter and sort_values/sample preserve integer labels rather
+    # than replacing them) -- and would raise on a string-ID manifest, which
+    # is not a schema this project has.
+    meta_rows: dict[int, dict] = {}
+    tasks: list[PrepareTask] = []
+    for write_idx, (row_id, row) in enumerate(df.iterrows()):
+        if write_idx in writer.completed:
+            continue                     # already written by an earlier session
+        meta_rows[write_idx] = {
+            "path": row["path"], "label": int(row["label"]),
+            "generator": row["generator"], "source": row["source"],
+            "split": row["split"]}
+        tasks.append((write_idx, int(row_id), row["path"], n_views, seed,
+                      exclude_families))
 
-        # View 0 is always the clean view (bank invariant) -- no sampling.
-        # Views 1..n_views-1 each get their own fresh generator, keyed on
-        # (seed, rid, view index), to pick their recipe. This is a SEPARATE
-        # generator instance from the one used to apply that same view below
-        # -- both are re-derived from the same key rather than one shared
-        # stream threaded through both steps, so how many draws the sampling
-        # step happens to consume never shifts where the apply step's own
-        # draws (the noise op's realisation, the only op that reads `rng`)
-        # land. That is what makes a view's pixels reproducible from nothing
-        # but (seed, rid, view index) and its own stored recipe -- see the
-        # module docstring, and `recon.attach_recon_to_bank`, which relies on
-        # exactly this to replay cached views without re-sampling them.
-        recipes = [Recipe(())]
-        for v in range(1, n_views):
-            sample_rng = np.random.default_rng([seed, rid, v])
-            recipes.append(_sample_recipe_excluding(sample_rng, exclude_families))
-
-        views = []
-        for v, r in enumerate(recipes):
-            apply_rng = np.random.default_rng([seed, rid, v])
-            views.append(r.apply(base, apply_rng))
-
-        feats = embed(model, spec, views, device=device, batch_size=batch_size)
-        labels = [r.labels() for r in recipes]
+    for prepared in tqdm(_iter_prepared(tasks, workers), total=len(tasks),
+                          desc=f"extract:{backbone_name}"):
+        write_idx = prepared["write_idx"]
+        feats = embed(model, spec, prepared["views"], device=device,
+                      batch_size=batch_size)
         writer.write_image(
             write_idx,
-            {"path": row["path"], "label": int(row["label"]),
-             "generator": row["generator"], "source": row["source"],
-             "split": row["split"]},
-            row_id=rid,
+            meta_rows[write_idx],
+            row_id=prepared["row_id"],
             feats=feats,
-            presence=np.stack([l["presence"] for l in labels]),
-            severity=np.stack([l["severity"] for l in labels]),
-            proxies=np.stack([proxy_vector(view_img) for view_img in views]),
-            recipes=[r.to_json() for r in recipes],
+            presence=prepared["presence"],
+            severity=prepared["severity"],
+            proxies=prepared["proxies"],
+            recipes=prepared["recipes"],
         )
     writer.close()
     # The cheapest possible post-condition on a job that just ran for hours:

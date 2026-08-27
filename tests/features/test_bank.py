@@ -263,3 +263,101 @@ def test_open_does_not_build_the_recipe_lookup(tmp_path):
     assert b._recipe_lookup is not None
     # Second call reuses it and still returns the right thing.
     assert Recipe.from_json(b.recipe_json(0, 1)).ops[0].name == "jpeg"
+
+
+# --- H2: shard merge -------------------------------------------------------
+
+def _shard(tmp_path, name, row_ids, backbone="test", seed=0, n_views=N_VIEWS, dim=3):
+    from aigcdet.features.bank import manifest_fingerprint
+
+    paths = [f"/img{r}.png" for r in row_ids]
+    fp = manifest_fingerprint(pd.DataFrame({"path": paths}))
+    w = BankWriter(str(tmp_path / name), n_images=len(row_ids), n_views=n_views,
+                   dim=dim, backbone=backbone, seed=seed, manifest_sha256=fp)
+    for i, r in enumerate(row_ids):
+        pres = np.zeros((n_views, 6), np.float32); pres[1:, 0] = 1.0
+        sev = np.zeros((n_views, 6), np.float32); sev[1:, 0] = 0.3
+        recipes = ["[]"] + ['[{"name": "blur", "params": {"sigma": 0.5}}]'] * (n_views - 1)
+        w.write_image(i, {"path": paths[i], "label": int(r) % 2,
+                          "generator": "g", "source": "s", "split": "train"},
+                      feats=np.full((n_views, dim), float(r), np.float32),
+                      presence=pres, severity=sev,
+                      proxies=np.full((n_views, 3), float(r), np.float32),
+                      recipes=recipes, row_id=int(r))
+    w.close()
+    return str(tmp_path / name)
+
+
+def test_merge_banks_concatenates_shards_in_order(tmp_path):
+    from aigcdet.features.bank import manifest_fingerprint, merge_banks
+
+    a = _shard(tmp_path, "s0", [10, 11])
+    b = _shard(tmp_path, "s1", [20, 21, 22])
+    out = merge_banks([a, b], str(tmp_path / "merged"))
+
+    m = FeatureBank.open(out)
+    m.check_invariants()
+    assert len(m.meta) == 5
+    np.testing.assert_array_equal(m.row_ids, [10, 11, 20, 21, 22])
+    assert m.meta["image_idx"].tolist() == [0, 1, 2, 3, 4]
+    for pos, rid in enumerate([10, 11, 20, 21, 22]):
+        np.testing.assert_array_equal(np.asarray(m.feats[pos]),
+                                       np.full((N_VIEWS, 3), float(rid), np.float16))
+        assert m.recipe_json(pos, 0) == "[]"
+        assert "blur" in m.recipe_json(pos, 1)
+    assert m.config["backbone"] == "test" and m.config["seed"] == 0
+    assert m.config["n_images"] == 5
+    # The merged bank is aligned to the concatenation of the shards' rows.
+    assert m.config["manifest_sha256"] == manifest_fingerprint(
+        pd.DataFrame({"path": [f"/img{r}.png" for r in [10, 11, 20, 21, 22]]}))
+
+
+def test_merge_banks_rejects_overlapping_row_ids(tmp_path):
+    from aigcdet.features.bank import merge_banks
+
+    a = _shard(tmp_path, "o0", [1, 2, 3])
+    b = _shard(tmp_path, "o1", [3, 4])
+    with pytest.raises(ValueError, match="shards overlap"):
+        merge_banks([a, b], str(tmp_path / "bad"))
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"backbone": "other"}, {"seed": 99}, {"dim": 5}, {"n_views": N_VIEWS - 1},
+])
+def test_merge_banks_rejects_shards_from_different_extractions(tmp_path, kwargs):
+    from aigcdet.features.bank import merge_banks
+
+    a = _shard(tmp_path, "d0", [1, 2])
+    b = _shard(tmp_path, "d1", [3, 4], **kwargs)
+    with pytest.raises(ValueError, match="not part of the same bank"):
+        merge_banks([a, b], str(tmp_path / "bad2"))
+
+
+def test_merge_banks_carries_recon_when_every_shard_has_it(tmp_path):
+    from aigcdet.features.bank import merge_banks
+
+    a, b = _shard(tmp_path, "r0", [1, 2]), _shard(tmp_path, "r1", [3])
+    for d, val in ((a, 1.0), (b, 2.0)):
+        bank = FeatureBank.open(d)
+        bank.attach_recon(np.full((len(bank.meta), N_VIEWS, 12), val, np.float32))
+    m = FeatureBank.open(merge_banks([a, b], str(tmp_path / "merged_recon")))
+    assert m.recon is not None and m.recon.shape == (3, N_VIEWS, 12)
+    np.testing.assert_allclose(np.asarray(m.recon[:2]), 1.0)
+    np.testing.assert_allclose(np.asarray(m.recon[2]), 2.0)
+
+
+def test_merge_banks_rejects_partial_recon_coverage(tmp_path):
+    from aigcdet.features.bank import merge_banks
+
+    a, b = _shard(tmp_path, "p0", [1, 2]), _shard(tmp_path, "p1", [3])
+    bank = FeatureBank.open(a)
+    bank.attach_recon(np.zeros((2, N_VIEWS, 12), np.float32))
+    with pytest.raises(ValueError, match="some shards have recon"):
+        merge_banks([a, b], str(tmp_path / "bad3"))
+
+
+def test_merge_banks_needs_at_least_one_shard(tmp_path):
+    from aigcdet.features.bank import merge_banks
+
+    with pytest.raises(ValueError, match="at least one"):
+        merge_banks([], str(tmp_path / "nothing"))

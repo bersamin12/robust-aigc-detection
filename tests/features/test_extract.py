@@ -256,3 +256,161 @@ def test_extract_bank_checks_the_invariants_of_what_it_just_wrote(tmp_path, monk
     out = extract.extract_bank(df, "fake", str(tmp_path / "bank_inv"), seed=1,
                                 device="cpu")
     assert calls == [out]
+
+
+# --- H2: resumable, shardable, parallelisable ------------------------------
+
+def _fake_backbone(monkeypatch, dim=4):
+    """Patch out the GPU: a deterministic 'embedding' that is a real function
+    of the view's pixels, so a resumed or parallel run producing different
+    pixels would produce different feats."""
+    from aigcdet.features import extract
+    from aigcdet.features.backbones import BackboneSpec
+
+    spec = BackboneSpec("fake", "none", 64, dim, 1, 0)
+    monkeypatch.setattr(extract, "load_backbone", lambda n, device: (None, spec))
+    monkeypatch.setattr(
+        extract, "embed",
+        lambda m, s, imgs, device, batch_size=16:
+            np.stack([np.full(s.dim, float(i.mean()), np.float32) for i in imgs]))
+    return extract
+
+
+def test_config_is_written_before_any_image_is_processed(tmp_path):
+    """A Kaggle timeout used to lose everything: close() wrote config.json,
+    meta.parquet and views.parquet only at the very end, so the surviving
+    .npy memmaps could not be opened at all."""
+    import json
+
+    from aigcdet.features.bank import BankWriter
+
+    out = tmp_path / "early"
+    BankWriter(str(out), 4, N_VIEWS, 3, "t", 7, manifest_sha256="abc")
+    with open(out / "config.json") as f:
+        cfg = json.load(f)
+    assert cfg["backbone"] == "t" and cfg["n_images"] == 4 and cfg["seed"] == 7
+
+
+def test_a_killed_extraction_resumes_and_matches_an_uninterrupted_run(tmp_path, monkeypatch):
+    """The whole point of H2: an interrupted session must be continuable, and
+    the continued bank must be identical to one extracted in a single run."""
+    extract = _fake_backbone(monkeypatch)
+
+    df = make_dummy_manifest(9, str(tmp_path / "img_res"), np.random.default_rng(0))
+    whole = FeatureBank.open(extract.extract_bank(
+        df, "fake", str(tmp_path / "whole"), seed=13, device="cpu"))
+
+    out = str(tmp_path / "partial")
+
+    class _Boom(RuntimeError):
+        pass
+
+    real_embed = extract.embed
+    calls = {"n": 0}
+
+    def _embed_then_die(m, s, imgs, device, batch_size=16):
+        calls["n"] += 1
+        if calls["n"] > 4:
+            raise _Boom("session timeout")
+        return real_embed(m, s, imgs, device, batch_size)
+
+    monkeypatch.setattr(extract, "embed", _embed_then_die)
+    with pytest.raises(_Boom):
+        extract.extract_bank(df, "fake", out, seed=13, device="cpu",
+                             checkpoint_every=1)
+
+    monkeypatch.setattr(extract, "embed", real_embed)
+    resumed = FeatureBank.open(extract.extract_bank(
+        df, "fake", out, seed=13, device="cpu", resume=True, checkpoint_every=1))
+
+    assert len(resumed.meta) == 9
+    np.testing.assert_array_equal(np.asarray(resumed.feats), np.asarray(whole.feats))
+    np.testing.assert_array_equal(resumed.row_ids, whole.row_ids)
+    assert resumed.meta["path"].tolist() == whole.meta["path"].tolist()
+    for i in range(9):
+        for v in range(N_VIEWS):
+            assert resumed.recipe_json(i, v) == whole.recipe_json(i, v)
+
+
+def test_resume_refuses_a_bank_built_with_a_different_config(tmp_path, monkeypatch):
+    extract = _fake_backbone(monkeypatch)
+    df = make_dummy_manifest(4, str(tmp_path / "img_cfg"), np.random.default_rng(0))
+    out = str(tmp_path / "cfg")
+    extract.extract_bank(df, "fake", out, seed=1, device="cpu")
+    with pytest.raises(ValueError, match="cannot resume"):
+        extract.extract_bank(df, "fake", out, seed=2, device="cpu", resume=True)
+
+
+def test_resume_on_a_directory_with_nothing_to_resume_is_a_fresh_start(tmp_path, monkeypatch):
+    extract = _fake_backbone(monkeypatch)
+    df = make_dummy_manifest(3, str(tmp_path / "img_fresh"), np.random.default_rng(0))
+    b = FeatureBank.open(extract.extract_bank(
+        df, "fake", str(tmp_path / "fresh"), seed=1, device="cpu", resume=True))
+    assert len(b.meta) == 3
+
+
+def test_parallel_workers_produce_a_bit_identical_bank(tmp_path, monkeypatch):
+    """Safe by construction -- a view's pixels depend only on
+    (seed, row_id, view_idx) and nothing is shared -- so it must be provable,
+    not merely plausible."""
+    extract = _fake_backbone(monkeypatch)
+    df = make_dummy_manifest(7, str(tmp_path / "img_par"), np.random.default_rng(0))
+
+    serial = FeatureBank.open(extract.extract_bank(
+        df, "fake", str(tmp_path / "serial"), seed=21, device="cpu", workers=0))
+    parallel = FeatureBank.open(extract.extract_bank(
+        df, "fake", str(tmp_path / "parallel"), seed=21, device="cpu", workers=2))
+
+    np.testing.assert_array_equal(np.asarray(parallel.feats), np.asarray(serial.feats))
+    np.testing.assert_array_equal(np.asarray(parallel.proxies),
+                                   np.asarray(serial.proxies))
+    np.testing.assert_array_equal(np.asarray(parallel.presence),
+                                   np.asarray(serial.presence))
+    np.testing.assert_array_equal(parallel.row_ids, serial.row_ids)
+    assert parallel.meta["path"].tolist() == serial.meta["path"].tolist()
+    for i in range(7):
+        for v in range(N_VIEWS):
+            assert parallel.recipe_json(i, v) == serial.recipe_json(i, v)
+
+
+def test_workers_preserve_row_order_even_when_tasks_finish_out_of_order(monkeypatch):
+    """The pool yields in task order, not completion order -- otherwise a
+    row's features land at another row's array position."""
+    from aigcdet.features import extract
+
+    tasks = [(i, i, f"/p{i}", 2, 0, ()) for i in range(20)]
+    monkeypatch.setattr(extract, "_prepare_image",
+                        lambda t: {"write_idx": t[0], "row_id": t[1]})
+    out = [p["write_idx"] for p in extract._iter_prepared(tasks, workers=0)]
+    assert out == list(range(20))
+
+
+def test_sharded_then_merged_equals_one_uninterrupted_extraction(tmp_path, monkeypatch):
+    """The end-to-end claim H2 rests on: because every view's pixels depend
+    only on (seed, row_id, view_idx), splitting Stage A across sessions and
+    merging afterwards must be indistinguishable from one long run."""
+    from aigcdet.features.bank import manifest_fingerprint, merge_banks
+
+    extract = _fake_backbone(monkeypatch)
+    df = make_dummy_manifest(8, str(tmp_path / "img_shard"), np.random.default_rng(0))
+
+    whole = FeatureBank.open(extract.extract_bank(
+        df, "fake", str(tmp_path / "one_run"), seed=31, device="cpu"))
+    # Disjoint slices of the SAME frozen manifest, index labels preserved.
+    s0 = extract.extract_bank(df.iloc[:3], "fake", str(tmp_path / "sh0"),
+                              seed=31, device="cpu")
+    s1 = extract.extract_bank(df.iloc[3:8], "fake", str(tmp_path / "sh1"),
+                              seed=31, device="cpu")
+    merged = FeatureBank.open(merge_banks([s0, s1], str(tmp_path / "sh_merged")))
+
+    np.testing.assert_array_equal(np.asarray(merged.feats), np.asarray(whole.feats))
+    np.testing.assert_array_equal(np.asarray(merged.proxies),
+                                   np.asarray(whole.proxies))
+    np.testing.assert_array_equal(merged.row_ids, whole.row_ids)
+    assert merged.meta["path"].tolist() == whole.meta["path"].tolist()
+    for i in range(8):
+        for v in range(N_VIEWS):
+            assert merged.recipe_json(i, v) == whole.recipe_json(i, v)
+    # And the merged bank verifies against the manifest it collectively covers.
+    assert merged.config["manifest_sha256"] == manifest_fingerprint(df)
+    merged.verify_against_manifest(df)
