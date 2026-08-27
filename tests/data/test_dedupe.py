@@ -50,25 +50,23 @@ def _photo(seed, size=256):
     return img
 
 
-def _flat_photo(seed):
-    """Near-uniform, low-texture image: a narrow-band, blurred backdrop
-    (sky, wall, studio backdrop) rather than raw per-pixel noise. Real
-    low-texture regions vary smoothly (lighting, vignetting), which is what
-    the blur reproduces; unblurred per-pixel noise degrades to pure
-    quantisation noise once resized down for hashing and is not
-    representative of anything phash is expected to handle. This is the
-    low-AC-energy regime where a DC leak into the hash bits would matter
-    most, since the DC/AC magnitude gap is at its narrowest here.
+def _smooth_backdrop(seed, size=256):
+    """Low-contrast but genuinely NOT constant: sky, wall, studio backdrop.
+    Measured std 5.4, range 116-141, 26 distinct levels.
 
-    Measured caveat (see the known-limitation note below): a sigma-10 blur of
-    118..139 noise lands at std 0.49, range 127-128 -- effectively a CONSTANT
-    image, whose AC coefficients are exactly zero before and after a
-    brightness shift. So this fixture is stable for a degenerate reason and
-    does not actually exercise the low-AC regime it was written for.
+    This replaces a fixture (`ops.blur(rng.integers(118, 139, ...), 10.0)`)
+    that measured std 0.49 over range 127-128 -- effectively a CONSTANT
+    image. Its DCT AC coefficients were exactly zero on both sides of a
+    brightness shift, so it was stable for a degenerate reason and never
+    exercised the low-AC regime it was written for. Its test asserted
+    robustness the method does not have on this content class; see
+    `test_smooth_low_structure_content_is_not_matched_after_perturbation`
+    for what is actually true.
     """
     rng = np.random.default_rng(seed)
-    base = rng.integers(118, 139, (256, 256, 3), dtype=np.uint8)
-    return ops.blur(base, 10.0)
+    coarse = rng.integers(118, 139, (4, 4, 3), dtype=np.uint8)
+    return np.asarray(Image.fromarray(coarse).resize((size, size), Image.BICUBIC),
+                      dtype=np.uint8)
 
 
 def _distances(degrade, fixture=_photo, seeds=_SEEDS):
@@ -129,11 +127,13 @@ def test_brightness_shift_stays_within_threshold():
     # 2, which identifies clipping as the sole mechanism. No median assertion
     # here: unlike the other degradations this one legitimately sits at the
     # threshold, so only the spec property is pinned.
+    #
+    # Asserted on textured content only. The low-contrast backdrop is NOT
+    # covered here: the guard genuinely does not hold on it, which
+    # test_smooth_low_structure_content_is_not_matched_after_perturbation
+    # pins as the measured limitation it is.
     d = _distances(lambda i: ops.jitter(i, 0.2, 0.0, 0.0))
     assert d.max() <= 4
-
-    d_flat = _distances(lambda i: ops.jitter(i, 0.2, 0.0, 0.0), fixture=_flat_photo)
-    assert d_flat.max() <= 4
 
 
 def test_different_images_are_far_apart():
@@ -145,6 +145,85 @@ def test_different_images_are_far_apart():
                 for i, a in enumerate(hashes) for b in hashes[i + 1:]]
     # Over all 276 pairs: min 20, median 32 -- five times the threshold.
     assert min(pairwise) > 10
+
+
+def test_smooth_low_structure_content_is_not_matched_after_perturbation():
+    """The guard's known limitation, pinned rather than left to be
+    rediscovered.
+
+    pHash at Hamming <= 4 is dependable only on content carrying
+    high-frequency structure. On a smooth backdrop the AC coefficients
+    supplying most of the 64 bits sit at quantisation-noise level, so those
+    bits are arbitrary and ANY perturbation scatters them. Measured over the
+    24 seeds asserted here, distance between a backdrop and a perturbed copy
+    of ITSELF:
+
+        +/-1 grey level   min  4, median 12, max 16   (1 of 24 within 4)
+        brightness +20%   min 10, median 16, max 24   (0 of 24)
+        JPEG q40          min 12, median 20, max 26   (0 of 24)
+        resize 0.5        min  6, median  8, max 16   (0 of 24)
+
+    A single grey level is enough. This is not specific to brightness, to
+    JPEG, or to any rounding convention.
+
+    If this test ever fails because the distances came DOWN, that is good
+    news and the limitation note in the fix report should be revised -- do
+    not simply loosen it. The threshold of 4 is spec-mandated (§4.1) and is
+    not the thing to change here.
+    """
+    d_jpeg = _distances(lambda i: ops.jpeg(i, 40), fixture=_smooth_backdrop)
+    d_bright = _distances(lambda i: ops.jitter(i, 0.2, 0.0, 0.0),
+                          fixture=_smooth_backdrop)
+    # Not one seed is recognised as a near-duplicate of itself.
+    assert d_jpeg.min() > 4
+    assert d_bright.min() > 4
+
+    # Even the smallest possible perturbation -- one grey level -- typically
+    # moves the hash further than the threshold allows.
+    def _one_grey_level(img, seed):
+        rng = np.random.default_rng(10_000 + seed)
+        return np.clip(img.astype(np.int16) + rng.integers(-1, 2, img.shape),
+                       0, 255).astype(np.uint8)
+
+    d_one = np.array([
+        hamming(phash(_smooth_backdrop(seed)),
+                phash(_one_grey_level(_smooth_backdrop(seed), seed)))
+        for seed in _SEEDS
+    ])
+    assert np.median(d_one) >= 8
+
+    # The failure direction is FALSE NEGATIVE, not false positive: distinct
+    # backdrops stay far apart, so nothing is wrongly dropped from training.
+    # Measured min 18, median 32.
+    hashes = [phash(_smooth_backdrop(seed)) for seed in _SEEDS]
+    pairwise = [hamming(a, b)
+                for i, a in enumerate(hashes) for b in hashes[i + 1:]]
+    assert min(pairwise) > 10
+
+
+def test_every_hash_bit_position_is_informative():
+    """R17's regression pin, in the form that actually reproduces.
+
+    R17 excluded the DC term from the packed bits. Its brightness test could
+    never demonstrate the defect -- DC dwarfs the AC median, so the DC bit is
+    set for every realistic image and a brightness shift cannot flip it. That
+    is exactly WHY it was a defect: with DC packed in, one of the 64 bits is
+    constant, so the hash carries 63 informative bits while every docstring
+    calls it 64.
+
+    Constant-ness is directly observable, and it discriminates cleanly.
+    Measured over these 64 images: the current DC-excluded hash uses 64/64
+    bit positions; the pre-R17 form that packed `d[:8, :8]` leaves bit 63
+    (the DC bit, first in packing order) constant, 63/64. Verified against a
+    local reimplementation of the pre-R17 form -- dedupe.py is untouched.
+    """
+    hashes = [phash(_photo(seed)) for seed in range(64)]
+    bits = np.array([[(h >> i) & 1 for i in range(64)] for h in hashes])
+    constant = np.where(bits.min(axis=0) == bits.max(axis=0))[0].tolist()
+    assert constant == [], (
+        f"bit position(s) {constant} never vary, so the hash carries fewer "
+        f"than 64 informative bits")
+    assert max(h.bit_length() for h in hashes) == 64
 
 
 def test_find_leaks_flags_a_recompressed_duplicate(tmp_path):
@@ -163,22 +242,31 @@ def test_find_leaks_flags_a_recompressed_duplicate(tmp_path):
     assert str(other_p) not in leaks
 
 
-# --- Known limitation of the method, recorded here and in the fix report ---
+# --- Known limitation of the method, pinned by
+# --- test_smooth_low_structure_content_is_not_matched_after_perturbation
+# --- and written up for Plan 4's error-analysis note ---
 #
-# pHash at Hamming <= 4 is a dependable near-duplicate guard only for content
-# carrying high-frequency structure. On content with essentially no detail
-# above the 32x32 downsample -- a plain sky, a studio backdrop, a smooth
-# gradient -- the AC coefficients supplying most of the 64 bits sit at
-# quantisation-noise level, so those bits are arbitrary. Measured on smooth
-# 4x4-upscaled backdrops over 20 seeds, the distance between an image and a
-# perturbed copy of ITSELF is: jpeg q40 median 15, +/-20% brightness median
-# 12, and a mere +/-1 GREY LEVEL of noise median 10 -- all far past 4. It is
-# not specific to brightness, to JPEG, or to any rounding convention; any
-# perturbation at all does it.
+# WHAT IT AFFECTS. pHash at Hamming <= 4 is a dependable near-duplicate guard
+# only for content carrying high-frequency structure. On content with
+# essentially no detail above the 32x32 downsample -- a plain sky, a studio
+# backdrop, a smooth gradient -- the AC coefficients supplying most of the 64
+# bits sit at quantisation-noise level, so those bits are arbitrary.
 #
-# Direction of the error: this is a FALSE NEGATIVE mode. Distinct images stay
-# far apart (min pairwise distance 14-20 in every measurement), so nothing is
-# wrongly dropped from training; the risk is that a structureless demo image
-# re-encoded on its way into a training pool is NOT recognised. Most COCO
-# val2017 photographs carry ample structure, so the exposure is narrow, but
-# it is real and it is worth stating in the error-analysis note.
+# MEASURED. Distance between a smooth backdrop (std 5.4) and a perturbed copy
+# of itself, over 24 seeds: +/-1 grey level median 12, brightness +20% median
+# 16, JPEG q40 median 20, resize 0.5 median 8 -- against a threshold of 4. A
+# single grey level is enough; it is not specific to any one degradation.
+#
+# DIRECTION. False NEGATIVE. Distinct images stay far apart (min pairwise
+# distance 18-20 in every measurement), so no training image is wrongly
+# dropped. The risk is that a structureless demo image, re-encoded on its way
+# into a training pool, is not recognised as a leak.
+#
+# WHAT BOUNDS THE RISK. Two things, both structural rather than statistical.
+# First, since the C1 fix, COCO val2017 and DALL-E Advanced are excluded from
+# training wholesale by the source registry (aigcdet.data.sources), not by
+# hash -- so this guard is the SECONDARY net, catching a demo image that
+# arrives through some other source's pool, not the primary barrier. Second,
+# both authentic photographs and generator outputs carry structure; a frame
+# filled edge to edge with smooth backdrop is rare. So this is a real gap in
+# a secondary net, not a hole in the main barrier.
