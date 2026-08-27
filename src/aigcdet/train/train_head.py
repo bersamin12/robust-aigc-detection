@@ -53,8 +53,13 @@ class RungConfig:
 def _eval_auc(model, bank, idx, use_recon, device) -> float:
     model.eval()
     f = torch.from_numpy(np.asarray(bank.feats[idx, 0]).astype(np.float32)).to(device)
-    r = (torch.from_numpy(np.asarray(bank.recon[idx, 0]).astype(np.float32)).to(device)
-         if use_recon else None)
+    r = None
+    if use_recon:
+        if bank.recon is None:
+            raise ValueError(
+                "bank has no recon features; run attach_recon before evaluating "
+                "a use_recon=True rung (see PairedSampler for the same check)")
+        r = torch.from_numpy(np.asarray(bank.recon[idx, 0]).astype(np.float32)).to(device)
     with torch.no_grad():
         s = model(f, r)["logit"].cpu().numpy()
     model.train()
@@ -62,7 +67,6 @@ def _eval_auc(model, bank, idx, use_recon, device) -> float:
 
 
 def train_rung(cfg: RungConfig) -> dict:
-    torch.manual_seed(cfg.seed)
     bank = FeatureBank.open(cfg.bank_dir)
     bank.check_invariants()
     if cfg.manifest_path is not None:
@@ -74,8 +78,17 @@ def train_rung(cfg: RungConfig) -> dict:
     if len(val_idx) == 0:
         raise ValueError("bank has no val_internal rows; check the manifest splits")
 
-    model = Detector(dim_feat=bank.config["dim"], use_recon=cfg.use_recon,
-                     use_film=cfg.use_film).to(cfg.device)
+    # nn.Module.reset_parameters() has no generator parameter, so seeding the
+    # global RNG is the ordinary way to make module init reproducible. Contain
+    # the leak to just this construction with fork_rng rather than mutating
+    # process-global state for the rest of the run (Task 5's pattern for the
+    # same problem). devices=[] is required: a bare fork_rng() also saves/
+    # restores CUDA RNG state, which touches (and initialises) a CUDA context
+    # -- and this project runs against a GPU with well under 1 GB free.
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(cfg.seed)
+        model = Detector(dim_feat=bank.config["dim"], use_recon=cfg.use_recon,
+                         use_film=cfg.use_film).to(cfg.device)
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
 
     rng = np.random.default_rng(cfg.seed)
@@ -88,15 +101,15 @@ def train_rung(cfg: RungConfig) -> dict:
             if cfg.use_augmented:
                 out_clean = model(batch["f_clean"], batch["r_clean"])
                 out_deg = model(batch["f_deg"], batch["r_deg"])
-                if cfg.use_consistency:
-                    loss, parts = total_loss(out_clean, out_deg, batch, cfg.weights)
-                else:
-                    w = LossWeights(lambda_deg=cfg.weights.lambda_deg, alpha=0.0, beta=0.0)
+                if cfg.use_degradation:
+                    w = cfg.weights if cfg.use_consistency else LossWeights(
+                        lambda_deg=cfg.weights.lambda_deg, alpha=0.0, beta=0.0)
                     loss, parts = total_loss(out_clean, out_deg, batch, w)
-                if not cfg.use_degradation:
-                    # Re-derive without the degradation term so A1 is exactly
-                    # "augmentation only" rather than "augmentation plus a
-                    # silently-weighted auxiliary task".
+                else:
+                    # A1: augmentation only, no degradation auxiliary task --
+                    # computed directly rather than via total_loss (which
+                    # always includes l_deg) so no degradation-weighted loss
+                    # graph is built and thrown away.
                     loss = (classification_loss(out_clean["logit"], batch["y_clean"])
                             + classification_loss(out_deg["logit"], batch["y_deg"])) * 0.5
                     if cfg.use_consistency:
