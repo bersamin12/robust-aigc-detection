@@ -64,7 +64,7 @@ def normalize_many(
     def _one(pair: tuple[str, str]) -> tuple[tuple[int, int] | None, str]:
         try:
             return normalize_image(*pair), ""
-        except Exception as e:  # noqa: BLE001 -- one bad file must not end the run
+        except Exception as e:  # deliberately broad: one bad file must not end the run
             return None, f"{type(e).__name__}: {e}"
 
     with ThreadPoolExecutor(max_workers=workers) as ex:
