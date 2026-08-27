@@ -66,29 +66,117 @@ def manifest_fingerprint(manifest_df: pd.DataFrame) -> str:
     return h.hexdigest()
 
 
+#: How often `BankWriter` flushes its metadata to disk while extracting. The
+#: `.npy` memmaps are preallocated at full size and survive a kill on their
+#: own, but without meta/views/config they cannot be opened, so a Kaggle
+#: session timeout used to lose the whole extraction.
+CHECKPOINT_EVERY = 500
+
+
 class BankWriter:
+    """Streaming writer for one bank, checkpointed so a killed run can resume.
+
+    `config.json` is written in `__init__`, before any image is processed, and
+    `meta.parquet` / `views.parquet` are rewritten every `checkpoint_every`
+    images (and again on `close`). Both parquet writes go through a temporary
+    file and `os.replace`, so a kill mid-checkpoint leaves the previous
+    checkpoint intact rather than a truncated file.
+
+    With `resume=True` an existing bank directory is reopened in place: the
+    memmaps are opened `r+` instead of being recreated, the already-written
+    rows are read back from `meta.parquet`, and `completed` names their
+    `image_idx` so the caller can skip them. The config recorded on disk must
+    match the one asked for -- a resume against a different backbone, seed,
+    view count, row count or manifest is a different bank, not a continuation.
+    """
+
     def __init__(self, out_dir: str, n_images: int, n_views: int, dim: int,
-                 backbone: str, seed: int, manifest_sha256: str | None = None):
+                 backbone: str, seed: int, manifest_sha256: str | None = None,
+                 resume: bool = False, checkpoint_every: int = CHECKPOINT_EVERY):
         os.makedirs(out_dir, exist_ok=True)
         self.path = out_dir
         self.n_views = n_views
-        self.feats = np.lib.format.open_memmap(
-            os.path.join(out_dir, "feats.npy"), mode="w+",
-            dtype=np.float16, shape=(n_images, n_views, dim))
-        self.presence = np.lib.format.open_memmap(
-            os.path.join(out_dir, "presence.npy"), mode="w+",
-            dtype=np.float32, shape=(n_images, n_views, N_FAMILIES))
-        self.severity = np.lib.format.open_memmap(
-            os.path.join(out_dir, "severity.npy"), mode="w+",
-            dtype=np.float32, shape=(n_images, n_views, N_FAMILIES))
-        self.proxies = np.lib.format.open_memmap(
-            os.path.join(out_dir, "proxies.npy"), mode="w+",
-            dtype=np.float32, shape=(n_images, n_views, 3))
-        self._meta: list[dict] = []
-        self._views: list[dict] = []
+        self.checkpoint_every = max(1, int(checkpoint_every))
         self._config = {"backbone": backbone, "dim": dim,
                          "n_views": n_views, "n_images": n_images, "seed": seed,
                          "manifest_sha256": manifest_sha256}
+
+        cfg_path = os.path.join(out_dir, "config.json")
+        resuming = resume and os.path.exists(cfg_path)
+        if resuming:
+            with open(cfg_path) as f:
+                on_disk = json.load(f)
+            differing = {k: (on_disk.get(k), v) for k, v in self._config.items()
+                         if on_disk.get(k) != v}
+            if differing:
+                raise ValueError(
+                    f"cannot resume the bank at {out_dir}: its config.json "
+                    f"disagrees with this call on {differing} (on_disk, requested). "
+                    "A resume must continue the SAME extraction; extract to a new "
+                    "directory instead.")
+        elif resume:
+            # Nothing to resume from -- a fresh start, not an error: this is
+            # what the first session of a resumable run does.
+            pass
+
+        mode = "r+" if resuming else "w+"
+        self.feats = self._memmap("feats.npy", mode, np.float16, (n_images, n_views, dim))
+        self.presence = self._memmap("presence.npy", mode, np.float32,
+                                      (n_images, n_views, N_FAMILIES))
+        self.severity = self._memmap("severity.npy", mode, np.float32,
+                                      (n_images, n_views, N_FAMILIES))
+        self.proxies = self._memmap("proxies.npy", mode, np.float32,
+                                     (n_images, n_views, 3))
+
+        self._meta: list[dict] = []
+        self._views: list[dict] = []
+        self.completed: set[int] = set()
+        if resuming:
+            meta_path = os.path.join(out_dir, "meta.parquet")
+            views_path = os.path.join(out_dir, "views.parquet")
+            if os.path.exists(meta_path) and os.path.exists(views_path):
+                self._meta = pd.read_parquet(meta_path).to_dict("records")
+                self._views = pd.read_parquet(views_path).to_dict("records")
+                self.completed = {int(r["image_idx"]) for r in self._meta}
+        else:
+            self._write_config()
+
+    def _memmap(self, name: str, mode: str, dtype, shape):
+        path = os.path.join(self.path, name)
+        if mode == "r+":
+            arr = np.lib.format.open_memmap(path, mode="r+")
+            if arr.shape != shape or arr.dtype != dtype:
+                raise ValueError(
+                    f"cannot resume: {name} on disk is {arr.shape} {arr.dtype}, "
+                    f"expected {shape} {np.dtype(dtype)}")
+            return arr
+        return np.lib.format.open_memmap(path, mode="w+", dtype=dtype, shape=shape)
+
+    def _write_config(self) -> None:
+        with open(os.path.join(self.path, "config.json"), "w") as f:
+            json.dump(self._config, f, indent=2)
+
+    def _write_parquet(self, rows: list[dict], name: str, sort_by: str | None) -> None:
+        """Write atomically: a kill mid-write must leave the last good
+        checkpoint, not a truncated parquet file."""
+        df = pd.DataFrame(rows)
+        if sort_by is not None:
+            df = df.sort_values(sort_by)
+        final = os.path.join(self.path, name)
+        tmp = final + ".tmp"
+        df.to_parquet(tmp, index=False)
+        os.replace(tmp, final)
+
+    def checkpoint(self) -> None:
+        """Flush the arrays and rewrite the metadata, so everything written so
+        far is a complete, openable bank."""
+        self.feats.flush()
+        self.presence.flush()
+        self.severity.flush()
+        self.proxies.flush()
+        self._write_config()
+        self._write_parquet(self._meta, "meta.parquet", "image_idx")
+        self._write_parquet(self._views, "views.parquet", None)
 
     def write_image(self, idx: int, meta_row: dict, feats: np.ndarray,
                      presence: np.ndarray, severity: np.ndarray,
@@ -108,18 +196,12 @@ class BankWriter:
                             **meta_row})
         for v, rj in enumerate(recipes):
             self._views.append({"image_idx": idx, "view_idx": v, "recipe_json": rj})
+        self.completed.add(idx)
+        if len(self._meta) % self.checkpoint_every == 0:
+            self.checkpoint()
 
     def close(self) -> None:
-        self.feats.flush()
-        self.presence.flush()
-        self.severity.flush()
-        self.proxies.flush()
-        pd.DataFrame(self._meta).sort_values("image_idx").to_parquet(
-            os.path.join(self.path, "meta.parquet"), index=False)
-        pd.DataFrame(self._views).to_parquet(
-            os.path.join(self.path, "views.parquet"), index=False)
-        with open(os.path.join(self.path, "config.json"), "w") as f:
-            json.dump(self._config, f, indent=2)
+        self.checkpoint()
 
 
 class FeatureBank:
@@ -247,3 +329,89 @@ class FeatureBank:
             # enforces this shape at write time -- so this guards against
             # external corruption of recon.npy, not a normal API path.
             raise ValueError("recon view coverage must match feats (spec §3.3)")
+
+
+#: Config keys every shard of one logical bank must agree on. `n_images` and
+#: `manifest_sha256` are deliberately absent: shards cover different rows, so
+#: those two are expected to differ and are recomputed for the merged bank.
+_MERGE_MUST_MATCH = ("backbone", "dim", "n_views", "seed")
+
+
+def merge_banks(bank_dirs: list[str], out_dir: str) -> str:
+    """Concatenate shard banks into one bank at `out_dir`, in the given order.
+
+    Sharding is safe by construction in this project -- every view's pixels
+    depend only on `(seed, row_id, view_idx)`, never on which shard or session
+    processed the image (see `aigcdet.features.extract`) -- but nothing could
+    put the shards back together. This is that missing half.
+
+    Refuses to merge shards that disagree on `backbone`, `dim`, `n_views` or
+    `seed`, and refuses shards whose `row_id` sets overlap: an overlap means
+    the same physical image appears twice, which breaks the bank's
+    one-row-per-image contract and double-counts it in every split.
+
+    `recon.npy` must be present on all shards or none; merging a bank where
+    only some rows have reconstruction features would make A3-vs-A4 a
+    comparison across different view coverage (spec §3.3).
+    """
+    if not bank_dirs:
+        raise ValueError("merge_banks needs at least one bank directory")
+
+    banks = [FeatureBank.open(d) for d in bank_dirs]
+    ref = banks[0]
+    for d, b in zip(bank_dirs[1:], banks[1:]):
+        differing = {k: (ref.config[k], b.config[k]) for k in _MERGE_MUST_MATCH
+                     if ref.config[k] != b.config[k]}
+        if differing:
+            raise ValueError(
+                f"shard {d} is not part of the same bank as {bank_dirs[0]}: "
+                f"{differing} (first, this one)")
+
+    row_ids = np.concatenate([b.row_ids for b in banks])
+    uniq, counts = np.unique(row_ids, return_counts=True)
+    if len(uniq) != len(row_ids):
+        clashing = uniq[counts > 1][:5].tolist()
+        raise ValueError(
+            f"shards overlap: {int((counts > 1).sum())} row_id(s) appear in more "
+            f"than one shard, e.g. {clashing}. Each image must be extracted "
+            "exactly once, or it is double-counted in every split.")
+
+    has_recon = [b.recon is not None for b in banks]
+    if any(has_recon) and not all(has_recon):
+        missing = [d for d, h in zip(bank_dirs, has_recon) if not h]
+        raise ValueError(
+            f"some shards have recon.npy and some do not (missing: {missing}); "
+            "attach it to every shard, or to none, before merging")
+
+    n_total = sum(len(b.meta) for b in banks)
+    merged_paths = pd.DataFrame(
+        {"path": np.concatenate([b.meta["path"].to_numpy() for b in banks])})
+    writer = BankWriter(out_dir, n_total, ref.config["n_views"], ref.config["dim"],
+                        ref.config["backbone"], ref.config["seed"],
+                        manifest_sha256=manifest_fingerprint(merged_paths),
+                        checkpoint_every=max(1, n_total))
+
+    out_idx = 0
+    for b in banks:
+        n_views = b.config["n_views"]
+        for i in range(len(b.meta)):
+            row = b.meta.iloc[i].to_dict()
+            row_id = int(row.pop("row_id"))
+            row.pop("image_idx")
+            writer.write_image(
+                out_idx, row,
+                feats=np.asarray(b.feats[i]),
+                presence=np.asarray(b.presence[i]),
+                severity=np.asarray(b.severity[i]),
+                proxies=np.asarray(b.proxies[i]),
+                recipes=[b.recipe_json(i, v) for v in range(n_views)],
+                row_id=row_id)
+            out_idx += 1
+    writer.close()
+
+    merged = FeatureBank.open(out_dir)
+    if all(has_recon):
+        merged.attach_recon(
+            np.concatenate([np.asarray(b.recon) for b in banks], axis=0))
+    merged.check_invariants()
+    return out_dir
