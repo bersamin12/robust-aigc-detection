@@ -442,3 +442,79 @@ def test_recon_features_are_finite_and_lower_error_for_a_vae_roundtrip():
     photo = rng.integers(0, 256, (512, 512, 3), dtype=np.uint8)
     v = recon_features(photo, vae, lp, "cuda")
     assert v.shape == (RECON_DIM,) and np.isfinite(v).all()
+
+
+def test_attach_recon_replays_bit_exactly_from_a_reset_index_manifest(tmp_path, monkeypatch):
+    """H1: the caller's manifest index must NOT be load-bearing.
+
+    Before row_id was stored in meta.parquet, attach_recon_to_bank recovered
+    the replay key from `manifest_df.index`. A caller who passed a
+    `reset_index(drop=True)`ed frame still got past `verify_against_manifest`
+    (it compares paths positionally, and reset_index changes no path), and
+    then every noise-containing view was replayed against different pixels --
+    measured at 133/133 corrupt views, max delta 164/255. The key now comes
+    from `bank.row_ids`, so this must be bit-exact.
+    """
+    from aigcdet.augment.recipes import Recipe
+    from aigcdet.features import extract
+    from aigcdet.features.backbones import BackboneSpec
+
+    spec = BackboneSpec("fake", "none", 64, 4, 1, 0)
+    monkeypatch.setattr(extract, "load_backbone", lambda n, device: (None, spec))
+    monkeypatch.setattr(extract, "embed",
+                         lambda m, s, imgs, device, batch_size=16:
+                             np.zeros((len(imgs), s.dim), np.float32))
+
+    img_dir = tmp_path / "imgs_h1"
+    img_dir.mkdir()
+    rng = np.random.default_rng(0)
+    n_full = 16
+    paths = [str(img_dir / f"{i}.png") for i in range(n_full)]
+    for p in paths:
+        Image.fromarray(rng.integers(0, 256, (96, 96, 3), dtype=np.uint8)).save(p)
+    full = pd.DataFrame({
+        "path": paths, "label": [0] * n_full, "generator": [""] * n_full,
+        "source": ["test"] * n_full,
+        "split": ["train" if i % 3 else "val_internal" for i in range(n_full)],
+    })
+    train_df = full[full["split"] == "train"]
+    assert not np.array_equal(train_df.index.to_numpy(), np.arange(len(train_df)))
+
+    out_dir = tmp_path / "bank_h1"
+    extract.extract_bank(train_df, "fake", str(out_dir), seed=42, device="cpu")
+    bank = FeatureBank.open(str(out_dir))
+
+    # The bank stores the manifest labels, not its own positions.
+    np.testing.assert_array_equal(bank.row_ids, train_df.index.to_numpy())
+
+    n_views = bank.config["n_views"]
+    has_noise = any(
+        any(o.name == "noise" for o in Recipe.from_json(bank.recipe_json(i, j)).ops)
+        for i in range(len(bank.meta)) for j in range(n_views))
+    assert has_noise, "fixture must include a view with a noise op"
+
+    expected = {}
+    for i in range(len(bank.meta)):
+        with Image.open(bank.meta.iloc[i]["path"]) as im:
+            base = np.asarray(im.convert("RGB"), dtype=np.uint8)
+        rid = int(train_df.index.to_numpy()[i])
+        for j in range(n_views):
+            expected[(i, j)] = Recipe.from_json(bank.recipe_json(i, j)).apply(
+                base, np.random.default_rng([42, rid, j]))
+
+    captured: list[np.ndarray] = []
+    monkeypatch.setattr("aigcdet.features.recon.recon_features",
+                         lambda img, vae, lp, device: (captured.append(img.copy())
+                                                       or np.zeros(RECON_DIM, np.float32)))
+    monkeypatch.setattr("aigcdet.features.recon.load_recon_models",
+                         lambda device: (None, None))
+
+    # The whole point: the manifest handed in has had its index thrown away.
+    attach_recon_to_bank(bank, train_df.reset_index(drop=True), device="cpu", seed=42)
+
+    assert len(captured) == len(bank.meta) * n_views
+    for i in range(len(bank.meta)):
+        for j in range(n_views):
+            np.testing.assert_array_equal(
+                captured[i * n_views + j], expected[(i, j)],
+                err_msg=f"image {i}, view {j} replayed against different pixels")

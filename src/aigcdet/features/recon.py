@@ -164,12 +164,13 @@ def attach_recon_to_bank(bank, manifest_df, device: str = "cuda",
     Checks the bank is still positionally aligned with `manifest_df` before
     writing anything -- a re-split manifest would otherwise silently attach
     reconstruction features to the wrong rows (project-constraints.md's
-    "manifest is frozen once written" rule). `manifest_df` must be the exact
-    rows (same filter, same order, un-reset index) `extract_bank` was
-    originally called with: its index labels are how each row's original
-    manifest index label -- the key component `extract_bank` derived every
-    view's generator from -- gets recovered here, since the bank itself only
-    stores a purely positional `image_idx`, not that label.
+    "manifest is frozen once written" rule). `manifest_df` is used ONLY for
+    that check: the replay key comes from `bank.row_ids`, which `extract_bank`
+    stores in `meta.parquet`. It used to be recovered from
+    `manifest_df.index`, which made the caller's index a load-bearing input
+    that nothing verified -- a `reset_index()`ed frame passed
+    `verify_against_manifest` (it compares paths positionally) and then
+    replayed every noise-containing view against different pixels.
 
     Reproduces each view's exact cached pixels, not just an equally-valid
     resampling of the same recipe: `extract_bank` derives a fresh
@@ -192,7 +193,7 @@ def attach_recon_to_bank(bank, manifest_df, device: str = "cuda",
 
     vae, lp = load_recon_models(device)
     n, v = len(bank.meta), bank.config["n_views"]
-    row_ids = manifest_df.index.to_numpy()
+    row_ids = bank.row_ids
     out = np.zeros((n, v, RECON_DIM), dtype=np.float32)
     for i in tqdm(range(n), desc="recon"):
         with Image.open(bank.meta.iloc[i]["path"]) as im:
