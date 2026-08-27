@@ -300,6 +300,103 @@ def test_attach_recon_to_bank_rejects_a_misaligned_manifest(tmp_path, monkeypatc
     assert bank.recon is None  # rejected before anything was written
 
 
+def test_attach_recon_to_bank_replays_extract_banks_own_pixels_bit_exactly(tmp_path, monkeypatch):
+    """The regression test for the RNG-derivation bug a reviewer caught:
+    attach_recon_to_bank must reproduce the *exact* pixels extract_bank
+    cached for every view -- not merely something self-consistent across two
+    replay calls (test_attach_recon_to_bank_is_deterministic above already
+    covered that, which is exactly why it didn't catch this).
+
+    Two things are deliberately exercised together, because the bug was
+    actually two bugs of the same kind:
+
+    - The manifest is filtered to a non-contiguous set of index labels (like
+      the CLI's own documented `--split train` usage), so a row's bank
+      position and its true manifest row_id differ. Recovering row_id from
+      `manifest_df.index` (not the bank's own positional `image_idx`) is
+      what this exercises.
+    - At least one replayed view's recipe contains a `noise` op -- the only
+      op that reads from the per-view generator, so it's the only op whose
+      pixels depend on how that generator is derived. A view with no noise
+      op would pass even with the old, broken RNG derivation.
+    """
+    from aigcdet.augment.recipes import Recipe
+    from aigcdet.features import extract
+    from aigcdet.features.backbones import BackboneSpec
+
+    spec = BackboneSpec("fake", "none", 64, 4, 1, 0)
+    monkeypatch.setattr(extract, "load_backbone", lambda n, device: (None, spec))
+    monkeypatch.setattr(extract, "embed",
+                         lambda m, s, imgs, device, batch_size=16:
+                             np.zeros((len(imgs), s.dim), np.float32))
+
+    img_dir = tmp_path / "imgs"
+    img_dir.mkdir()
+    rng = np.random.default_rng(0)
+    n_full = 16
+    paths = [str(img_dir / f"{i}.png") for i in range(n_full)]
+    for p in paths:
+        Image.fromarray(rng.integers(0, 256, (96, 96, 3), dtype=np.uint8)).save(p)
+
+    full_manifest = pd.DataFrame({
+        "path": paths, "label": [0] * n_full, "generator": [""] * n_full,
+        "source": ["test"] * n_full,
+        # a non-contiguous split, like a real --split filter would produce
+        "split": ["train" if i % 3 else "val_internal" for i in range(n_full)],
+    })
+    train_df = full_manifest[full_manifest["split"] == "train"]
+    assert not np.array_equal(train_df.index.to_numpy(),
+                               np.arange(len(train_df)))  # genuinely non-contiguous
+
+    out_dir = tmp_path / "bank"
+    extract.extract_bank(train_df, "fake", str(out_dir), seed=42, device="cpu")
+    bank = FeatureBank.open(str(out_dir))
+
+    # Confirm the fixture actually has a noise-op view to replay -- fail
+    # loudly here (not "vacuously pass") if it ever doesn't.
+    has_noise = any(
+        any(o.name == "noise" for o in Recipe.from_json(bank.recipe_json(i, j)).ops)
+        for i in range(len(bank.meta)) for j in range(bank.config["n_views"]))
+    assert has_noise, "fixture must include a view with a noise op"
+
+    # Ground truth: recompute exactly what extract_bank itself produced for
+    # every (image, view), independently of attach_recon_to_bank's code path,
+    # keyed the same way extract_bank documents it derives each view's
+    # generator: (seed, row_id, view_idx).
+    row_ids = train_df.index.to_numpy()
+    expected = {}
+    for i in range(len(bank.meta)):
+        with Image.open(bank.meta.iloc[i]["path"]) as im:
+            base = np.asarray(im.convert("RGB"), dtype=np.uint8)
+        rid = int(row_ids[i])
+        for j in range(bank.config["n_views"]):
+            apply_rng = np.random.default_rng([42, rid, j])
+            recipe = Recipe.from_json(bank.recipe_json(i, j))
+            expected[(i, j)] = recipe.apply(base, apply_rng)
+
+    # Capture what attach_recon_to_bank actually feeds recon_features, in
+    # call order (i outer, j inner -- see the loop in attach_recon_to_bank).
+    captured: list[np.ndarray] = []
+
+    def _spy_recon_features(img, vae, lp, device):
+        captured.append(img.copy())
+        return np.zeros(RECON_DIM, dtype=np.float32)
+
+    monkeypatch.setattr("aigcdet.features.recon.recon_features", _spy_recon_features)
+    monkeypatch.setattr("aigcdet.features.recon.load_recon_models",
+                         lambda device: (None, None))
+
+    attach_recon_to_bank(bank, train_df, device="cpu", seed=42)
+
+    n_views = bank.config["n_views"]
+    assert len(captured) == len(bank.meta) * n_views
+    for i in range(len(bank.meta)):
+        for j in range(n_views):
+            np.testing.assert_array_equal(
+                captured[i * n_views + j], expected[(i, j)],
+                err_msg=f"image {i}, view {j} diverged from extract_bank's own pixels")
+
+
 # --------------------------------------------------------------------------
 # load_recon_models -- import isolation, no GPU/download involved
 # --------------------------------------------------------------------------

@@ -164,7 +164,23 @@ def attach_recon_to_bank(bank, manifest_df, device: str = "cuda",
     Checks the bank is still positionally aligned with `manifest_df` before
     writing anything -- a re-split manifest would otherwise silently attach
     reconstruction features to the wrong rows (project-constraints.md's
-    "manifest is frozen once written" rule).
+    "manifest is frozen once written" rule). `manifest_df` must be the exact
+    rows (same filter, same order, un-reset index) `extract_bank` was
+    originally called with: its index labels are how each row's original
+    manifest index label -- the key component `extract_bank` derived every
+    view's generator from -- gets recovered here, since the bank itself only
+    stores a purely positional `image_idx`, not that label.
+
+    Reproduces each view's exact cached pixels, not just an equally-valid
+    resampling of the same recipe: `extract_bank` derives a fresh
+    `np.random.default_rng([seed, row_id, view_idx])` to APPLY each view
+    (a separate generator from the one used to sample its recipe), so the
+    only randomness an already-known recipe's replay needs -- the `noise`
+    op's realisation, the one op that reads from the generator -- is
+    reproduced by re-deriving that same key here. This holds regardless of
+    view order or how many draws `extract_bank`'s own sampling step
+    consumed, because that step used a different generator instance
+    entirely (see `aigcdet.features.extract`'s module docstring).
     """
     from PIL import Image
     from tqdm import tqdm
@@ -176,17 +192,14 @@ def attach_recon_to_bank(bank, manifest_df, device: str = "cuda",
 
     vae, lp = load_recon_models(device)
     n, v = len(bank.meta), bank.config["n_views"]
+    row_ids = manifest_df.index.to_numpy()
     out = np.zeros((n, v, RECON_DIM), dtype=np.float32)
     for i in tqdm(range(n), desc="recon"):
         with Image.open(bank.meta.iloc[i]["path"]) as im:
             base = np.asarray(im.convert("RGB"), dtype=np.uint8)
-        rng = np.random.default_rng([seed, int(i)])
+        rid = int(row_ids[i])
         for j in range(v):
-            # View order 0..v-1 must be replayed in that order: a recipe's
-            # `noise` op draws from this same per-image rng, so replaying out
-            # of order would reproduce a different (still valid, but
-            # different) view than Stage A actually cached (see reproducibility
-            # note in the task brief).
-            view = Recipe.from_json(bank.recipe_json(i, j)).apply(base, rng)
+            apply_rng = np.random.default_rng([seed, rid, j])
+            view = Recipe.from_json(bank.recipe_json(i, j)).apply(base, apply_rng)
             out[i, j] = recon_features(view, vae, lp, device)
     bank.attach_recon(out)
