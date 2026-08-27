@@ -122,6 +122,23 @@ def make_dummy_manifest(n: int, out_dir: str, rng: np.random.Generator) -> pd.Da
             "split": "",
         })
     df = pd.DataFrame(rows, columns=MANIFEST_COLUMNS)
+
+    # Hold one generator out only when another remains to train on. At n=3
+    # there is a single fake generator, and holding it out would leave train
+    # with no fakes and (with n that small) no val_internal rows either --
+    # the exact "bank has no val_internal rows" failure this fixture exists
+    # to prevent, merely relocated to small n. Plans 2 and 3 call this with
+    # n = 3, 4, 5 and 6.
     present = [g for g in DUMMY_GENERATORS if (df["generator"] == g).any()]
-    return assign_splits(df, heldout_generators=present[-1:],
-                         seed=int(rng.integers(0, 2**31 - 1)))
+    heldout = present[-1:] if len(present) >= 2 else []
+    df = assign_splits(df, heldout_generators=heldout,
+                       seed=int(rng.integers(0, 2**31 - 1)))
+
+    # val_fraction is a per-row probability, so at small n it can select
+    # nothing at all. Guarantee one validation row whenever the pool has at
+    # least two, deterministically (the last pool row), so every caller gets
+    # a non-empty train AND a non-empty val_internal.
+    pool = df.index[df["split"] != "heldout_generator"]
+    if len(pool) >= 2 and not (df["split"] == "val_internal").any():
+        df.loc[pool[-1], "split"] = "val_internal"
+    return df

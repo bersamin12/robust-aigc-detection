@@ -265,8 +265,10 @@ def test_find_leaks_flags_a_recompressed_duplicate(tmp_path):
 # WHAT BOUNDS THE RISK. Two things, both structural rather than statistical.
 # First, since the C1 fix, COCO val2017 and DALL-E Advanced are excluded from
 # training wholesale by the source registry (aigcdet.data.sources), not by
-# hash -- so this guard is the SECONDARY net, catching a demo image that
-# arrives through some other source's pool, not the primary barrier. Second,
+# hash -- both halves of the demo set carry exclude_from_training, asserted by
+# test_sources.py::test_both_halves_of_the_demo_benchmark_are_excluded_from_training
+# -- so this guard is the SECONDARY net, catching a demo image that arrives
+# through some other source's pool, not the primary barrier. Second,
 # both authentic photographs and generator outputs carry structure; a frame
 # filled edge to edge with smooth backdrop is rare. So this is a real gap in
 # a secondary net, not a hole in the main barrier.

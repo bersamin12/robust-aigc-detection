@@ -155,11 +155,18 @@ def estimate_jpeg_quality(img: np.ndarray, path: str | None = None) -> float:
                     scale = float(np.median(tbl / _Q50)) * 100.0
                     q = (5000.0 / scale) if scale > 100.0 else ((200.0 - scale) / 2.0)
                     return float(np.clip(q, 1.0, 100.0))
-        except (OSError, ValueError):
+        except (OSError, ValueError, KeyError):
             # OSError covers a missing/unreadable file and PIL's
-            # UnidentifiedImageError; ValueError covers a quantisation table
-            # that is not 64 entries. Anything else is a real bug and must
-            # not be turned into a silent fallback.
+            # UnidentifiedImageError; ValueError a quantisation table that is
+            # not 64 entries; KeyError the fact that `im.quantization` is a
+            # DICT keyed by table index, so `tables[0]` raises when a JPEG's
+            # only DQT segment is not index 0. That last one matters: this
+            # runs inside audit_table over every image, so letting it
+            # propagate would abort the ~20-minute audit pass on one odd
+            # file -- and normalisation proving a file decodable does not
+            # prove its DQT is well-formed, so the skip list does not cover
+            # it. Anything else is a real bug and must not become a silent
+            # fallback.
             pass  # fall through to the pixel-based estimate
     b = _blockiness(img)
     q = np.interp(b, _BLOCKINESS_GRID, _QUALITY_LOOKUP)

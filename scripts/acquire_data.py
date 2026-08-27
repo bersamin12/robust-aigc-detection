@@ -21,7 +21,7 @@ import json
 import os
 import re
 
-from aigcdet.data.sources import LICENCES, SOURCES, raw_subdir
+from aigcdet.data.sources import LICENCES, SOURCES, is_safe_generator, raw_subdir
 
 #: Record fields SID_Set may carry the generating model under. Where one is
 #: present the image is filed under that generator, so it stays a real
@@ -31,17 +31,27 @@ _GENERATOR_FIELDS = ("generator", "model", "generator_name", "source_model")
 _SAFE_GENERATOR = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
-def _record_generator(rec: dict) -> str:
-    """The generator this record names, or "" if it does not name one.
+def _record_generator(rec: dict, source: str) -> str:
+    """The generator this record names, or "" if it does not name a usable one.
 
-    Rejects anything that is not a plain identifier: the value becomes a
-    directory name, and a value containing a separator would write outside
-    the source's own tree.
+    The value is untrusted third-party data that becomes a directory name, so
+    it must clear two separate gates: a plain-identifier character class (no
+    separators, no whitespace), and `sources.is_safe_generator`, which also
+    rejects `"."`/`".."` — which contain no separator yet still escape a
+    level — and any name that aliases one of the source's declared buckets,
+    since a record whose generator field read "real" would otherwise be
+    written into the authentic bucket and read back as label 0.
+
+    Returns "" rather than raising: an odd record must fall back to the
+    unattributed bucket, not end a 30,000-image streaming download.
     """
     for key in _GENERATOR_FIELDS:
         value = rec.get(key)
-        if isinstance(value, str) and _SAFE_GENERATOR.match(value.strip()):
-            return value.strip()
+        if not isinstance(value, str):
+            continue
+        value = value.strip()
+        if _SAFE_GENERATOR.match(value) and is_safe_generator(source, value):
+            return value
     return ""
 
 
@@ -61,7 +71,7 @@ def acquire_sid_set(out: str, limit: int) -> None:
         # raw_subdir is the inverse of the mapping build_dataset.py reads the
         # tree back with, so the two scripts cannot drift apart.
         sub = raw_subdir("sid_set", label,
-                         "" if label == 0 else _record_generator(rec))
+                         "" if label == 0 else _record_generator(rec, "sid_set"))
         d = os.path.join(out, "sid_set", sub)
         os.makedirs(d, exist_ok=True)
         rec["image"].save(os.path.join(d, f"{n:07d}.png"))
@@ -120,8 +130,16 @@ def main() -> None:
     elif a.dataset == "wildfake":
         acquire_wildfake(a.out, a.limit,
                          [g for g in a.generators.split(",") if g])
-    else:
+    elif a.dataset == "coco_val2017":
         acquire_coco_val2017(a.out)
+    else:
+        # Registered so it can never be trained on, but there is no routine
+        # to fetch it: it comes from the organisers. An `else` that fell
+        # through to COCO would have downloaded the wrong dataset silently.
+        raise SystemExit(
+            f"{a.dataset} has no acquisition routine — it is the organisers' "
+            "demo benchmark, obtained from them directly. Put it under the "
+            "path you pass to build_dataset.py --demo-dir, never under --raw.")
 
     os.makedirs(a.out, exist_ok=True)
     with open(os.path.join(a.out, "LICENCES.json"), "a") as f:
