@@ -15,6 +15,7 @@ import cv2
 import numpy as np
 from PIL import Image
 from scipy.fft import dct
+from tqdm import tqdm
 
 
 def phash(img: np.ndarray, hash_size: int = 8) -> int:
@@ -46,7 +47,9 @@ def hamming(a: int, b: int) -> int:
 
 def build_hash_index(paths: list[str]) -> dict[str, int]:
     idx = {}
-    for p in paths:
+    # ~26 minutes at 100k images, entirely serial. `disable=None` shows the
+    # bar on a TTY and stays silent in tests and logs.
+    for p in tqdm(paths, desc="phash", unit="img", disable=None):
         with Image.open(p) as im:
             idx[p] = phash(np.asarray(im.convert("RGB"), dtype=np.uint8))
     return idx
