@@ -130,7 +130,14 @@ _QUALITY_LOOKUP = np.array([
 
 
 def estimate_jpeg_quality(img: np.ndarray, path: str | None = None) -> float:
-    """Quality in [0, 100]. Exact when `path` is a JPEG, estimated otherwise."""
+    """Quality in [0, 100]. Exact when `path` is a JPEG, estimated otherwise.
+
+    The pixel-only fallback is monotone in true quality but not calibrated to
+    it: leave-one-family-out MAE is roughly 14 quality points on smooth,
+    low-detail content and 31 on high-texture content, and it carries no
+    usable signal on near-incompressible, noise-like content. Treat its
+    output as an ordinal signal, not a calibrated quality figure.
+    """
     if path is not None:
         try:
             with Image.open(path) as im:
