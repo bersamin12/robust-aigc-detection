@@ -1,7 +1,62 @@
+import os
+
 import numpy as np
+import pandas as pd
+import pytest
+
 from aigcdet.data.manifest import (
-    MANIFEST_COLUMNS, make_dummy_manifest, read_manifest, write_manifest,
+    MANIFEST_COLUMNS, make_dummy_manifest, read_manifest, validate_manifest,
+    write_manifest,
 )
+
+
+def _valid_rows(n=4):
+    return pd.DataFrame([{
+        "path": os.path.abspath(f"/tmp/img_{i}.png"), "label": i % 2,
+        "generator": "sdxl" if i % 2 else "", "source": "wildfake",
+        "licence": "CC0", "width": 512, "height": 512,
+        "split": "train" if i else "val_internal",
+    } for i in range(n)], columns=MANIFEST_COLUMNS)
+
+
+def test_validate_manifest_accepts_a_well_formed_manifest():
+    validate_manifest(_valid_rows())  # must not raise
+
+
+def test_validate_manifest_rejects_a_label_outside_zero_one():
+    df = _valid_rows()
+    df.loc[0, "label"] = 2
+    with pytest.raises(ValueError, match="label must be 0 or 1"):
+        validate_manifest(df)
+
+
+def test_validate_manifest_rejects_an_unknown_split():
+    df = _valid_rows()
+    df.loc[0, "split"] = "holdout"
+    with pytest.raises(ValueError, match="split must be one of"):
+        validate_manifest(df)
+
+
+def test_validate_manifest_rejects_duplicate_paths():
+    df = _valid_rows()
+    df.loc[1, "path"] = df.loc[0, "path"]
+    with pytest.raises(ValueError, match="duplicated path"):
+        validate_manifest(df)
+
+
+def test_validate_manifest_rejects_relative_paths():
+    # The defect this exists to catch: build_dataset.py wrote
+    # "seam/norm/<source>/..." under a column documented as absolute, which
+    # Plans 2 and 3 open from a different working directory.
+    df = _valid_rows()
+    df.loc[2, "path"] = "data/normalized/wildfake/sdxl/0000002.png"
+    with pytest.raises(ValueError, match="relative path"):
+        validate_manifest(df)
+
+
+def test_validate_manifest_rejects_missing_columns():
+    with pytest.raises(ValueError, match="missing columns"):
+        validate_manifest(pd.DataFrame({"path": ["/a.png"]}))
 
 def test_dummy_manifest_has_schema_and_real_files(tmp_path):
     rng = np.random.default_rng(0)

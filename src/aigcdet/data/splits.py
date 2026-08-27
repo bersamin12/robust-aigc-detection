@@ -8,6 +8,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from aigcdet.data.sources import is_heldout_eligible
+
 DEFAULT_SEED = 20260827
 MIN_HELDOUT_IMAGES = 200
 
@@ -15,14 +17,29 @@ MIN_HELDOUT_IMAGES = 200
 def choose_heldout_generators(df: pd.DataFrame, n: int = 2, seed: int = DEFAULT_SEED) -> list[str]:
     """Pick n generator families to exclude from training entirely.
 
-    Restricted to families with at least MIN_HELDOUT_IMAGES images so the
-    held-out evaluation has enough support for a usable confidence interval.
+    Restricted to families that are
+
+    1. genuine generator families -- a dataset-level pseudo-generator (see
+       `aigcdet.data.sources.PSEUDO_GENERATORS`) names a *source*, and
+       holding it out would measure dataset shift rather than the
+       unseen-generator generalisation spec §4.6 defines; and
+    2. large enough (>= MIN_HELDOUT_IMAGES) for the held-out evaluation to
+       have usable confidence intervals.
+
+    A human who wants a specific pair anyway passes them to
+    `build_dataset(heldout_generators=...)` rather than reseeding this.
     """
     counts = df[df["label"] == 1]["generator"].value_counts()
-    eligible = sorted(counts[counts >= MIN_HELDOUT_IMAGES].index.tolist())
+    big_enough = sorted(counts[counts >= MIN_HELDOUT_IMAGES].index.tolist())
+    eligible = [g for g in big_enough if is_heldout_eligible(g)]
     if len(eligible) < n:
+        ineligible = [g for g in big_enough if not is_heldout_eligible(g)]
         raise ValueError(
-            f"need {n} generators with >={MIN_HELDOUT_IMAGES} images, have {len(eligible)}")
+            f"need {n} generators with >={MIN_HELDOUT_IMAGES} images, have "
+            f"{len(eligible)}"
+            + (f" (excluding dataset-level pseudo-generators {ineligible}, "
+               "which name a source rather than a generator family)"
+               if ineligible else ""))
     rng = np.random.default_rng(seed)
     return sorted(rng.choice(np.array(eligible), size=n, replace=False).tolist())
 

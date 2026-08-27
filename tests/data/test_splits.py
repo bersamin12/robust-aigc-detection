@@ -20,6 +20,36 @@ def _df(n_per_gen=250, gens=("g1", "g2", "g3", "g4")):  # >=200/gen: see MIN_HEL
     return pd.DataFrame(rows, columns=MANIFEST_COLUMNS)
 
 
+def _df_with_pseudo_generator(n_per_gen=250):
+    """Two real generator families plus a dataset-level pseudo-generator that
+    clears MIN_HELDOUT_IMAGES easily, so it is rejected on eligibility rather
+    than on count."""
+    df = _df(n_per_gen=n_per_gen, gens=("g1", "g2"))
+    pseudo = pd.DataFrame([
+        {"path": f"/s/{i}.png", "label": 1, "generator": "sid_set",
+         "source": "sid_set", "licence": "x", "width": 512, "height": 512,
+         "split": ""}
+        for i in range(n_per_gen * 4)
+    ], columns=MANIFEST_COLUMNS)
+    return pd.concat([df, pseudo], ignore_index=True)
+
+
+@pytest.mark.parametrize("seed", range(12))
+def test_dataset_level_pseudo_generator_is_never_held_out(seed):
+    """Holding out "sid_set" removes an entire SOURCE, measuring dataset
+    shift rather than unseen-generator generalisation (spec §4.6). It is the
+    largest family here, so an unfiltered draw would return it often."""
+    held = choose_heldout_generators(_df_with_pseudo_generator(), n=2, seed=seed)
+    assert set(held) == {"g1", "g2"}
+
+
+def test_raises_when_only_pseudo_generators_are_large_enough():
+    df = _df_with_pseudo_generator()
+    df = df[df["generator"] != "g2"]
+    with pytest.raises(ValueError, match="pseudo-generators"):
+        choose_heldout_generators(df, n=2, seed=0)
+
+
 def test_choose_heldout_generators_is_deterministic_and_returns_two():
     df = _df()
     a = choose_heldout_generators(df, n=2, seed=1)

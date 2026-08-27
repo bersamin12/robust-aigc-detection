@@ -9,7 +9,10 @@ therefore refuses to overwrite an existing manifest unless `force=True`.
 
 Usage:
     python scripts/build_dataset.py --raw data/raw --out data/normalized \
-        --demo-dir data/raw/demo --manifest data/manifest.parquet
+        --demo-dir data/demo --manifest data/manifest.parquet
+
+`--demo-dir` must sit OUTSIDE `--raw`: it is the organisers' benchmark, and
+anything under `--raw` is scanned as training data.
 """
 from __future__ import annotations
 
@@ -22,8 +25,9 @@ import pandas as pd
 
 from aigcdet.data.audit import audit_flags, audit_table
 from aigcdet.data.dedupe import build_hash_index, find_leaks
-from aigcdet.data.manifest import MANIFEST_COLUMNS, write_manifest
+from aigcdet.data.manifest import MANIFEST_COLUMNS, validate_manifest, write_manifest
 from aigcdet.data.normalize import normalize_many
+from aigcdet.data.sources import classify, is_excluded_from_training
 from aigcdet.data.splits import (
     DEFAULT_SEED,
     assign_splits,
@@ -93,6 +97,7 @@ def build_dataset(
     docs_dir: str = "docs",
     seed: int = DEFAULT_SEED,
     force: bool = False,
+    heldout_generators: list[str] | None = None,
 ) -> pd.DataFrame:
     """Run the full audit -> normalise -> dedupe -> split -> manifest
     pipeline and write the manifest. Returns the DataFrame it wrote.
@@ -101,6 +106,11 @@ def build_dataset(
     set: the manifest is frozen the instant it is written, because Plan 2's
     feature banks index against it positionally, and a silent re-split
     would misalign labels against features without ever raising an error.
+
+    `heldout_generators` pins the held-out families instead of drawing them
+    with `choose_heldout_generators`; the automatic choice is restricted to
+    genuine generator families (spec §4.6), so a human who wants a specific
+    pair says so here rather than reseeding until the draw obliges.
     """
     if os.path.exists(manifest) and not force:
         raise FileExistsError(
@@ -113,15 +123,17 @@ def build_dataset(
 
     licences = _load_licences(raw)
 
-    # Directory convention from acquire_data.py: raw/<source>/<real|fake>/...
-    # and for WildFake, raw/wildfake/<generator>/...
+    # `raw/<source>/<bucket>/...`, mapped to label/generator by the registry
+    # in aigcdet.data.sources -- the same module acquire_data.py writes the
+    # tree with. Inferring the label from the directory name here is what
+    # labelled all ~5,000 COCO val2017 photographs AI-generated: their bucket
+    # is `val2017`, not `real`. An unregistered source or bucket now raises.
     rows = []
     for p in _scan(raw):
         rel = os.path.relpath(p, raw).split(os.sep)
         source = rel[0]
         bucket = rel[1] if len(rel) > 1 else ""
-        label = 0 if bucket == "real" else 1
-        generator = "" if label == 0 else (bucket if source == "wildfake" else source)
+        label, generator = classify(source, bucket)
         rows.append({"src": p, "label": label, "generator": generator, "source": source})
     raw_df = pd.DataFrame(rows)
     if raw_df.empty:
@@ -158,7 +170,11 @@ def build_dataset(
     # 2. Normalise.
     pairs, dsts = [], []
     for i, r in raw_df.iterrows():
-        dst = os.path.join(out, r["source"], r["generator"] or "real", f"{i:07d}.png")
+        # Absolute: manifest.py documents `path` as absolute, and Plans 2
+        # and 3 open row["path"] directly from notebooks and from Kaggle,
+        # where the working directory is not this one.
+        dst = os.path.abspath(
+            os.path.join(out, r["source"], r["generator"] or "real", f"{i:07d}.png"))
         pairs.append((r["src"], dst))
         dsts.append(dst)
     sizes = normalize_many(pairs, workers=workers)
@@ -175,18 +191,29 @@ def build_dataset(
     print(f"dropping {len(leaks)} images that near-duplicate the demo set")
     raw_df = raw_df[~raw_df["path"].isin(leaks)].reset_index(drop=True)
 
-    # Spec §4.1(2): no COCO-derived authentic source may be trained on.
-    raw_df = raw_df[
-        ~((raw_df["label"] == 0) & (raw_df["source"].str.contains("coco")))
-    ].reset_index(drop=True)
+    # Spec §4.1(2): the organisers' demo benchmark may never be trained on.
+    # Keyed on the SOURCE alone, never on the label: gating this on
+    # `label == 0` meant a source mislabelled upstream slipped straight
+    # through the exclusion it exists to enforce.
+    excluded = raw_df["source"].map(is_excluded_from_training)
+    if excluded.any():
+        by_source = raw_df.loc[excluded, "source"].value_counts().to_dict()
+        print(f"excluding {int(excluded.sum())} images from demo-benchmark "
+              f"sources (spec §4.1): {by_source}")
+    raw_df = raw_df[~excluded].reset_index(drop=True)
 
     raw_df["licence"] = raw_df["source"].map(licences)
     raw_df["split"] = ""
 
     df = raw_df[MANIFEST_COLUMNS]
-    held = choose_heldout_generators(df, n=2, seed=seed)
-    print(f"held-out generators: {held}")
+    if heldout_generators:
+        held = sorted(heldout_generators)
+        print(f"held-out generators (pinned): {held}")
+    else:
+        held = choose_heldout_generators(df, n=2, seed=seed)
+        print(f"held-out generators: {held}")
     df = assign_splits(df, heldout_generators=held, seed=seed)
+    validate_manifest(df)
     write_manifest(df, manifest)
     print(split_report(df).to_string(index=False))
     with open(os.path.join(docs_dir, "splits.json"), "w") as f:
@@ -207,9 +234,13 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=DEFAULT_SEED)
     ap.add_argument("--force", action="store_true",
                      help="overwrite an existing manifest at --manifest")
+    ap.add_argument("--heldout-generators", default="",
+                    help="comma-separated generator families to hold out, "
+                         "pinning the choice instead of drawing it")
     a = ap.parse_args()
     build_dataset(a.raw, a.out, a.demo_dir, a.manifest, workers=a.workers,
-                  seed=a.seed, force=a.force)
+                  seed=a.seed, force=a.force,
+                  heldout_generators=[g for g in a.heldout_generators.split(",") if g])
 
 
 if __name__ == "__main__":
