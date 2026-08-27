@@ -1,0 +1,81 @@
+"""Leakage guard (spec §4.1).
+
+Training data must not overlap COCO val2017 or DALL·E Advanced — the
+organisers' demo benchmark. A byte-identity check is not enough: a demo image
+that has been resized, re-encoded, or lightly recompressed on its way into a
+training pool is still leakage, and its bytes will differ completely. A
+perceptual hash catches that; a checksum would not.
+
+Implemented directly rather than pulling in `imagehash`: it is a dozen lines,
+it keeps the dependency list short, and it is worth having under test.
+"""
+from __future__ import annotations
+
+import cv2
+import numpy as np
+from PIL import Image
+from scipy.fft import dct
+
+
+def phash(img: np.ndarray, hash_size: int = 8) -> int:
+    """DCT-based perceptual hash. Robust to recompression and rescaling,
+    which is exactly the overlap we need to catch."""
+    grey = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    small = cv2.resize(grey, (hash_size * 4, hash_size * 4), interpolation=cv2.INTER_AREA)
+    d = dct(dct(small.astype(np.float64), axis=0, norm="ortho"), axis=1, norm="ortho")
+    low = d[:hash_size, :hash_size]
+    med = np.median(low[1:, 1:])          # skip DC, which only encodes brightness
+    bits = (low > med).flatten()
+    out = 0
+    for b in bits:
+        out = (out << 1) | int(b)
+    return out
+
+
+def hamming(a: int, b: int) -> int:
+    return int(bin(a ^ b).count("1"))
+
+
+def build_hash_index(paths: list[str]) -> dict[str, int]:
+    idx = {}
+    for p in paths:
+        with Image.open(p) as im:
+            idx[p] = phash(np.asarray(im.convert("RGB"), dtype=np.uint8))
+    return idx
+
+
+def _pack(hashes: list[int]) -> np.ndarray:
+    return np.array([[(h >> (8 * i)) & 0xFF for i in range(8)] for h in hashes], dtype=np.uint8)
+
+
+_POPCOUNT = np.array([bin(i).count("1") for i in range(256)], dtype=np.uint8)
+
+
+def find_leaks(
+    candidate_hashes: dict[str, int],
+    demo_hashes: dict[str, int],
+    max_distance: int = 4,
+) -> dict[str, str]:
+    """Return {candidate_path: matching_demo_path} for every near-duplicate.
+
+    Vectorised NumPy popcount over a packed uint8 array rather than a pure
+    Python double loop: at scale (100k candidates x 14k demo images) the
+    naive O(n*m) Python loop is ~1.4e9 comparisons, too slow to run.
+    """
+    if not candidate_hashes or not demo_hashes:
+        return {}
+
+    cps = list(candidate_hashes)
+    chs = _pack(list(candidate_hashes.values()))
+    dps = list(demo_hashes)
+    dhs = _pack(list(demo_hashes.values()))
+
+    leaks: dict[str, str] = {}
+    chunk = 2048
+    for start in range(0, len(cps), chunk):
+        block = chs[start:start + chunk]
+        dist = _POPCOUNT[block[:, None, :] ^ dhs[None, :, :]].sum(axis=2)
+        hit_c, hit_d = np.where(dist <= max_distance)
+        for ci, di in zip(hit_c, hit_d):
+            leaks.setdefault(cps[start + ci], dps[di])
+    return leaks

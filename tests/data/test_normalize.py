@@ -32,6 +32,20 @@ def test_does_not_upscale_a_small_image(tmp_path):
     assert (w, h) == (300, 200)
 
 
+def test_downscales_portrait_image_by_shorter_side(tmp_path):
+    src = _src(tmp_path, "portrait.jpg", (1024, 2048))
+    dst = str(tmp_path / "portrait_out.png")
+    w, h = normalize_image(src, dst)
+    assert (w, h) == (512, 1024)
+
+
+def test_leaves_image_unchanged_when_short_side_is_exactly_512(tmp_path):
+    src = _src(tmp_path, "exact.jpg", (512, 900))
+    dst = str(tmp_path / "exact_out.png")
+    w, h = normalize_image(src, dst)
+    assert (w, h) == (512, 900)
+
+
 def test_converts_greyscale_and_rgba_to_rgb(tmp_path):
     p = tmp_path / "g.png"
     Image.fromarray(np.zeros((600, 600), dtype=np.uint8), mode="L").save(p)
