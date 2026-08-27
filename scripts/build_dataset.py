@@ -157,17 +157,11 @@ def build_dataset(
             f"{missing_licences}. Record every dataset's licence at "
             "acquisition time (spec §4.5) before building the manifest.")
 
-    # 1. Audit BEFORE normalising: the table is the figure for the README.
-    at = audit_table(raw_df["src"].tolist(), raw_df["label"].tolist(), raw_df["source"].tolist())
-    flags = audit_flags(at)
     os.makedirs(docs_dir, exist_ok=True)
-    with open(os.path.join(docs_dir, "data_audit.md"), "w") as f:
-        f.write("# Pre-normalisation data audit\n\n")
-        f.write(_to_markdown_table(at) + "\n\n## Flags\n\n")
-        f.write("\n".join(f"- {x}" for x in flags) if flags else "- none")
-    print(f"audit flags: {flags}")
 
-    # 2. Normalise.
+    # 1. Normalise. Unreadable files are skipped and recorded rather than
+    # ending the run: at ~100k images streamed from third-party hosts, at
+    # least one truncated or zero-byte file is near-certain.
     pairs, dsts = [], []
     for i, r in raw_df.iterrows():
         # Absolute: manifest.py documents `path` as absolute, and Plans 2
@@ -177,10 +171,38 @@ def build_dataset(
             os.path.join(out, r["source"], r["generator"] or "real", f"{i:07d}.png"))
         pairs.append((r["src"], dst))
         dsts.append(dst)
-    sizes = normalize_many(pairs, workers=workers)
-    raw_df["path"] = dsts
-    raw_df["width"] = [s[0] for s in sizes]
-    raw_df["height"] = [s[1] for s in sizes]
+    sizes, failures = normalize_many(pairs, workers=workers)
+    if failures:
+        skipped_path = os.path.join(docs_dir, "normalize_skipped.json")
+        with open(skipped_path, "w") as f:
+            json.dump([{"src": src, "reason": reason} for src, reason in failures],
+                      f, indent=2)
+        print(f"skipped {len(failures)} of {len(pairs)} images that could not "
+              f"be read; the full list is in {skipped_path}")
+    ok = [i for i, size in enumerate(sizes) if size is not None]
+    if not ok:
+        raise ValueError(
+            f"every one of the {len(pairs)} images under {raw} failed to "
+            f"normalise; see {docs_dir}/normalize_skipped.json")
+    raw_df = raw_df.iloc[ok].reset_index(drop=True)
+    raw_df["path"] = [dsts[i] for i in ok]
+    raw_df["width"] = [sizes[i][0] for i in ok]
+    raw_df["height"] = [sizes[i][1] for i in ok]
+
+    # 2. Audit the RAW files -- the table profiles the two classes before
+    # normalisation removes their container differences, and it is the
+    # figure for the README. It runs after step 1 only so that it reads the
+    # raw files normalisation has just proved decodable: audit_table opens
+    # every image, so an undecodable one would otherwise abort the ~20-minute
+    # audit pass before the skip list above could ever be produced.
+    at = audit_table(raw_df["src"].tolist(), raw_df["label"].tolist(),
+                     raw_df["source"].tolist())
+    flags = audit_flags(at)
+    with open(os.path.join(docs_dir, "data_audit.md"), "w") as f:
+        f.write("# Pre-normalisation data audit\n\n")
+        f.write(_to_markdown_table(at) + "\n\n## Flags\n\n")
+        f.write("\n".join(f"- {x}" for x in flags) if flags else "- none")
+    print(f"audit flags: {flags}")
 
     # 3. Leakage guard against the demo set (spec §4.1). find_leaks removes
     # nothing itself; we drop only the training-side matches it reports,
@@ -218,7 +240,8 @@ def build_dataset(
     print(split_report(df).to_string(index=False))
     with open(os.path.join(docs_dir, "splits.json"), "w") as f:
         json.dump(
-            {"heldout_generators": held, "seed": seed, "leaked_dropped": len(leaks)},
+            {"heldout_generators": held, "seed": seed, "leaked_dropped": len(leaks),
+             "normalize_skipped": len(failures)},
             f, indent=2,
         )
     return df

@@ -18,6 +18,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import pathlib
 import zipfile
 
 import numpy as np
@@ -316,6 +317,36 @@ def test_heldout_generators_can_be_pinned_by_a_human(tmp_path):
         assert json.load(f)["heldout_generators"] == [GENS[1]]
     assert set(df[df["split"] == "heldout_generator"]["generator"]) == {GENS[1]}
     assert GENS[1] not in set(df[df["split"] != "heldout_generator"]["generator"])
+
+
+def test_one_unreadable_image_does_not_kill_the_run(tmp_path):
+    """I5: `list(ex.map(...))` aborted the whole pipeline on the first
+    truncated file, and the ~20-minute audit pass had to re-run behind it.
+    The bad file must be dropped, counted and written down instead."""
+    raw_dir = tmp_path / "raw"
+    docs_dir = tmp_path / "docs"
+    rng = np.random.default_rng(0)
+    _small_raw_tree(raw_dir, rng)
+    os.makedirs(tmp_path / "demo", exist_ok=True)
+
+    real_dir = pathlib.Path(str(raw_dir), "sid_set", "real")
+    data = (real_dir / "00000.png").read_bytes()
+    truncated = real_dir / "truncated.png"
+    truncated.write_bytes(data[: len(data) // 2])
+
+    df = bd.build_dataset(
+        str(raw_dir), str(tmp_path / "out"), str(tmp_path / "demo"),
+        str(tmp_path / "manifest.parquet"), docs_dir=str(docs_dir),
+    )
+    # Every good image survives; only the unreadable one is missing.
+    assert len(df) == N_PER_GEN * 2 + 5
+
+    with open(docs_dir / "normalize_skipped.json") as f:
+        skipped = json.load(f)
+    assert [row["src"] for row in skipped] == [str(truncated)]
+    assert skipped[0]["reason"]  # the reason is recorded, not swallowed
+    with open(docs_dir / "splits.json") as f:
+        assert json.load(f)["normalize_skipped"] == 1
 
 
 def test_refuses_to_overwrite_an_existing_manifest_without_force(tmp_path):
