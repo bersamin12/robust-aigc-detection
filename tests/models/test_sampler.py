@@ -224,3 +224,66 @@ def test_augmented_only_rejects_m_deg_larger_than_available_views(tmp_path):
     with pytest.raises(ValueError):
         PairedSampler(b, np.arange(40), n_src=4, m_deg=N_VIEWS,
                       rng=np.random.default_rng(0), augmented_only=True)
+
+
+# --- C3: the generator grouping is precomputed, not rebuilt per draw --------
+
+def test_generator_groups_partition_the_pool_exactly(tmp_path):
+    """The precomputed groups must be a true partition of the class pool --
+    every image reachable, none duplicated, one generator family per group --
+    or generator stratification silently starts dropping or double-counting
+    images."""
+    b = _bank(tmp_path, n=60)          # generators cycle g0, g1, g2
+    s = PairedSampler(b, np.arange(60), n_src=4, m_deg=1, rng=np.random.default_rng(0))
+
+    groups = s._pos_groups
+    assert sorted(np.concatenate(groups).tolist()) == sorted(s.pos.tolist())
+    families = [np.unique(s.generators[g]) for g in groups]
+    assert all(len(f) == 1 for f in families)
+    # Ascending family order, matching what np.unique would have produced.
+    assert [f[0] for f in families] == sorted(f[0] for f in families)
+    assert len(groups) == len(np.unique(s.generators[s.pos]))
+
+
+def test_negative_pool_collapses_to_one_group(tmp_path):
+    """`generator` is "" for every authentic image, so stratifying the
+    negative pool is a no-op. It must cost one group, not a rebuilt mask over
+    tens of thousands of rows per draw."""
+    n = 40
+    w = BankWriter(str(tmp_path / "bn"), n, N_VIEWS, 3, "t", 0)
+    for i in range(n):
+        pres = np.zeros((N_VIEWS, 6), np.float32); pres[1:, 0] = 1.0
+        w.write_image(i, {"path": f"/p{i}", "label": i % 2,
+                          "generator": "" if i % 2 == 0 else "gA",
+                          "source": "s", "split": "train"},
+                      feats=np.zeros((N_VIEWS, 3), np.float32), presence=pres,
+                      severity=np.zeros((N_VIEWS, 6), np.float32),
+                      proxies=np.zeros((N_VIEWS, 3), np.float32),
+                      recipes=["[]"] * N_VIEWS)
+    w.close()
+    b = FeatureBank.open(str(tmp_path / "bn"))
+    s = PairedSampler(b, np.arange(n), n_src=4, m_deg=1, rng=np.random.default_rng(0))
+    assert len(s._neg_groups) == 1
+    assert sorted(s._neg_groups[0].tolist()) == sorted(s.neg.tolist())
+
+
+def test_drawing_never_rescans_the_pool(tmp_path):
+    """The defect this replaces recomputed `self.generators[pool]`,
+    `np.unique(...)` and a full boolean mask over the class pool on EVERY
+    draw -- 61 ms/batch at 45k/45k, ~99% of Stage B wall-clock. Asserted
+    structurally rather than by wall-clock: after construction, a draw must
+    not touch the per-image generator array at all."""
+    class _Exploding:
+        def __getitem__(self, key):
+            raise AssertionError(
+                "_draw_stratified rescanned self.generators; the grouping must "
+                "be precomputed in __init__")
+
+    b = _bank(tmp_path, n=60)
+    s = PairedSampler(b, np.arange(60), n_src=4, m_deg=1, rng=np.random.default_rng(0))
+    s.generators = _Exploding()
+
+    drawn = s._draw_stratified(s.pos, 200)
+    assert set(drawn.tolist()) <= set(s.pos.tolist())
+    for _ in zip(range(3), s):        # whole batches too
+        pass

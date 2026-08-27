@@ -91,6 +91,38 @@ class PairedSampler:
         if len(self.pos) == 0 or len(self.neg) == 0:
             raise ValueError("index pool must contain both classes")
         self.generators = bank.meta["generator"].to_numpy()
+        # Group each class pool by generator family ONCE. The previous
+        # implementation recomputed self.generators[pool], np.unique(...) and
+        # a full boolean mask over the whole pool on every single draw, i.e.
+        # O(n_src x |pool|) per batch: measured at 45k/45k with 12 families
+        # and n_src=64 that was ~61 ms/batch, ~43 min/rung, ~5 h across the
+        # ladder -- against a ~1M-parameter head whose actual training step
+        # is milliseconds. Grouping up front makes a draw O(1).
+        self._pos_groups = self._build_groups(self.pos)
+        self._neg_groups = self._build_groups(self.neg)
+
+    def _build_groups(self, pool: np.ndarray) -> list[np.ndarray]:
+        """Split `pool` into one index array per generator family present.
+
+        Groups come out in the same order `np.unique` would give (ascending
+        family name), and each group keeps `pool`'s own ordering, so drawing
+        group-then-offset reproduces the previous implementation's choices
+        draw for draw from the same generator stream.
+        """
+        gens = self.generators[pool]
+        order = np.argsort(gens, kind="stable")
+        sorted_gens = gens[order]
+        starts = np.flatnonzero(
+            np.concatenate(([True], sorted_gens[1:] != sorted_gens[:-1])))
+        ends = np.concatenate((starts[1:], [len(pool)]))
+        return [pool[order[a:b]] for a, b in zip(starts, ends)]
+
+    def _groups_for(self, pool: np.ndarray) -> list[np.ndarray]:
+        if pool is self.pos:
+            return self._pos_groups
+        if pool is self.neg:
+            return self._neg_groups
+        return self._build_groups(pool)
 
     def __len__(self) -> int:
         half = self.n_src // 2
@@ -99,13 +131,17 @@ class PairedSampler:
     def _draw_stratified(self, pool: np.ndarray, k: int) -> np.ndarray:
         """Generator-balanced draw of k indices from pool: pick a generator
         family uniformly, then an image within it. A family with 2 images
-        gets the same per-draw probability as a family with 2000."""
-        gens = self.generators[pool]
-        uniq = np.unique(gens)
+        gets the same per-draw probability as a family with 2000.
+
+        Two `rng.integers` draws per element, in the same order and with the
+        same bounds as before the grouping was precomputed, so the batch
+        sequence for a given seed is unchanged -- only the cost is.
+        """
+        groups = self._groups_for(pool)
+        n_groups = len(groups)
         chosen = np.empty(k, dtype=np.int64)
         for i in range(k):
-            g = uniq[self.rng.integers(len(uniq))]
-            family = pool[gens == g]
+            family = groups[self.rng.integers(n_groups)]
             chosen[i] = family[self.rng.integers(len(family))]
         return chosen
 
