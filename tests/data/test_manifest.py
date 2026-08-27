@@ -70,12 +70,19 @@ def test_dummy_manifest_dimensions_match_metadata(tmp_path):
         assert actual_height == row["height"], \
             f"Row {idx}: height mismatch {actual_height} != {row['height']}"
 
-def test_dummy_manifest_paths_are_absolute(tmp_path):
-    """Verify that paths recorded in manifest are absolute."""
+def test_dummy_manifest_paths_are_absolute(tmp_path, monkeypatch):
+    """Verify that paths recorded in manifest are absolute even from relative out_dir.
+
+    Uses monkeypatch.chdir to ensure relative paths resolve within tmp_path,
+    keeping the test hermetic and preventing repo littering.
+    """
     import os
 
+    # Change to tmp_path so relative paths resolve there
+    monkeypatch.chdir(tmp_path)
+
     rng = np.random.default_rng(0)
-    # Use a relative path for out_dir
+    # Use a relative path for out_dir (resolves under tmp_path due to chdir)
     rel_dir = "relative_dummy_dir"
     df = make_dummy_manifest(5, rel_dir, rng)
 
@@ -84,3 +91,6 @@ def test_dummy_manifest_paths_are_absolute(tmp_path):
         assert os.path.isabs(path), f"Path is not absolute: {path}"
         # And files should actually exist at those absolute paths
         assert os.path.exists(path), f"File does not exist at absolute path: {path}"
+        # Verify the absolute path is within tmp_path
+        assert str(path).startswith(str(tmp_path)), \
+            f"Path {path} is not within tmp_path {tmp_path}"
