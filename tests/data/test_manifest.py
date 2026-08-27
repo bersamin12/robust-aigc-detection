@@ -178,3 +178,34 @@ def test_dummy_manifest_split_assignment_is_deterministic_under_its_rng(tmp_path
     b = make_dummy_manifest(60, str(tmp_path / "b"), np.random.default_rng(3))
     assert a["split"].tolist() == b["split"].tolist()
     assert a["generator"].tolist() == b["generator"].tolist()
+
+
+@pytest.mark.parametrize("n", [3, 4, 5, 6, 8, 20, 60])
+def test_dummy_manifest_is_usable_at_the_small_n_later_plans_call_it_with(n):
+    """Plans 2 and 3 call make_dummy_manifest with n = 3, 4, 5 and 6.
+
+    Holding out the LAST present generator relocated I4's own failure to
+    small n: at n=3 there is a single fake generator, so holding it out left
+    train with no fakes and no val_internal rows at all -- the "bank has no
+    val_internal rows" failure the fixture exists to prevent. Both splits
+    must be non-empty for every n a caller actually uses.
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as d:
+        df = make_dummy_manifest(n, d, np.random.default_rng(0))
+
+    assert (df["split"] == "train").sum() >= 1
+    assert (df["split"] == "val_internal").sum() >= 1
+    train_fakes = df[(df["split"] == "train") & (df["label"] == 1)]
+    heldout = set(df[df["split"] == "heldout_generator"]["generator"])
+    if n >= 4:
+        # Two or more fake generators exist, so one can be held out while
+        # train keeps fakes to learn from.
+        assert len(heldout) == 1
+        assert len(train_fakes) >= 1
+        assert not heldout & set(df[df["split"] != "heldout_generator"]["generator"])
+    else:
+        # One fake generator only: holding it out would empty train of fakes.
+        assert heldout == set()
+    validate_manifest(df)

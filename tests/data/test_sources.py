@@ -6,7 +6,7 @@ import pytest
 
 from aigcdet.data.sources import (
     PSEUDO_GENERATORS, SOURCES, classify, is_excluded_from_training,
-    is_heldout_eligible, raw_subdir,
+    is_heldout_eligible, is_safe_generator, raw_subdir,
 )
 
 
@@ -61,6 +61,76 @@ def test_raw_subdir_round_trips_through_classify(source):
         assert classify(source, raw_subdir(source, 1)) == (1, spec.pseudo_generator)
     if spec.generator_buckets:
         assert classify(source, raw_subdir(source, 1, "sdxl")) == (1, "sdxl")
+
+
+#: Generator names an untrusted dataset record could plausibly carry,
+#: including ones that alias a declared bucket or climb out of the tree.
+#: The empty string is deliberately absent: it means "this record names no
+#: generator", which routes to the unattributed-fake bucket and is covered by
+#: test_raw_subdir_round_trips_through_classify.
+_CANDIDATE_GENERATORS = (
+    "sdxl", "midjourney", "real", "fake", "val2017", ".", "..", "...",
+    "a/b", "..\\b",
+)
+
+
+@pytest.mark.parametrize("source", sorted(SOURCES))
+@pytest.mark.parametrize("generator", _CANDIDATE_GENERATORS)
+def test_raw_subdir_and_classify_are_inverses_on_every_branch(source, generator):
+    """The property that matters, over the whole input domain rather than
+    one happy value: whatever `raw_subdir` accepts, `classify` must map back
+    to the SAME generator and label 1 -- and whatever it cannot, it must
+    refuse rather than return.
+
+    The old test only round-tripped "sdxl", leaving the branch where a
+    caller-supplied generator ALIASES a declared bucket completely
+    unexercised. `raw_subdir("sid_set", 1, "real")` returned "real", which
+    `classify` reads back as `(0, "")`: a fake written into the authentic
+    bucket and read as authentic. That is C1's exact defect -- writer and
+    reader disagreeing about a directory name -- and the generator string is
+    untrusted third-party data lifted from a dataset record field.
+    """
+    try:
+        bucket = raw_subdir(source, 1, generator)
+    except ValueError:
+        return  # refusing is always a valid answer
+    assert classify(source, bucket) == (1, generator)
+
+
+@pytest.mark.parametrize("generator", ["real", "fake"])
+def test_raw_subdir_refuses_a_generator_aliasing_a_declared_bucket(generator):
+    # "real" is sid_set's authentic bucket, "fake" its unattributed-fake
+    # bucket; either would be read back with the wrong label or the wrong
+    # generator.
+    with pytest.raises(ValueError, match="not usable as a bucket directory"):
+        raw_subdir("sid_set", 1, generator)
+
+
+@pytest.mark.parametrize("generator", [".", "..", "...", "a/b", "../evil"])
+def test_raw_subdir_refuses_a_generator_that_escapes_the_source_tree(generator):
+    with pytest.raises(ValueError, match="not usable as a bucket directory"):
+        raw_subdir("wildfake", 1, generator)
+
+
+def test_is_safe_generator_agrees_with_what_raw_subdir_accepts():
+    for generator in _CANDIDATE_GENERATORS:
+        accepted = True
+        try:
+            raw_subdir("sid_set", 1, generator)
+        except ValueError:
+            accepted = False
+        assert is_safe_generator("sid_set", generator) is accepted, generator
+
+
+def test_both_halves_of_the_demo_benchmark_are_excluded_from_training():
+    """Spec §4.1(2) forbids training on the organisers' demo benchmark, which
+    is COCO val2017 AND DALL-E Advanced. Registering both is what makes
+    "the demo set is excluded wholesale by the registry" a true statement --
+    a claim that is carried into Plan 4's error-analysis note."""
+    assert is_excluded_from_training("coco_val2017")
+    assert is_excluded_from_training("dalle_advanced")
+    excluded = {n for n, spec in SOURCES.items() if spec.exclude_from_training}
+    assert excluded == {"coco_val2017", "dalle_advanced"}
 
 
 def test_dataset_level_pseudo_generators_are_not_heldout_eligible():

@@ -22,6 +22,7 @@ Two properties are deliberately NOT derived from the label:
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 
@@ -68,14 +69,34 @@ SOURCES: dict[str, SourceSpec] = {
         real_buckets=frozenset({"real"}),
         generator_buckets=True,
     ),
-    # The organisers' demo benchmark. val2017/ is the directory name inside
-    # the official zip — the mapping that C1 got wrong. Authentic throughout,
-    # and excluded from training whatever any row claims.
+    # The authentic half of the organisers' demo benchmark. val2017/ is the
+    # directory name inside the official zip — the mapping that C1 got wrong.
+    # Authentic throughout, and excluded from training whatever any row claims.
     "coco_val2017": SourceSpec(
         name="coco_val2017",
         licence="CC BY 4.0 (images: Flickr terms) — https://cocodataset.org/#termsofuse",
         real_buckets=frozenset({"val2017"}),
         generator_buckets=False,
+        exclude_from_training=True,
+    ),
+    # The generated half of the same demo benchmark. Spec §4.1 forbids
+    # training on it exactly as it forbids COCO val2017, so it is registered
+    # for the same reason: `exclude_from_training` is what makes "the demo set
+    # is excluded wholesale by the registry" true of BOTH halves, not one.
+    #
+    # No bucket layout is declared, because there is none to declare: this set
+    # comes from the organisers rather than from an acquisition routine, and
+    # it belongs under `--demo-dir`, which build_dataset never classifies. The
+    # entry is the backstop for a copy that lands under `--raw` anyway — any
+    # directory name there reads as generated and is then excluded by source,
+    # and images sitting directly in the source root raise rather than being
+    # guessed at.
+    "dalle_advanced": SourceSpec(
+        name="dalle_advanced",
+        licence="TikTok TechJam organisers' demo benchmark — terms per the "
+                "competition brief; never used for training (spec §4.1)",
+        real_buckets=frozenset(),
+        generator_buckets=True,
         exclude_from_training=True,
     ),
 }
@@ -124,9 +145,35 @@ def classify(source: str, bucket: str) -> tuple[int, str]:
     )
 
 
+def is_safe_generator(source: str, generator: str) -> bool:
+    """Whether `generator` may be used as a bucket directory for `source`.
+
+    Generator names are UNTRUSTED third-party data — `acquire_data.py` lifts
+    them from a dataset record field — and they become directory names, so
+    two things must be impossible:
+
+    1. Aliasing a declared bucket. A record whose generator field is the
+       literal string "real" would be written into the authentic bucket and
+       read back as label 0: the writer and the reader disagreeing about a
+       directory name, which is exactly C1.
+    2. Escaping the source's own tree. `".."` contains no separator, so a
+       character-class check alone does not prevent it.
+    """
+    spec = spec_for(source)
+    if not generator or not spec.generator_buckets:
+        return False
+    if generator.strip(".") == "":                        # ".", "..", "..."
+        return False
+    if any(sep in generator for sep in ("/", "\\", os.sep)):
+        return False
+    return generator not in spec.real_buckets and generator != spec.pseudo_bucket
+
+
 def raw_subdir(source: str, label: int, generator: str = "") -> str:
     """The bucket directory `acquire_data.py` must write into. Inverse of
-    `classify`, so the writer and the reader cannot drift apart."""
+    `classify` on every branch, so the writer and the reader cannot drift
+    apart: any generator this accepts, `classify` maps back to
+    `(1, generator)`, and anything it would not, this refuses."""
     spec = spec_for(source)
     if label == 0:
         if len(spec.real_buckets) != 1:
@@ -137,6 +184,13 @@ def raw_subdir(source: str, label: int, generator: str = "") -> str:
     if generator:
         if not spec.generator_buckets:
             raise ValueError(f"source {source!r} declares no generator buckets")
+        if not is_safe_generator(source, generator):
+            raise ValueError(
+                f"generator {generator!r} is not usable as a bucket directory "
+                f"for source {source!r}: it either aliases a declared bucket "
+                f"(authentic {sorted(spec.real_buckets)}, unattributed "
+                f"{spec.pseudo_bucket!r}), which would make classify() read it "
+                f"back with the wrong label, or it escapes the source's tree.")
         return generator
     if not spec.pseudo_bucket:
         raise ValueError(

@@ -85,3 +85,42 @@ def test_estimated_jpeg_quality_fallback_is_non_inverting(content_fn):
     estimates = [estimate_jpeg_quality(ops.jpeg(img, q)) for q in qs]
     for lo, hi in zip(estimates, estimates[1:]):
         assert hi >= lo - 1e-6, f"non-inverting fallback violated: {estimates} for q={qs}"
+
+
+class _JpegWithNonZeroDqtIndex:
+    """Stands in for a JPEG whose only DQT segment is not index 0.
+
+    `im.quantization` is a DICT keyed by table index, not a list, so
+    `tables[0]` raises KeyError on such a file. PIL will not write one, so
+    the dict is supplied directly rather than through a real encode; the code
+    under test only ever touches `.quantization`.
+    """
+
+    quantization = {1: [16] * 64}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def test_odd_quantisation_table_index_falls_back_instead_of_aborting(tmp_path, monkeypatch):
+    """estimate_jpeg_quality runs inside audit_table over every image, so an
+    exception here aborts the whole ~20-minute audit pass. Normalisation
+    proving a file decodable does not prove its DQT is well-formed, so the
+    skip list does not cover this one -- it has to fall through to the
+    pixel-based estimate, as the pre-narrowing bare `except` did.
+    """
+    import aigcdet.features.proxies as proxies_module
+
+    img = _photo()
+    path = tmp_path / "odd_dqt.jpg"
+    Image.fromarray(img).save(path, format="JPEG", quality=80)
+    monkeypatch.setattr(proxies_module.Image, "open",
+                        lambda _p: _JpegWithNonZeroDqtIndex())
+
+    q = estimate_jpeg_quality(img, str(path))
+    assert 1.0 <= q <= 100.0
+    # It fell back to the pixel estimate rather than reading the table.
+    assert q == estimate_jpeg_quality(img)
