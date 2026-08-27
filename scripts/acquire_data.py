@@ -48,7 +48,10 @@ def acquire_sid_set(out: str, limit: int) -> None:
 
 
 def acquire_wildfake(out: str, limit: int, generators: list[str]) -> None:
-    from modelscope.msdatasets import MsDataset  # pip install modelscope
+    try:
+        from modelscope.msdatasets import MsDataset  # noqa: F401  # pip install modelscope
+    except ImportError:
+        pass  # the SystemExit below is the message either way
     raise SystemExit(
         "WildFake layout must be inspected before subsetting. Run:\n"
         "  python -c \"from modelscope.hub.api import HubApi; "
