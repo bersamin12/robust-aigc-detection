@@ -1,0 +1,37 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# --- Data: never commit imagery or derived banks ---
+# Raw and normalised datasets are acquired by scripts/acquire_data.py.
+data/raw/
+data/normalized/
+data/interim/
+*.parquet
+*.npy
+*.npz
+
+# --- Feature banks and model artefacts ---
+banks/
+runs/
+checkpoints/
+*.pt
+*.pth
+*.safetensors
+*.joblib
+
+# --- Outputs that are regenerated, not authored ---
+outputs/
+figures/*.png
+docs/contact_sheets/
+
+# --- Local scratch ---
+scratch/
+*.log
+.DS_Store
