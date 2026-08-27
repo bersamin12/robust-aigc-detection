@@ -45,10 +45,10 @@ import os
 import numpy as np
 import pandas as pd
 
-from aigcdet.augment.recipes import FAMILIES, Recipe
+from aigcdet.augment.recipes import N_FAMILIES, Recipe  # noqa: F401  (re-exported)
 
 N_VIEWS = 11          # 1 clean + 10 augmented (spec §3.1, K=10)
-N_FAMILIES = len(FAMILIES)   # presence/severity are per degradation family
+# N_FAMILIES is re-exported from aigcdet.augment.recipes, which owns FAMILIES.
 RECON_DIM = 12
 
 

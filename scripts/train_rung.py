@@ -29,7 +29,8 @@ def main() -> None:
     cfg = RungConfig(bank_dir=a.bank, out_dir=a.out, device=a.device, seed=a.seed,
                       manifest_path=a.manifest, **raw)
     res = train_rung(cfg)
-    print(f"{cfg.name}: val_auc={res['val_auc']:.4f} -> {res['checkpoint']}")
+    print(f"{cfg.name}: val_auc={res['val_auc']:.4f} "
+          f"mean_views={res['val_auc_mean_views']:.4f} -> {res['checkpoint']}")
 
 
 if __name__ == "__main__":

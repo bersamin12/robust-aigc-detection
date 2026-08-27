@@ -10,7 +10,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-N_FAMILIES = 6
+from aigcdet.augment.recipes import N_FAMILIES
 
 
 class DegradationHead(nn.Module):
