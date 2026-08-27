@@ -1,0 +1,8 @@
+# + augmented training views
+name: a1
+use_augmented: true
+use_degradation: false
+use_consistency: false
+use_recon: false
+use_film: false
+epochs: 30

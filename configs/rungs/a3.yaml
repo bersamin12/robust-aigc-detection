@@ -1,0 +1,8 @@
+# + clean/degraded consistency  (HEADLINE candidate)
+name: a3
+use_augmented: true
+use_degradation: true
+use_consistency: true
+use_recon: false
+use_film: false
+epochs: 30
