@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from aigcdet.models.heads import Detector
+from aigcdet.models.heads import ClassifierHead, DegradationHead, Detector
 from aigcdet.models.losses import (
     LossWeights, classification_loss, consistency_loss, degradation_loss, total_loss,
 )
@@ -11,6 +11,14 @@ def test_classification_loss_is_near_zero_for_confident_correct_logits():
     logit = torch.tensor([10.0, -10.0])
     y = torch.tensor([1.0, 0.0])
     assert classification_loss(logit, y).item() < 1e-3
+
+
+def test_classification_loss_is_large_for_confident_wrong_logits():
+    """Sibling of the near-zero test above, so a constant-0.0 stub cannot
+    pass both: the near-zero test alone is satisfied by such a stub."""
+    logit = torch.tensor([10.0, -10.0])
+    y = torch.tensor([0.0, 1.0])  # exactly backwards
+    assert classification_loss(logit, y).item() > 5.0
 
 
 def test_degradation_loss_is_zero_at_a_perfect_prediction():
@@ -34,6 +42,18 @@ def test_severity_error_is_masked_to_present_families():
     assert torch.isclose(good, same, atol=1e-6)
 
 
+def test_degradation_loss_is_large_for_a_confidently_wrong_prediction():
+    """Neither of the two tests above would fail against a constant-0.0
+    stub on its own (a perfect prediction and a masked-out disagreement both
+    legitimately score near zero); this one requires an actual wrong,
+    present-family prediction to score high."""
+    tgt_p = torch.tensor([[1.0, 0.0, 0.0, 0.0, 0.0, 0.0]])
+    tgt_s = torch.tensor([[0.9, 0.0, 0.0, 0.0, 0.0, 0.0]])
+    pred_p = torch.tensor([[-20.0, 20.0, 20.0, 20.0, 20.0, 20.0]])  # presence exactly backwards
+    pred_s = torch.tensor([[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]])  # severity wrong on the present family
+    assert degradation_loss(pred_p, pred_s, tgt_p, tgt_s).item() > 5.0
+
+
 def test_consistency_loss_is_zero_when_clean_and_degraded_agree():
     lg = torch.tensor([1.5, -0.3])
     hd = torch.randn(2, 8, generator=torch.Generator().manual_seed(0))
@@ -50,8 +70,9 @@ def test_consistency_loss_grows_with_disagreement():
 
 def test_consistency_gradient_reaches_the_hidden_state():
     """Guards the v1 bug: the feature term must act on a trainable tensor."""
-    h_clean = torch.randn(3, 8, requires_grad=True)
-    h_deg = torch.randn(3, 8, requires_grad=True)
+    gen = torch.Generator().manual_seed(4)
+    h_clean = torch.randn(3, 8, generator=gen, requires_grad=True)
+    h_deg = torch.randn(3, 8, generator=gen, requires_grad=True)
     lg = torch.zeros(3, requires_grad=True)
     consistency_loss(lg, lg.clone(), h_clean, h_deg, 0.0, 1.0).backward()
     assert h_deg.grad is not None and h_deg.grad.abs().sum() > 0
@@ -159,6 +180,65 @@ def test_consistency_gradient_reaches_real_classifier_parameters():
     assert any(g is not None for g in grads), "no gradient reached the classifier at all"
     total_abs_grad = sum(g.abs().sum().item() for g in grads if g is not None)
     assert total_abs_grad > 0, "classifier parameters received exactly zero gradient"
+
+
+def test_total_loss_detaches_clean_branch_from_the_consistency_term():
+    """Regression guard for the two `.detach()` calls in `total_loss` itself
+    (not `consistency_loss`'s, which is deliberately undetached — see its
+    docstring). If either is removed, gradient from the consistency term
+    leaks back through the CLEAN forward pass, and the optimiser could
+    minimise L by collapsing the clean prediction/hidden state onto the
+    degraded one instead of pulling the degraded one towards the clean one —
+    the "meet in the middle" failure mode `total_loss`'s docstring warns
+    about.
+
+    Isolated with two independent `ClassifierHead` instances (clean and
+    degraded branches do NOT share parameters here, unlike the real
+    `Detector`), so a leak can't hide inside gradient shared with the
+    degraded branch. `y_clean` is set to the clean logit's own prediction
+    (detached), which makes L_cls's gradient into the clean branch exactly
+    zero by construction (BCE-with-logits' gradient is `sigmoid(logit) - y`,
+    zero when `y == sigmoid(logit)`), leaving the consistency term as the
+    only thing that could put gradient on `clf_clean`'s parameters.
+
+    This single assertion (`clean_grad == 0`) covers BOTH detach calls: removing
+    logit_clean's detach opens a nonzero-gradient path via the KL term,
+    removing hidden_clean's detach opens one via the MSE term, and either
+    alone makes `clean_grad` nonzero. Verified by hand (not left in the
+    suite) that deleting either one flips this test to fail.
+    """
+    gen = torch.Generator().manual_seed(5)
+    dim = 16
+    clf_clean = ClassifierHead(dim_in=dim)
+    clf_deg = ClassifierHead(dim_in=dim)
+    deg_head = DegradationHead(dim_in=dim)
+
+    f_clean = torch.randn(4, dim, generator=gen)
+    f_deg = torch.randn(4, dim, generator=gen)
+
+    out_clean = clf_clean(f_clean)
+    out_deg = clf_deg(f_deg)
+    out_deg = {**out_deg, **{k: v for k, v in deg_head(f_deg).items() if k in ("presence", "severity")}}
+
+    y_clean_matching = torch.sigmoid(out_clean["logit"]).detach()
+    batch = {
+        "y_clean": y_clean_matching,
+        "y_deg": torch.ones(4),
+        "presence_deg": torch.zeros(4, 6),
+        "severity_deg": torch.zeros(4, 6),
+    }
+    loss, _ = total_loss(out_clean, out_deg, batch, LossWeights(lambda_deg=1.0, alpha=1.0, beta=1.0))
+    loss.backward()
+
+    clean_grad = sum(p.grad.abs().sum().item() for p in clf_clean.parameters() if p.grad is not None)
+    deg_branch_grad = sum(p.grad.abs().sum().item() for p in clf_deg.parameters() if p.grad is not None)
+
+    assert clean_grad == pytest.approx(0.0), \
+        "gradient leaked into the clean branch's classifier — a total_loss detach is missing"
+    # Sanity: the pipeline is actually live and the degraded branch does get
+    # gradient (from L_cls and the consistency term), so a zero on the clean
+    # side is meaningful and not an artefact of a dead graph.
+    assert deg_branch_grad > 0
 
 
 def test_lambda_deg_zero_removes_degradation_head_gradient_via_total_loss():
