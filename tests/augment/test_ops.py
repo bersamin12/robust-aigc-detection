@@ -37,6 +37,14 @@ def test_blur_sigma_zero_is_identity(img):
 def test_resize_roundtrip_returns_original_shape(img, scale):
     out = ops.resize_roundtrip(img, scale=scale)
     assert out.shape == img.shape
+    # The op must actually alter pixel content, not return input unchanged
+    assert not np.array_equal(out, img)
+
+def test_resize_roundtrip_degrades_more_aggressively_at_smaller_scale(img):
+    # More aggressive downsampling (0.25) must degrade more than less aggressive (0.5)
+    d_half = np.abs(ops.resize_roundtrip(img, scale=0.5).astype(int) - img.astype(int)).mean()
+    d_quarter = np.abs(ops.resize_roundtrip(img, scale=0.25).astype(int) - img.astype(int)).mean()
+    assert d_quarter > d_half
 
 @pytest.mark.parametrize("sigma", [0.02, 0.05, 0.10])
 def test_noise_is_deterministic_given_rng_and_scales_with_sigma(img, sigma):
@@ -53,6 +61,26 @@ def test_jitter_identity_at_zero(img):
 def test_jitter_brightness_raises_mean(img):
     assert ops.jitter(img, 0.2, 0.0, 0.0).mean() > img.mean()
 
+def test_jitter_contrast_increases_spread(img):
+    # Positive contrast delta should increase standard deviation (spread about mean)
+    original_std = img.astype(np.float32).std()
+    jittered = ops.jitter(img, 0.0, 0.2, 0.0).astype(np.float32)
+    jittered_std = jittered.std()
+    assert jittered_std > original_std
+
+def test_jitter_saturation_increases_color_distance(img):
+    # Positive saturation delta should increase mean distance from greyscale
+    # Compute distance from greyscale luminance: sqrt(sum of squared differences from grey value)
+    grey = img.astype(np.float32) @ np.array([0.299, 0.587, 0.114], dtype=np.float32)
+    original_dist = np.sqrt(((img.astype(np.float32) - grey[..., None]) ** 2).mean())
+
+    jittered = ops.jitter(img, 0.0, 0.0, 0.2)
+    jittered_float = jittered.astype(np.float32)
+    grey_jit = jittered_float @ np.array([0.299, 0.587, 0.114], dtype=np.float32)
+    jittered_dist = np.sqrt(((jittered_float - grey_jit[..., None]) ** 2).mean())
+
+    assert jittered_dist > original_dist
+
 def test_center_crop_80_preserves_shape_and_drops_border(img):
     out = ops.center_crop(img, frac=0.8)
     assert out.shape == img.shape
@@ -60,3 +88,6 @@ def test_center_crop_80_preserves_shape_and_drops_border(img):
 
 def test_op_funcs_covers_all_six_families():
     assert set(ops.OP_FUNCS) == {"jpeg", "blur", "resize", "noise", "jitter", "crop"}
+    # Verify the values point to the correct functions (especially the two renamed entries)
+    assert ops.OP_FUNCS["resize"] is ops.resize_roundtrip
+    assert ops.OP_FUNCS["crop"] is ops.center_crop
