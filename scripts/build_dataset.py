@@ -128,14 +128,16 @@ def build_dataset(
         raise ValueError(f"no images found under {raw}")
     print(f"scanned {len(raw_df)} raw images")
 
-    # Reject a missing key, a falsy value (e.g. `{"real_src": ""}` or
-    # `null`), AND a whitespace-only value (e.g. `"   "`) -- all four flow
-    # through to a blank-in-substance `licence` column otherwise. A
-    # whitespace-only entry is the same missing provenance the fail-loud
-    # requirement exists to prevent, just wearing different clothes: it
-    # looks populated to a presence check while carrying nothing usable.
+    # Reject a missing key, JSON `null`, `""`, AND a whitespace-only value
+    # (e.g. `"   "`) -- all four flow through to a blank-in-substance
+    # `licence` column otherwise. Falsiness is tested on the RAW value
+    # first, before any str() coercion: str(None) == "None" is truthy, so
+    # coercing first (as an earlier round of this fix did) would silently
+    # accept a JSON-null licence. Only a truthy value is then checked for
+    # being whitespace-only once stringified.
     missing_licences = sorted(
-        s for s in set(raw_df["source"]) if not str(licences.get(s, "")).strip()
+        s for s in set(raw_df["source"])
+        if not licences.get(s) or not str(licences.get(s)).strip()
     )
     if missing_licences:
         raise ValueError(
