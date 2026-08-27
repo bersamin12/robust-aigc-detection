@@ -23,9 +23,17 @@ def phash(img: np.ndarray, hash_size: int = 8) -> int:
     grey = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
     small = cv2.resize(grey, (hash_size * 4, hash_size * 4), interpolation=cv2.INTER_AREA)
     d = dct(dct(small.astype(np.float64), axis=0, norm="ortho"), axis=1, norm="ortho")
-    low = d[:hash_size, :hash_size]
-    med = np.median(low[1:, 1:])          # skip DC, which only encodes brightness
-    bits = (low > med).flatten()
+    # Take a (hash_size+1) x (hash_size+1) low-frequency block, then drop its
+    # first row and column: that removes the DC term (mean brightness), so a
+    # brightness shift (colour jitter is one of the six degradation families
+    # this guard must survive) cannot flip a hash bit. Slicing from the
+    # +1-sized block, rather than the hash_size x hash_size block, keeps the
+    # remaining AC block at hash_size x hash_size, so the hash is still a
+    # genuine 64-bit value at hash_size=8. The median and the packed bits
+    # both come from this same DC-excluded AC block.
+    ac = d[:hash_size + 1, :hash_size + 1][1:, 1:]
+    med = np.median(ac)
+    bits = (ac > med).flatten()
     out = 0
     for b in bits:
         out = (out << 1) | int(b)

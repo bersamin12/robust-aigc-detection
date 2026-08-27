@@ -10,6 +10,20 @@ def _photo(seed):
     return ops.blur(rng.integers(0, 256, (256, 256, 3), dtype=np.uint8), 3.0)
 
 
+def _flat_photo(seed):
+    """Near-uniform, low-texture image: a narrow-band, blurred backdrop
+    (sky, wall, studio backdrop) rather than raw per-pixel noise. Real
+    low-texture regions vary smoothly (lighting, vignetting), which is what
+    the blur reproduces; unblurred per-pixel noise degrades to pure
+    quantisation noise once resized down for hashing and is not
+    representative of anything phash is expected to handle. This is the
+    low-AC-energy regime where a DC leak into the hash bits would matter
+    most, since the DC/AC magnitude gap is at its narrowest here."""
+    rng = np.random.default_rng(seed)
+    base = rng.integers(118, 139, (256, 256, 3), dtype=np.uint8)
+    return ops.blur(base, 10.0)
+
+
 def test_identical_images_hash_identically():
     img = _photo(0)
     assert phash(img) == phash(img.copy())
@@ -23,6 +37,18 @@ def test_recompressed_image_stays_within_threshold():
 def test_resized_image_stays_within_threshold():
     img = _photo(2)
     assert hamming(phash(img), phash(ops.resize_roundtrip(img, 0.5))) <= 4
+
+
+def test_brightness_shift_stays_within_threshold():
+    # Colour jitter (+/-20% brightness) is one of the six degradation
+    # families the whole detector is evaluated against; a demo image that
+    # reached a training pool via an auto-enhance filter is exactly the
+    # leakage case this guard must still catch.
+    busy = _photo(5)
+    assert hamming(phash(busy), phash(ops.jitter(busy, 0.2, 0.0, 0.0))) <= 4
+
+    flat = _flat_photo(6)
+    assert hamming(phash(flat), phash(ops.jitter(flat, 0.2, 0.0, 0.0))) <= 4
 
 
 def test_different_images_are_far_apart():
