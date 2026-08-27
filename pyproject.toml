@@ -20,3 +20,4 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["gpu: requires a CUDA device and downloads model weights"]
