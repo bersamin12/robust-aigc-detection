@@ -36,15 +36,19 @@ def make_dummy_manifest(n: int, out_dir: str, rng: np.random.Generator) -> pd.Da
 
     Fakes are given a mild low-pass bias so a trivial classifier can reach
     above-chance accuracy; that makes end-to-end training smoke tests meaningful.
+
+    Paths recorded in the manifest are absolute, so they remain valid from any
+    working directory when read by downstream tasks.
     """
-    os.makedirs(out_dir, exist_ok=True)
+    out_dir_abs = os.path.abspath(out_dir)
+    os.makedirs(out_dir_abs, exist_ok=True)
     rows = []
     for i in range(n):
         label = int(i % 2)
         arr = rng.integers(0, 256, size=(64, 64, 3), dtype=np.uint8)
         if label == 1:
             arr = np.clip(arr.astype(np.float32) * 0.5 + 64, 0, 255).astype(np.uint8)
-        p = os.path.join(out_dir, f"dummy_{i:05d}.png")
+        p = os.path.abspath(os.path.join(out_dir_abs, f"dummy_{i:05d}.png"))
         Image.fromarray(arr).save(p)
         rows.append({
             "path": p,
