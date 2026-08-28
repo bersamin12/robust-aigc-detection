@@ -25,8 +25,14 @@ from tqdm import tqdm
 
 from aigcdet.augment.recipes import Recipe
 from aigcdet.augment.scenarios import EVAL_GRID
+from aigcdet.data.manifest import dataset_root
 from aigcdet.features.backbones import embed, load_backbone
-from aigcdet.features.bank import BankWriter, FeatureBank, manifest_fingerprint
+from aigcdet.features.bank import (
+    CHECKPOINT_EVERY,
+    BankWriter,
+    FeatureBank,
+    manifest_fingerprint,
+)
 from aigcdet.features.proxies import proxy_vector
 
 #: The benchmark subsample seed, fixed by the plan so the tier is reproducible
@@ -60,18 +66,29 @@ def _check_condition_order(conditions: dict[str, Recipe]) -> list[str]:
 def extract_eval_bank(manifest_df: pd.DataFrame, backbone_name: str, out_dir: str,
                       conditions: dict[str, Recipe] | None = None,
                       device: str = "cuda", seed: int = BENCHMARK_SEED,
-                      batch_size: int = 16) -> str:
+                      batch_size: int = 16, resume: bool = False,
+                      checkpoint_every: int = CHECKPOINT_EVERY,
+                      extra_config: dict | None = None) -> str:
     """Write a bank whose view axis is the fixed evaluation condition axis.
 
     `config["conditions"]` records the condition names in view order, through
     `BankWriter`'s `extra_config`, so it participates in the resume equality
     check: continuing an extraction against a different condition list is a
-    different bank, not a continuation.
+    different bank, not a continuation. `extra_config` adds to that record --
+    `scripts/extract_eval_bank.py` uses it to name the evaluation tier and the
+    (n, seed) of the manifest subsample the bank was extracted from, both of
+    which are otherwise unrecoverable from the artefact. Anything put there
+    must agree across shards, because `bank.merge_banks` treats every
+    unrecognised config key as a must-match extra; per-session facts (which
+    shard this is, which mount it read) belong in `manifest_root`/`n_images`,
+    which are already per-shard.
 
     Like `extract_bank`, each row's RNG is keyed on its index label in the
     frozen manifest, never on this call's loop position, so a shard
     (`full_df.iloc[a:b]`, which preserves index labels) reproduces the full
-    run's exact pixels.
+    run's exact pixels. `resume=True` continues an interrupted extraction into
+    an existing `out_dir`, skipping the rows already written, and
+    `checkpoint_every` is how much work a killed session can cost.
     """
     conditions = EVAL_GRID if conditions is None else conditions
     names = _check_condition_order(conditions)
@@ -85,10 +102,32 @@ def extract_eval_bank(manifest_df: pd.DataFrame, backbone_name: str, out_dir: st
             "index label, so a duplicate would make two different images draw "
             "identical noise. Deduplicate the index first.")
 
+    extras = {"conditions": names}
+    if extra_config:
+        clashing = sorted(set(extra_config) & set(extras))
+        if clashing:
+            raise ValueError(
+                f"extra_config may not shadow {clashing}: the condition list is "
+                "the bank's view axis and is written from `conditions`, not "
+                "from a caller-supplied duplicate that could disagree with it")
+        extras.update(extra_config)
+
     model, spec = load_backbone(backbone_name, device=device)
+    # `manifest_root` is where this session's copy of the dataset is mounted.
+    # The bank stores each row's path relative to it, so an eval shard
+    # extracted on Kaggle (/kaggle/input/<slug>/...) carries the same portable
+    # identity as the frozen manifest and merges with shards extracted
+    # elsewhere. Without it every row's `rel_path` is an absolute path, and
+    # `merge_banks` fingerprints the merged bank over strings no other machine
+    # produces -- so `verify_against_manifest` and `report._check_banks` refuse
+    # the merged artefact after the whole fleet has paid for it. None for a
+    # frame with no `rel_path` (an ad-hoc fixture rather than a frozen
+    # manifest), which falls back to absolute paths.
     writer = BankWriter(out_dir, len(df), len(names), spec.dim, backbone_name, seed,
                         manifest_sha256=manifest_fingerprint(df),
-                        extra_config={"conditions": names})
+                        manifest_root=dataset_root(df),
+                        resume=resume, checkpoint_every=checkpoint_every,
+                        extra_config=extras)
 
     recipes = [conditions[n] for n in names]
     labels = [r.labels() for r in recipes]
@@ -98,6 +137,8 @@ def extract_eval_bank(manifest_df: pd.DataFrame, backbone_name: str, out_dir: st
 
     for write_idx, (row_id, row) in enumerate(
             tqdm(df.iterrows(), total=len(df), desc=f"eval:{backbone_name}")):
+        if write_idx in writer.completed:
+            continue                     # already written by an earlier session
         with Image.open(row["path"]) as im:
             base = np.asarray(im.convert("RGB"), dtype=np.uint8)
         views = [r.apply(base, np.random.default_rng([seed, int(row_id), j]))
