@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import pytest
 
@@ -11,6 +13,12 @@ def _skip_unless_gpu_has_headroom():
     than attempting a load that OOMs. torch.cuda.is_available() is True even at
     a few hundred MiB free, so the guard checks free VRAM via mem_get_info(),
     not just device availability."""
+    if os.environ.get("AIGCDET_ALLOW_GPU_TESTS") != "1":
+        pytest.skip(
+            "GPU tests are opt-in: set AIGCDET_ALLOW_GPU_TESTS=1 to run them. "
+            "They load real backbone weights and will download them if absent."
+        )
+
     import torch
 
     if not torch.cuda.is_available():

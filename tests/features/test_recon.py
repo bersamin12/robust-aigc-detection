@@ -1,5 +1,7 @@
 import json
 
+import os
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -422,6 +424,12 @@ _MIN_FREE_BYTES = 4 * 1024**3  # 4 GB headroom for the VAE + LPIPS(AlexNet)
 
 
 def _skip_unless_gpu_has_headroom():
+    if os.environ.get("AIGCDET_ALLOW_GPU_TESTS") != "1":
+        pytest.skip(
+            "GPU tests are opt-in: set AIGCDET_ALLOW_GPU_TESTS=1 to run them. "
+            "They load real backbone weights and will download them if absent."
+        )
+
     import torch
 
     if not torch.cuda.is_available():
