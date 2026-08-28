@@ -610,22 +610,44 @@ def test_the_a5_row_is_registered_with_a_bank_covering_both_parents(tmp_path):
         argv[argv.index("--fuse-eval-bank") + 1]]
 
 
-def test_mapping_a5_to_a3s_bank_would_pass_a_check_it_never_covered(tmp_path):
-    """THE kill for `banks[FUSION_RUNG] = eval_bank`.
+def test_the_cross_backbone_a5_row_is_admitted_and_names_both_backbones(
+        tmp_path):
+    """The cross-backbone A5 is the A5 the spec describes, and it must reach
+    the table.
 
-    The partner eval bank here is over the same manifest and the same condition
-    axis but a DIFFERENT backbone -- the one thing rung A5 varies by design and
-    the one thing `assert_banks_comparable` refuses to let share a table. With
-    the fused bank registered, the run is refused and says why. With A5 mapped
-    to A3's bank, the R24 check compares A3's bank against itself, sees nothing
-    wrong, and the two-backbone row is tabulated beside the single-backbone
-    rungs unremarked -- so this test fails if that mutation is made.
+    This test asserted the OPPOSITE until R43: `_COMPARABLE_KEYS` includes
+    `backbone`, so a DINOv3+SigLIP2 composite was refused from the results
+    entirely -- the spec's own A5 could not appear in its own ablation ladder.
+    R43 admits a bank that DECLARES its parents and their backbones and whose
+    own `backbone` is exactly their composite; a borrowed parent name is still
+    refused, and plain backbones are still compared as a set so a composite
+    cannot bridge two single-backbone rungs.
+
+    The kill this test used to carry -- `banks[FUSION_RUNG] = eval_bank`, which
+    would make `assert_banks_comparable` compare A3's bank against itself -- is
+    NOT lost: `test_the_a5_row_is_registered_with_a_bank_covering_both_parents`
+    still fails on exactly that mutation. Verified before this test was
+    retired, rather than assumed.
     """
-    argv = _fusion_argv(tmp_path, backbone="other_backbone")
-    with pytest.raises(ValueError, match="not comparable") as exc:
-        ra.main(argv)
-    assert "backbone" in str(exc.value)
-    assert "other_backbone" in str(exc.value)
+    captured = {}
+    original = ra.robustness_table
+
+    def spy(per_rung, **kwargs):
+        captured["banks"] = kwargs["banks"]
+        return original(per_rung, **kwargs)
+
+    ra.robustness_table = spy
+    try:
+        with _quiet_control_warning():
+            ra.main(_fusion_argv(tmp_path, backbone="other_backbone"))
+    finally:
+        ra.robustness_table = original
+
+    a5 = captured["banks"][ra.FUSION_RUNG]
+    assert a5.config["fused_backbones"] == ["fake", "other_backbone"]
+    assert a5.config["backbone"] == "fake+other_backbone"
+    assert a5.config["n_images"] == captured["banks"]["a3"].config["n_images"]
+    assert "| a5 |" in (tmp_path / "out" / "robustness_table.md").read_text()
 
 
 def test_a_partner_eval_bank_from_another_manifest_is_refused_before_training(
@@ -679,7 +701,9 @@ def test_the_a5_metric_is_computed_on_the_split_column_the_parents_share(
     before either assertion is trusted.
     """
     from aigcdet.eval.errors import heldout_robust_tpr
-    from aigcdet.eval.fusion import fuse_scores, fused_splits
+    from aigcdet.eval.fusion import (
+        FIT_SPLITS_FOR_SELECTION, fuse_scores, fused_splits,
+    )
     from aigcdet.eval.grid import score_grid
     from aigcdet.features.bank import FeatureBank
     from aigcdet.train.train_head import load_detector
@@ -698,7 +722,14 @@ def test_the_a5_metric_is_computed_on_the_split_column_the_parents_share(
         frames.append(score_grid(model, bank, device="cpu"))
 
     splits = fused_splits(banks)
-    expected = heldout_robust_tpr(fuse_scores(frames), splits)
+    # The SAME declared population the call site fits on. Recomputing with a
+    # whole-frame fit would not merely be a different number -- `_eval_bank`
+    # deliberately carries a 60-row `benchmark` block, so it is the very
+    # contamination the declaration exists to exclude.
+    expected = heldout_robust_tpr(
+        fuse_scores(frames, splits=splits,
+                    fit_splits=FIT_SPLITS_FOR_SELECTION),
+        splits)
     a3_alone = heldout_robust_tpr(frames[0], splits)
 
     assert expected != pytest.approx(a3_alone), \
