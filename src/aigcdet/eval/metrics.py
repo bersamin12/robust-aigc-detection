@@ -10,12 +10,14 @@ from typing import Callable
 import numpy as np
 from sklearn.metrics import roc_auc_score, roc_curve
 
+from aigcdet.operating_point import TARGET_FPR
+
 
 def roc_auc(y: np.ndarray, s: np.ndarray) -> float:
     return float(roc_auc_score(y, s))
 
 
-def threshold_at_fpr(y: np.ndarray, s: np.ndarray, target_fpr: float = 0.01) -> float:
+def threshold_at_fpr(y: np.ndarray, s: np.ndarray, target_fpr: float = TARGET_FPR) -> float:
     """Lowest threshold whose false-positive rate does not exceed the target.
 
     `drop_intermediate=False` is load-bearing. `roc_curve` defaults to dropping
@@ -32,7 +34,7 @@ def threshold_at_fpr(y: np.ndarray, s: np.ndarray, target_fpr: float = 0.01) -> 
     return float(thr[ok[-1]]) if len(ok) else float(np.max(s) + 1.0)
 
 
-def tpr_at_fpr(y: np.ndarray, s: np.ndarray, target_fpr: float = 0.01) -> float:
+def tpr_at_fpr(y: np.ndarray, s: np.ndarray, target_fpr: float = TARGET_FPR) -> float:
     """TPR at the lowest threshold whose FPR does not exceed the target.
 
     `drop_intermediate=False` for the same reason as `threshold_at_fpr`: a

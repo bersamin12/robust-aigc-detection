@@ -69,6 +69,7 @@ from aigcdet.eval.errors import (
     selection_report,
 )
 from aigcdet.eval.fusion import (
+    FIT_SPLITS_FOR_SELECTION, POPULATION_COLUMN,
     FusedEvalBank, assert_fusion_parents, fuse_scores, fused_splits,
 )
 from aigcdet.eval.grid import score_grid
@@ -433,19 +434,31 @@ def main(argv=None) -> dict:
         # eligibility: a config named "A3" is still the A3 this fuses with.
         base_key = next(k for k in per_rung
                         if str(k).strip().lower() == FUSION_BASE_RUNG)
+        # Computed ONCE, and BEFORE the fusion, because it is two things at
+        # once: the population the per-condition z-score parameters are fitted
+        # on, and the population the selection metric is then read on. The
+        # splits are the ones the two parents SHARE -- a fused frame has no
+        # single owning bank, so `fused_splits` refuses to answer at all unless
+        # the parents agree on the manifest, the rows and the splits.
+        rung_splits[FUSION_RUNG] = fused_splits([eval_bank, fuse_eval_bank])
+        # Fitting the z-scores over the whole frame would let the ablation
+        # bank's 5k benchmark subsample (spec 4.4a) set half of each parent's
+        # sigma -- and sigma_1/sigma_2 IS how much each backbone votes -- so
+        # the organisers' demo set would be choosing A5's fusion weights and
+        # moving its 6.4 candidacy. `heldout_robust_tpr` refuses benchmark rows
+        # at its own door; this is the same refusal one step earlier.
         per_rung[FUSION_RUNG] = fuse_scores(
-            [per_rung[base_key], partner_scores])
+            [per_rung[base_key], partner_scores],
+            splits=rung_splits[FUSION_RUNG],
+            fit_splits=FIT_SPLITS_FOR_SELECTION)
         # BOTH parents, never one of them. Registering the first bank would
         # make `assert_banks_comparable` pass on a row it never covered, which
         # is the augmentation-budget confound the check exists to prevent.
         banks[FUSION_RUNG] = FusedEvalBank([eval_bank, fuse_eval_bank])
-        # And the splits are the ones the two parents SHARE. A fused frame has
-        # no single owning bank, so `fused_splits` refuses to answer at all
-        # unless the parents agree on the manifest, the rows and the splits.
-        rung_splits[FUSION_RUNG] = fused_splits([eval_bank, fuse_eval_bank])
         summary[FUSION_RUNG] = _selection_summary(
             per_rung[FUSION_RUNG], rung_splits[FUSION_RUNG]
         ) | {
+            "zscore_population": per_rung[FUSION_RUNG][POPULATION_COLUMN].iloc[0],
             "fused_from": [base_key, FUSION_PARTNER_NAME],
             "partner_bank": a.fuse_bank,
             "partner_eval_bank": a.fuse_eval_bank,
@@ -461,6 +474,11 @@ def main(argv=None) -> dict:
             "partner_checkpoint": partner["checkpoint"],
             "eval_banks": list(banks[FUSION_RUNG].config["fused_from"]),
             "backbones": list(banks[FUSION_RUNG].config["fused_backbones"]),
+            # The label AND the splits behind it: a fused score is not a fixed
+            # function of its two parents, so a reader cannot reconstruct what
+            # this row means without knowing what the z-scores were fitted on.
+            "zscore_population": per_rung[FUSION_RUNG][POPULATION_COLUMN].iloc[0],
+            "zscore_fit_splits": list(FIT_SPLITS_FOR_SELECTION),
         }
         row = summary[FUSION_RUNG]
         print(f"{FUSION_RUNG}: {SELECTION_METRIC}={row[SELECTION_METRIC]:.4f} "

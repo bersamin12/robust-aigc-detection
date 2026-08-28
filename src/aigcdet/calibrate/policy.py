@@ -26,6 +26,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from aigcdet.operating_point import TARGET_FPR
+
 from aigcdet.calibrate import check_fit_split
 from aigcdet.eval.metrics import threshold_at_fpr
 
@@ -84,7 +86,7 @@ def _check_labels(y: np.ndarray, n: int) -> np.ndarray:
 
 
 def fit_policy(p: np.ndarray, y: np.ndarray, eqi: np.ndarray,
-               target_fpr: float = 0.01, target_coverage: float = 0.85,
+               target_fpr: float = TARGET_FPR, target_coverage: float = 0.85,
                *, split) -> Policy:
     """Choose the three thresholds on internal validation rows.
 
