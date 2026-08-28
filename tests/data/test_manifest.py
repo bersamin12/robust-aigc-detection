@@ -5,8 +5,8 @@ import pandas as pd
 import pytest
 
 from aigcdet.data.manifest import (
-    DUMMY_GENERATORS, MANIFEST_COLUMNS, make_dummy_manifest, read_manifest,
-    validate_manifest, write_manifest,
+    DUMMY_GENERATORS, MANIFEST_COLUMNS, MANIFEST_IDENTITY_COLUMNS,
+    make_dummy_manifest, read_manifest, validate_manifest, write_manifest,
 )
 
 
@@ -75,7 +75,10 @@ def test_manifest_roundtrip(tmp_path):
     out = tmp_path / "m.parquet"
     write_manifest(df, str(out))
     back = read_manifest(str(out))
-    assert list(back.columns) == MANIFEST_COLUMNS
+    # A frozen manifest carries the AUTHORED columns plus the identity
+    # write_manifest derives from the files at freeze time (rel_path and the
+    # content digests) -- see MANIFEST_IDENTITY_COLUMNS.
+    assert list(back.columns) == MANIFEST_COLUMNS + MANIFEST_IDENTITY_COLUMNS
     assert len(back) == 8
     assert back["path"].tolist() == df["path"].tolist()
 

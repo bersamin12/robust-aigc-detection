@@ -35,6 +35,7 @@ from PIL import Image
 from tqdm import tqdm
 
 from aigcdet.augment.recipes import FAMILIES, Recipe, sample_training_recipe
+from aigcdet.data.manifest import dataset_root
 from aigcdet.features.backbones import embed, load_backbone
 from aigcdet.features.bank import (
     CHECKPOINT_EVERY,
@@ -225,8 +226,16 @@ def extract_bank(
             "against other shards) -- otherwise deduplicate the index first.")
 
     model, spec = load_backbone(backbone_name, device=device)
+    # `manifest_root` is where this session's copy of the dataset is mounted;
+    # the bank stores each row's path relative to it, so a shard extracted on
+    # Kaggle (/kaggle/input/<slug>/...) still fingerprints to what the frozen
+    # manifest fingerprints to, and merges with shards extracted elsewhere.
+    # None for a frame with no `rel_path` -- an ad-hoc fixture rather than a
+    # frozen manifest -- in which case the bank falls back to absolute paths,
+    # which are portable enough for a bank that never leaves one machine.
     writer = BankWriter(out_dir, len(df), n_views, spec.dim, backbone_name, seed,
                         manifest_sha256=manifest_fingerprint(df),
+                        manifest_root=dataset_root(df),
                         resume=resume, checkpoint_every=checkpoint_every)
 
     # Each image's RNG is keyed on the row's own index label -- its position
