@@ -124,8 +124,16 @@ class BankWriter:
         if resuming:
             with open(cfg_path) as f:
                 on_disk = json.load(f)
-            differing = {k: (on_disk.get(k), v) for k, v in self._config.items()
-                         if on_disk.get(k) != v}
+            # The union of both key sets, not just the REQUESTED keys: "a
+            # different condition list" includes "no condition list". Iterating
+            # `self._config` alone accepted a resume that simply omitted
+            # `extra_config`, and the next checkpoint then rewrote config.json
+            # WITHOUT it -- erasing an eval bank's `conditions` and leaving
+            # `score_grid` to reject the bank as "not an eval bank".
+            _MISSING = object()
+            differing = {k: (on_disk.get(k, _MISSING), self._config.get(k, _MISSING))
+                         for k in set(on_disk) | set(self._config)
+                         if on_disk.get(k, _MISSING) != self._config.get(k, _MISSING)}
             if differing:
                 raise ValueError(
                     f"cannot resume the bank at {out_dir}: its config.json "
@@ -364,7 +372,15 @@ def _extra_config(config: dict) -> dict:
     """The keys a `BankWriter` was given as `extra_config`, recovered from a
     written bank so `merge_banks` can carry them into the merged one. Without
     this, merging eval shards would drop `config["conditions"]` and the merged
-    bank would no longer know what its view axis means."""
+    bank would no longer know what its view axis means.
+
+    Note this treats EVERY unrecognised config key as a must-match extra. That
+    is correct for the only extra in the project today (`conditions`, which
+    genuinely must agree across shards), but a future writer that recorded a
+    per-run key -- a timestamp, a git sha, a hostname -- would make
+    `merge_banks` refuse legitimate shards with a confusing "not part of the
+    same bank" message. Add such a key to `_MERGE_PER_SHARD` when it appears.
+    """
     known = set(_MERGE_MUST_MATCH) | set(_MERGE_PER_SHARD)
     return {k: v for k, v in config.items() if k not in known}
 

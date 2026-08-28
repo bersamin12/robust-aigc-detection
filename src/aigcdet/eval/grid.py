@@ -120,10 +120,14 @@ def extract_eval_bank(manifest_df: pd.DataFrame, backbone_name: str, out_dir: st
 
 
 #: Config keys two banks must agree on before their scores may be compared.
-#: `n_views` is here because the eval bank's views ARE its conditions, so a
-#: mismatch turns a rung comparison into a comparison of augmentation budgets
-#: (project constraint: "identical view coverage across compared rungs").
-_COMPARABLE_KEYS = ("n_views", "backbone", "manifest_sha256")
+#: `conditions` is the view coverage itself -- two banks over the same twenty
+#: conditions in a different ORDER agree on `n_views` and are still not
+#: comparable, because view j means a different thing in each. `n_views` stays
+#: alongside it as the check that also applies to a training bank, which has
+#: no `conditions` at all. A mismatch in either turns a rung comparison into a
+#: comparison of augmentation budgets (project constraint: "identical view
+#: coverage across compared rungs").
+_COMPARABLE_KEYS = ("n_views", "conditions", "backbone", "manifest_sha256")
 
 
 def assert_banks_comparable(banks: Sequence[FeatureBank]) -> None:

@@ -28,6 +28,21 @@ def _patch_backbone(monkeypatch, grid, embed_fn=None):
     return spec
 
 
+def _assert_one_score_per_condition(out, n_conditions):
+    """Within a condition every row scored the same input; across conditions
+    every score differs. Both halves are needed: a `[:, j, :]` -> `[:, 0, :]`
+    slice keeps the within-condition half true and collapses the across half.
+
+    The within-condition check uses a tolerance, not equality: MKL's GEMM
+    gives 1-ULP-different float32 results for identical rows of one batch.
+    """
+    import numpy as np
+    spread = out.groupby("condition", sort=False)["score"].agg(
+        lambda x: float(x.max() - x.min()))
+    assert float(spread.max()) < 1e-5
+    assert out.groupby("condition", sort=False)["score"].first().nunique() == n_conditions
+
+
 def test_eval_bank_view_axis_is_the_condition_axis(tmp_path, monkeypatch):
     from aigcdet.eval import grid
     _patch_backbone(monkeypatch, grid)
@@ -115,6 +130,51 @@ def test_eval_views_are_keyed_on_row_id_not_loop_position(tmp_path, monkeypatch)
                               captured["full"][0][0])
 
 
+def test_feats_and_proxies_are_paired_with_condition_js_own_pixels(tmp_path, monkeypatch):
+    """The module's central claim, asserted over PIXELS rather than metadata.
+
+    `recipe_json`/`presence`/`severity` are all built from the recipe list, so
+    they survive a pixel-to-feature mis-pairing untouched, and
+    `check_invariants` only reads presence and the recipe. Storing
+    `embed(...)[::-1]`, or computing every proxy from `views[0]`, is invisible
+    to all of those -- and would make every robustness number a fiction.
+    """
+    from aigcdet.eval import grid
+    from aigcdet.features.proxies import proxy_vector
+
+    captured: list[list[np.ndarray]] = []
+
+    def _embed(m, s, imgs, device, batch_size=16):
+        captured.append([np.asarray(v).copy() for v in imgs])
+        # An integer-valued, highly pixel-sensitive stub. Values stay under
+        # 2048, where float16 (the bank's feats dtype) is still exact, so the
+        # round-trip is checked with equality rather than a tolerance.
+        return np.stack([np.full(s.dim, float(np.asarray(v, np.float64).sum() % 2003),
+                                 np.float32) for v in imgs])
+
+    _patch_backbone(monkeypatch, grid, _embed)
+    df = make_dummy_manifest(3, str(tmp_path / "imgp"), np.random.default_rng(12))
+    b = FeatureBank.open(
+        grid.extract_eval_bank(df, "fake", str(tmp_path / "ebp"), device="cpu"))
+
+    assert len(captured) == len(b.meta)
+    for i, views in enumerate(captured):
+        expected = [float(np.asarray(v, np.float64).sum() % 2003) for v in views]
+        # The pairing check is only meaningful if the conditions are
+        # distinguishable in the first place -- in particular under the
+        # reversal a `embed(...)[::-1]` mutation would produce.
+        assert expected != expected[::-1]
+        assert len(set(expected)) >= len(EVAL_GRID) - 1
+        for j, want in enumerate(expected):
+            np.testing.assert_array_equal(np.asarray(b.feats[i, j]),
+                                          np.full(4, want, np.float16))
+            np.testing.assert_allclose(np.asarray(b.proxies[i, j]),
+                                       proxy_vector(views[j]), rtol=1e-6, atol=1e-6)
+        # ... and the proxies genuinely vary across conditions, so an
+        # every-view-from-views[0] mutation cannot slip through as a tie.
+        assert len({tuple(np.asarray(b.proxies[i, j])) for j in range(len(EVAL_GRID))}) > 1
+
+
 def test_extract_eval_bank_rejects_conditions_whose_view_zero_is_not_clean(tmp_path, monkeypatch):
     from aigcdet.eval import grid
     _patch_backbone(monkeypatch, grid)
@@ -177,6 +237,42 @@ def test_score_grid_carries_each_rows_own_metadata_and_score(tmp_path, monkeypat
     assert not out.duplicated(["condition", "image_idx"]).any()
 
 
+def test_score_grid_scores_condition_j_against_view_j(tmp_path, monkeypatch):
+    """Every condition must be scored on ITS OWN cached view.
+
+    `bank.feats[:, j, :]` -> `bank.feats[:, 0, :]` still yields scores that
+    vary across images, so a mere "scores are not all equal" assertion misses
+    it -- and the robustness table would then show a perfectly flat curve with
+    no degradation under jpeg_q30, which spec 6.4's selection rule would read
+    as a fiction. Here view j's features are the constant j, so the mutant
+    collapses all twenty conditions onto one score.
+    """
+    from aigcdet.eval import grid
+    from aigcdet.models.heads import Detector
+    _patch_backbone(monkeypatch, grid,
+                    lambda m, s, imgs, device, batch_size=16:
+                        np.stack([np.full(s.dim, float(j), np.float32)
+                                  for j in range(len(imgs))]))
+    import torch
+
+    df = make_dummy_manifest(3, str(tmp_path / "img6"), np.random.default_rng(13))
+    b = FeatureBank.open(grid.extract_eval_bank(df, "fake", str(tmp_path / "eb6"),
+                                                device="cpu"))
+    model = Detector(dim_feat=4, use_recon=False)
+    out = grid.score_grid(model, b, use_recon=False, device="cpu")
+
+    _assert_one_score_per_condition(out, len(EVAL_GRID))
+    assert out["condition"].drop_duplicates().tolist() == list(EVAL_GRID)
+
+    # the score vector tracks the cached feature it was scored on, view by view
+    with torch.no_grad():
+        want = model(torch.from_numpy(
+            np.asarray(b.feats[0]).astype(np.float32)))["logit"].numpy()
+    np.testing.assert_allclose(
+        out.groupby("condition", sort=False)["score"].first().to_numpy(), want,
+        rtol=1e-5, atol=1e-6)
+
+
 def test_score_grid_uses_recon_features_when_asked(tmp_path, monkeypatch):
     from aigcdet.eval import grid
     from aigcdet.models.heads import Detector
@@ -186,14 +282,17 @@ def test_score_grid_uses_recon_features_when_asked(tmp_path, monkeypatch):
     df = make_dummy_manifest(3, str(tmp_path / "img4"), np.random.default_rng(7))
     b = FeatureBank.open(grid.extract_eval_bank(df, "fake", str(tmp_path / "eb4"),
                                                 device="cpu"))
-    rng = np.random.default_rng(0)
-    b.attach_recon(rng.normal(
-        size=(len(b.meta), len(EVAL_GRID), 12)).astype(np.float32))
+    # recon[i, j] = j, so a score_grid that sliced recon[:, 0, :] instead of
+    # recon[:, j, :] would report one identical score for all 20 conditions.
+    per_view = np.broadcast_to(
+        np.arange(len(EVAL_GRID), dtype=np.float32)[None, :, None],
+        (len(b.meta), len(EVAL_GRID), 12))
+    b.attach_recon(np.ascontiguousarray(per_view, dtype=np.float32))
     model = Detector(dim_feat=4, use_recon=True)
     out = grid.score_grid(model, b, use_recon=True, device="cpu")
     assert len(out) == 3 * len(EVAL_GRID)
     # feats are all-zero, so any variation in the score comes from recon
-    assert out["score"].nunique() > 1
+    _assert_one_score_per_condition(out, len(EVAL_GRID))
 
     plain = FeatureBank.open(str(tmp_path / "eb4"))
     plain.recon = None
@@ -256,7 +355,8 @@ def test_assert_banks_comparable_accepts_two_banks_from_the_same_extraction(
     assert_banks_comparable([a])
 
 
-@pytest.mark.parametrize("differ", ["n_views", "backbone", "manifest_sha256"])
+@pytest.mark.parametrize("differ", ["n_views", "conditions", "backbone",
+                                    "manifest_sha256"])
 def test_assert_banks_comparable_rejects_differing_coverage(tmp_path, monkeypatch,
                                                             differ):
     """Two rungs compared over different view coverage compare augmentation
@@ -268,6 +368,13 @@ def test_assert_banks_comparable_rejects_differing_coverage(tmp_path, monkeypatc
     if differ == "n_views":
         subset = {k: EVAL_GRID[k] for k in list(EVAL_GRID)[:5]}
         b = _eval_bank(tmp_path, monkeypatch, f"x{differ}b", df, conditions=subset)
+    elif differ == "conditions":
+        # Same twenty conditions, same n_views -- but view j means a different
+        # thing in each bank, so the two grids are not comparable.
+        names = list(EVAL_GRID)
+        reordered = {k: EVAL_GRID[k] for k in [names[0]] + names[1:][::-1]}
+        b = _eval_bank(tmp_path, monkeypatch, f"x{differ}b", df,
+                       conditions=reordered)
     elif differ == "backbone":
         b = _eval_bank(tmp_path, monkeypatch, f"x{differ}b", df, backbone="other")
     else:
