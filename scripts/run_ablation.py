@@ -27,6 +27,18 @@ fakes. `val_auc` from `train_rung` is the CLEAN VIEW ONLY and is recorded here
 under a name that says so, so it cannot be mistaken for the selection metric.
 The population is written into `selection.json` next to the choice.
 
+**A5 and A6 are not training configs, and are wired in accordingly.** `--fuse-bank
+BANK --fuse-eval-bank EVALBANK` trains a second A3 head on an independently
+extracted bank and fuses its grid scores with this run's A3 row
+(`eval.fusion.fuse_scores`), producing the `a5` row. The fused row registers a
+`FusedEvalBank` over BOTH parents, never one of them, and its selection metric
+is computed on the split column the two parents share -- which exists only when
+they agree on the frozen manifest, the condition axis and their split and label
+columns. `--tta` records rung A6's cost multiplier and the tier it applies to;
+A6 is inference-only and is scored from images rather than from the cached eval
+bank, so this script produces no `a6` row and says so in `selection.json`
+rather than leaving the rung silently absent.
+
 This script emits no content-blind figure. If one is ever added, it must come
 from `eval.controls.metadata_control` and never from
 `content_blind_auc(metadata_features(paths), y)` (ruling R37): only the former
@@ -51,16 +63,33 @@ from aigcdet.eval.errors import (
     SELECTION_TARGET_FPR, check_selection_population, heldout_robust_tpr,
     selection_report,
 )
+from aigcdet.eval.fusion import (
+    FusedEvalBank, assert_fusion_parents, fuse_scores, fused_splits,
+)
 from aigcdet.eval.grid import score_grid
 from aigcdet.eval.report import (
     DEFAULT_BOOT_SEED, DEFAULT_N_BOOT, TIER_CONDITIONS, robustness_table,
     save_heatmap, to_markdown,
 )
+from aigcdet.eval.tta import TTA_VIEWS
 from aigcdet.features.bank import FeatureBank
 from aigcdet.train.train_head import RungConfig, load_detector, train_rung
 
 CHECKPOINT_NAME = "checkpoint.pt"
 RESULT_NAME = "result.json"
+
+#: Rung A5 is not a training config: it fuses the A3 head on this run's bank
+#: with an A3 head trained on a second, independently-extracted bank. The
+#: partner is trained from A3's OWN config file rather than from a config of
+#: its own, so the two halves cannot drift apart into a comparison of training
+#: recipes when the point of A5 is the second backbone.
+FUSION_RUNG = "a5"
+FUSION_BASE_RUNG = "a3"
+FUSION_PARTNER_NAME = "a5_partner"
+
+#: Rung A6 is inference-only. It is scored from images, not from the cached
+#: eval bank, so this script records its cost and its tier and produces no row.
+TTA_RUNG = "a6"
 
 #: Config fields that may differ between the checkpoint on disk and this run
 #: without making the checkpoint a different experiment. `device` changes
@@ -182,6 +211,52 @@ def append_footnotes(path: str, text: str) -> None:
         f.write(text)
 
 
+def _selection_summary(scores, splits) -> dict:
+    """The §6.4 selection metric, with the declarations that make it checkable.
+
+    The number and its provenance travel together: `errors._check_provenance`
+    can only refuse a contaminated result that SAYS what population, split set
+    and operating point it came from. Every rung goes through here -- the
+    trained ones in the loop below and the fused A5 row after it -- so a rung
+    that is not a training config cannot end up in `selection.json` carrying
+    the metric without the declarations.
+
+    (The brief called this `_selection_metric`; it returns the whole declared
+    block rather than the bare float, because a bare float assigned into
+    `summary[rung]` is exactly the shape `select_headline` refuses.)
+    """
+    return {
+        # target_fpr passed EXPLICITLY. At the default it is the same call;
+        # written out, a change to the operating point is visible in the
+        # diff and is contradicted by the declaration two lines below.
+        SELECTION_METRIC: heldout_robust_tpr(
+            scores, splits, target_fpr=SELECTION_TARGET_FPR),
+        "target_fpr": SELECTION_TARGET_FPR,
+        "population": SELECTION_POPULATION,
+        "splits": list(SELECTION_SPLITS),
+    }
+
+
+def fusion_base_config(config_paths, base_rung: str = FUSION_BASE_RUNG) -> str:
+    """The rung config the fusion partner is trained from.
+
+    A5 is "A3 + a second backbone", so its two halves must be the same training
+    recipe on two different banks. Reading A3's own config file rather than
+    accepting a separate one for the partner makes that structural: there is no
+    second file to drift.
+    """
+    for path in config_paths:
+        with open(path, encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+        if str(raw.get("name", "")).strip().lower() == base_rung:
+            return path
+    raise ValueError(
+        f"--fuse-bank asks for rung {FUSION_RUNG.upper()}, which fuses two "
+        f"{base_rung.upper()} heads, but none of the --rungs configs "
+        f"{list(config_paths)} is named {base_rung!r}. Add it, or drop the "
+        "fusion flags.")
+
+
 def _ensure_parent(path: str) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
 
@@ -211,6 +286,21 @@ def build_parser() -> argparse.ArgumentParser:
                          "the training bank is still positionally aligned with it")
     ap.add_argument("--force-retrain", action="store_true",
                     help="retrain every rung even if a checkpoint exists")
+    ap.add_argument("--fuse-bank", default=None,
+                    help=f"rung {FUSION_RUNG.upper()}: a second, independently "
+                         f"extracted TRAINING bank. Its "
+                         f"{FUSION_BASE_RUNG.upper()} head is trained from the "
+                         f"same config as {FUSION_BASE_RUNG.upper()} and fused "
+                         "with it. Requires --fuse-eval-bank.")
+    ap.add_argument("--fuse-eval-bank", default=None,
+                    help="the eval bank matching --fuse-bank, over the same "
+                         "frozen manifest and the same condition axis as "
+                         "--eval-bank")
+    ap.add_argument("--tta", action="store_true",
+                    help=f"record rung {TTA_RUNG.upper()}'s test-time "
+                         f"augmentation cost ({len(TTA_VIEWS)} views) and the "
+                         "tier it applies to; A6 is inference-only and is not "
+                         "scored from the cached eval bank")
     return ap
 
 
@@ -247,6 +337,24 @@ def main(argv=None) -> dict:
     check_selection_population(splits)
     backbone = FeatureBank.open(a.bank).config.get("backbone")
 
+    # Everything the fusion needs is validated BEFORE the first rung trains,
+    # for the same reason the split coverage is: a second eval bank over
+    # another manifest, or a rung list with no A3 in it, is knowable now and
+    # costs hours of GPU to discover afterwards.
+    fuse_eval_bank, fuse_base_config = None, None
+    if bool(a.fuse_bank) != bool(a.fuse_eval_bank):
+        raise ValueError(
+            "--fuse-bank and --fuse-eval-bank go together: the partner head is "
+            "trained on the training bank and scored on the eval bank, and one "
+            f"without the other cannot produce a {FUSION_RUNG} row (got "
+            f"--fuse-bank={a.fuse_bank!r}, --fuse-eval-bank={a.fuse_eval_bank!r})")
+    if a.fuse_bank:
+        fuse_base_config = fusion_base_config(a.rungs)
+        fuse_eval_bank = FeatureBank.open(a.fuse_eval_bank)
+        # Checks the manifest, the condition axis and the split/label columns
+        # -- NOT the backbone, which is what rung A5 varies on purpose.
+        assert_fusion_parents([eval_bank, fuse_eval_bank])
+
     per_rung, summary, banks = {}, {}, {}
     for config_path in a.rungs:
         cfg = load_rung_config(config_path, a.bank, a.out_dir, a.device, a.manifest)
@@ -259,22 +367,13 @@ def main(argv=None) -> dict:
         scores = score_grid(model, eval_bank, use_recon=cfg.use_recon,
                             device=a.device)
         per_rung[cfg.name] = scores
-        # Registered per rung, not built as a comprehension after the loop: a
-        # rung added later that is scored on a DIFFERENT eval bank (Task 8's
-        # fusion opens a second one) must register its own bank here. A
-        # comprehension over `per_rung` would map it to this bank instead --
-        # a false statement that makes assert_banks_comparable pass on a row it
-        # never covered.
+        # Registered per rung, not built as a comprehension after the loop.
+        # The A5 block below is scored on a SECOND eval bank as well and
+        # registers a `FusedEvalBank` over both; a comprehension over
+        # `per_rung` would map it to this bank instead -- a false statement
+        # that makes assert_banks_comparable pass on a row it never covered.
         banks[cfg.name] = eval_bank
-        summary[cfg.name] = {
-            # target_fpr passed EXPLICITLY. At the default it is the same call;
-            # written out, a change to the operating point is visible in the
-            # diff and is contradicted by the declaration two lines below.
-            SELECTION_METRIC: heldout_robust_tpr(
-                scores, splits, target_fpr=SELECTION_TARGET_FPR),
-            "target_fpr": SELECTION_TARGET_FPR,
-            "population": SELECTION_POPULATION,
-            "splits": list(SELECTION_SPLITS),
+        summary[cfg.name] = _selection_summary(scores, splits) | {
             # NOT the selection metric, and named so nobody can read it as one:
             # `val_auc` from train_rung is view 0, the clean view, alone.
             "val_auc_clean_view_only": float(result["val_auc"]),
@@ -287,10 +386,87 @@ def main(argv=None) -> dict:
               f"val_auc(clean view only)="
               f"{row['val_auc_clean_view_only']:.4f}")
 
+    # Rung A5: fuse this run's A3 scores with an A3 head trained on a second,
+    # independently extracted bank. Not a training config, so it is built here
+    # rather than in the loop -- but it reaches `summary` through the same
+    # `_selection_summary`, so its number carries the same declarations.
+    fusion_record = {
+        "rung": FUSION_RUNG, "run": False,
+        "reason": "--fuse-bank/--fuse-eval-bank were not given, so rung "
+                  f"{FUSION_RUNG.upper()} was not evaluated in this run",
+    }
+    if fuse_eval_bank is not None:
+        cfg2 = load_rung_config(fuse_base_config, a.fuse_bank, a.out_dir,
+                                a.device, a.manifest)
+        cfg2.name = FUSION_PARTNER_NAME
+        partner, partner_resumed = train_or_resume(cfg2, force=a.force_retrain)
+        if partner_resumed:
+            print(f"SKIP {cfg2.name}: reusing the existing checkpoint at "
+                  f"{partner['checkpoint']} -- NOT retrained. Pass "
+                  "--force-retrain to train it again.")
+        model2, _ = load_detector(partner["checkpoint"], device=a.device)
+        partner_scores = score_grid(model2, fuse_eval_bank,
+                                    use_recon=cfg2.use_recon, device=a.device)
+        # Matched case-insensitively, the way `errors._normalise` matches rung
+        # eligibility: a config named "A3" is still the A3 this fuses with.
+        base_key = next(k for k in per_rung
+                        if str(k).strip().lower() == FUSION_BASE_RUNG)
+        per_rung[FUSION_RUNG] = fuse_scores(
+            [per_rung[base_key], partner_scores])
+        # BOTH parents, never one of them. Registering the first bank would
+        # make `assert_banks_comparable` pass on a row it never covered, which
+        # is the augmentation-budget confound the check exists to prevent.
+        banks[FUSION_RUNG] = FusedEvalBank([eval_bank, fuse_eval_bank])
+        # And the splits are the ones the two parents SHARE. A fused frame has
+        # no single owning bank, so `fused_splits` refuses to answer at all
+        # unless the parents agree on the manifest, the rows and the splits.
+        summary[FUSION_RUNG] = _selection_summary(
+            per_rung[FUSION_RUNG], fused_splits([eval_bank, fuse_eval_bank])
+        ) | {
+            "fused_from": [base_key, FUSION_PARTNER_NAME],
+            "partner_bank": a.fuse_bank,
+            "partner_eval_bank": a.fuse_eval_bank,
+            "partner_config": fuse_base_config,
+            "resumed_from_checkpoint": partner_resumed,
+        }
+        fusion_record = {
+            "rung": FUSION_RUNG, "run": True,
+            "base_rung": base_key,
+            "partner_bank": a.fuse_bank,
+            "partner_eval_bank": a.fuse_eval_bank,
+            "partner_config": fuse_base_config,
+            "partner_checkpoint": partner["checkpoint"],
+            "eval_banks": list(banks[FUSION_RUNG].config["fused_from"]),
+            "backbones": list(banks[FUSION_RUNG].config["fused_backbones"]),
+        }
+        row = summary[FUSION_RUNG]
+        print(f"{FUSION_RUNG}: {SELECTION_METRIC}={row[SELECTION_METRIC]:.4f} "
+              f"(fused {base_key} with a head trained on "
+              f"{a.fuse_bank})")
+
+    # Rung A6: inference-only, so no row is produced here. What IS recorded is
+    # the cost multiplier and the tier, because a cap nobody wrote down is
+    # indistinguishable from a result.
+    tta_record = {
+        "rung": TTA_RUNG, "requested": bool(a.tta), "scored_here": False,
+        "views": list(TTA_VIEWS), "cost_multiplier": len(TTA_VIEWS),
+        "tier": a.tier,
+        "reason": f"rung {TTA_RUNG.upper()} is test-time augmentation: it is "
+                  "applied to images at inference, not to the cached eval "
+                  "bank, so this script records its cost and tier and produces "
+                  "no row",
+    }
+    if a.tta:
+        print(f"{TTA_RUNG.upper()}: TTA with {len(TTA_VIEWS)} views multiplies "
+              f"inference cost by {len(TTA_VIEWS)}x; evaluated on the "
+              f"{a.tier}-tier subsample only, and scored from images rather "
+              "than from the cached eval bank, so it has no row in this table.")
+
     # One bank per rung, so `robustness_table` routes them through
     # `assert_banks_comparable` and rejects an eval bank with no manifest
-    # fingerprint. `banks` was filled inside the loop, beside the scores it
-    # describes, so it stays true when a rung is scored on another bank.
+    # fingerprint. Each entry was filled beside the scores it describes -- in
+    # the loop for the trained rungs, in the A5 block for the fused one -- so
+    # it stays true now that a rung IS scored on another bank.
     table = robustness_table(per_rung, tier=a.tier, metric=a.metric,
                              seed=a.boot_seed, n_boot=a.boot_n, banks=banks)
 
@@ -308,6 +484,10 @@ def main(argv=None) -> dict:
     # SELECTION_METRIC regardless. Recording both stops a reader of the table
     # from inferring which rule chose the model from which column it can see.
     report["table_metric"] = a.metric
+    # §6.4's eligible range is a3-a6. A rung that was not run is recorded as
+    # not run, so an absent A5 or A6 row is never read as an A5 or A6 that lost.
+    report["fusion"] = fusion_record
+    report["tta"] = tta_record
     _ensure_parent(a.selection)
     with open(a.selection, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
