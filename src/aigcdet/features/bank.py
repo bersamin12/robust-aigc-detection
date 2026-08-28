@@ -34,9 +34,23 @@ silently-corrupting input (a `reset_index()`ed frame passed
 `verify_against_manifest` and replayed every noise view wrongly).
 
 `config.json` records `manifest_sha256`, a fingerprint of the manifest's
-`path` column, so a bank carries an identity link back to the manifest it was
+PORTABLE identity -- its `rel_path` column, the path of each image inside the
+dataset tree -- so a bank carries an identity link back to the manifest it was
 built from instead of relying on a human to hand `verify_against_manifest`
 the right file.
+
+That fingerprint used to be taken over the absolute `path` column, which made
+it machine-specific and unusable for the workflow this project is built
+around: one machine normalises the data and freezes the manifest, the data is
+published as Kaggle Datasets, and several teammates extract shards of the bank
+in Kaggle sessions where the same images live under `/kaggle/input/<slug>/`.
+Every one of those shards fingerprinted differently from the manifest and from
+each other, so `verify_against_manifest` refused all of them and `merge_banks`
+produced a merged fingerprint that matched nothing. `meta.parquet` therefore
+carries `rel_path` alongside `path`, and `config.json` carries
+`manifest_root` -- the directory this bank's absolute paths were under when it
+was extracted, which is per-shard information and deliberately NOT part of the
+identity.
 """
 from __future__ import annotations
 
@@ -54,18 +68,55 @@ N_VIEWS = 11          # 1 clean + 10 augmented (spec §3.1, K=10)
 RECON_DIM = 12
 
 
-def manifest_fingerprint(manifest_df: pd.DataFrame) -> str:
-    """sha256 over the manifest's `path` column, in row order.
+def identity_paths(df: pd.DataFrame) -> list[str]:
+    """The row-identity strings of a manifest-shaped frame, in row order.
 
-    The bank is aligned to the manifest positionally, so the ordered path list
-    IS the bank's notion of "which manifest, which rows, in which order". A
-    re-split, a re-filter or a re-ordering all change it.
+    `rel_path` -- each image's path INSIDE the dataset tree -- when the frame
+    has one, which every frozen manifest and every bank's `meta.parquet`
+    does. A frame that has none (an ad-hoc DataFrame built in a test, or a
+    bank written without a `manifest_root`) falls back to `path`, which is
+    the same string on one machine and is exactly as strong there; it is only
+    not PORTABLE. The fallback is safe because it cannot make two different
+    row sequences collide -- it can only make one row sequence fingerprint
+    differently on a different machine, and the frames it applies to never
+    leave one.
+    """
+    col = "rel_path" if "rel_path" in df.columns else "path"
+    return [str(v) for v in df[col]]
+
+
+def manifest_fingerprint(manifest_df: pd.DataFrame) -> str:
+    """sha256 over the manifest's per-row identity, in row order.
+
+    The bank is aligned to the manifest positionally, so the ordered identity
+    list IS the bank's notion of "which manifest, which rows, in which order".
+    A re-split, a re-filter, a re-ordering or a rename inside the dataset all
+    change it; moving the whole dataset to another machine does not, because
+    the identity is each image's path RELATIVE to the dataset root (see
+    `aigcdet.data.manifest`).
+
+    It deliberately does NOT cover the images' content. A manifest is frozen
+    once and then copied to every machine that uses it, so any digest inside
+    it is a copy of what the pixels were on the machine that froze it -- it
+    can never tell you what is on this machine's disk, and folding it in here
+    would only make a fingerprint mismatch ambiguous between "different rows"
+    and "different pixels". Recomputing digests against the files that are
+    actually present is `aigcdet.data.verify.verify_images`, and it is a
+    separate check because it costs a full pass over the dataset.
     """
     h = hashlib.sha256()
-    for path in manifest_df["path"]:
-        h.update(str(path).encode("utf-8"))
+    for ident in identity_paths(manifest_df):
+        h.update(ident.encode("utf-8"))
         h.update(b"\n")
     return h.hexdigest()
+
+
+def _rel_path(path: str, root: str | None) -> str:
+    """`path` relative to the bank's `manifest_root`, or `path` itself when no
+    root was recorded (see `identity_paths` for why that is safe)."""
+    if not root:
+        return str(path)
+    return os.path.relpath(os.path.abspath(str(path)), os.path.abspath(str(root)))
 
 
 #: How often `BankWriter` flushes its metadata to disk while extracting. The
@@ -96,14 +147,24 @@ class BankWriter:
     def __init__(self, out_dir: str, n_images: int, n_views: int, dim: int,
                  backbone: str, seed: int, manifest_sha256: str | None = None,
                  resume: bool = False, checkpoint_every: int = CHECKPOINT_EVERY,
-                 extra_config: dict | None = None):
+                 extra_config: dict | None = None,
+                 manifest_root: str | None = None):
         os.makedirs(out_dir, exist_ok=True)
         self.path = out_dir
         self.n_views = n_views
         self.checkpoint_every = max(1, int(checkpoint_every))
+        # `manifest_root` is where this shard's images were mounted while it
+        # was extracted. It is recorded so `write_image` can store each row's
+        # path relative to it -- the identity that survives the move to
+        # another machine -- and so a human debugging a shard can see which
+        # copy of the data it came from. It is per-shard, never part of the
+        # bank's identity: two shards of one bank extracted on two Kaggle
+        # sessions legitimately have different roots.
+        self.manifest_root = manifest_root
         self._config = {"backbone": backbone, "dim": dim,
                          "n_views": n_views, "n_images": n_images, "seed": seed,
-                         "manifest_sha256": manifest_sha256}
+                         "manifest_sha256": manifest_sha256,
+                         "manifest_root": manifest_root}
         # `extra_config` is merged into `_config` -- NOT written separately
         # after close() -- precisely so it takes part in the resume equality
         # check below. `aigcdet.eval.grid` uses it to record the eval bank's
@@ -212,14 +273,24 @@ class BankWriter:
         manifest -- the RNG key every view's pixels are reproducible from. It
         defaults to `idx`, which is correct only for a bank built from a
         manifest with a contiguous 0..n-1 index; `extract_bank` always passes
-        the real label."""
+        the real label.
+
+        `rel_path` is derived from `manifest_root` and stored alongside
+        `path`, unless `meta_row` already carries one -- which it does when
+        `merge_banks` replays a shard's rows, and that shard's own root is the
+        one that made its `rel_path` right. Re-deriving it here from the
+        merged writer's root would overwrite a correct identity with a wrong
+        one."""
         self.feats[idx] = feats.astype(np.float16)
         self.presence[idx] = presence
         self.severity[idx] = severity
         self.proxies[idx] = proxies
+        row = dict(meta_row)
+        if "path" in row:
+            row.setdefault("rel_path", _rel_path(row["path"], self.manifest_root))
         self._meta.append({"image_idx": idx,
                             "row_id": idx if row_id is None else int(row_id),
-                            **meta_row})
+                            **row})
         for v, rj in enumerate(recipes):
             self._views.append({"image_idx": idx, "view_idx": v, "recipe_json": rj})
         self.completed.add(idx)
@@ -264,6 +335,17 @@ class FeatureBank:
                 "reliably. Re-extract it.")
         return self.meta["row_id"].to_numpy()
 
+    @property
+    def rel_paths(self) -> list[str]:
+        """Each row's path inside the dataset tree, in bank row order.
+
+        This is the bank's half of the identity `manifest_sha256` is taken
+        over, and the only path form that means the same thing in a shard
+        extracted on Kaggle and in the manifest on the machine that froze it.
+        """
+        meta = self.meta.sort_values("image_idx")
+        return identity_paths(meta)
+
     def recipe_json(self, image_idx: int, view_idx: int) -> str:
         """The recipe JSON for one view.
 
@@ -301,6 +383,13 @@ class FeatureBank:
         first: it fails fast, and it names the mismatch as an identity problem
         ("this is not the manifest this bank was built from") rather than as a
         single misaligned row.
+
+        Both checks compare PORTABLE identity (`rel_path`), not absolute
+        paths, so a shard extracted on Kaggle verifies against the manifest on
+        the machine that froze it. Whether the pixels at those paths are still
+        the ones the manifest was frozen against is a different question, and
+        an absolute path could not answer it either -- that is
+        `aigcdet.data.verify.verify_images`.
         """
         recorded = self.config.get("manifest_sha256")
         if recorded is not None:
@@ -310,21 +399,32 @@ class FeatureBank:
                     "this is not the manifest the bank was built from: bank "
                     f"config.json records manifest_sha256={recorded[:16]}..., "
                     f"the supplied manifest fingerprints to {actual[:16]}... "
-                    "(the fingerprint covers the path column, in row order, so "
-                    "a re-split, re-filter or re-order all change it)")
+                    "(the fingerprint covers each row's path inside the "
+                    "dataset, in row order, so a re-split, re-filter, re-order "
+                    "or rename all change it -- moving the dataset does not)")
         if len(manifest_df) != len(self.meta):
             raise ValueError(
                 f"manifest has {len(manifest_df)} rows but bank has "
                 f"{len(self.meta)} rows -- bank is not aligned with this manifest")
-        meta_sorted = self.meta.sort_values("image_idx").reset_index(drop=True)
-        manifest_paths = manifest_df["path"].reset_index(drop=True)
-        for i in range(len(manifest_df)):
-            m_path = manifest_paths.iloc[i]
-            b_path = meta_sorted.iloc[i]["path"]
-            if m_path != b_path:
+        # Compare like with like. A bank whose rows hold RELATIVE identity was
+        # written with a `manifest_root` (or merged from shards that were), and
+        # is compared against the manifest's identity. A bank whose rows hold
+        # absolute paths -- a writer that passed no root, as `aigcdet.eval.grid`
+        # does today -- is compared on absolute paths: that bank is simply not
+        # portable, and comparing its paths against a manifest's rel_path would
+        # report every row misaligned when nothing at all is wrong.
+        bank_ids = self.rel_paths
+        if bank_ids and not any(os.path.isabs(r) for r in bank_ids):
+            manifest_ids = identity_paths(manifest_df)
+        else:
+            manifest_ids = [str(p) for p in manifest_df["path"]]
+            bank_ids = [str(p) for p in
+                        self.meta.sort_values("image_idx")["path"]]
+        for i in range(len(manifest_ids)):
+            if manifest_ids[i] != bank_ids[i]:
                 raise ValueError(
                     f"manifest/bank row {i} misaligned: manifest path "
-                    f"{m_path!r} != bank path {b_path!r}")
+                    f"{manifest_ids[i]!r} != bank path {bank_ids[i]!r}")
 
     def check_invariants(self) -> None:
         # row_id keys every view's RNG, so a duplicate would mean two images
@@ -365,7 +465,11 @@ class FeatureBank:
 #: it must agree across shards, and it is carried into the merged bank.
 _MERGE_MUST_MATCH = ("backbone", "dim", "n_views", "seed")
 #: Config keys that legitimately differ between shards of one bank.
-_MERGE_PER_SHARD = ("n_images", "manifest_sha256")
+#: `manifest_root` is here for the headline case: five teammates extract five
+#: shards of one bank from five copies of one Kaggle Dataset, mounted at five
+#: different paths. Requiring the roots to agree would refuse exactly the
+#: merge this project exists to perform.
+_MERGE_PER_SHARD = ("n_images", "manifest_sha256", "manifest_root")
 
 
 def _extra_config(config: dict) -> dict:
@@ -437,13 +541,22 @@ def merge_banks(bank_dirs: list[str], out_dir: str) -> str:
             "attach it to every shard, or to none, before merging")
 
     n_total = sum(len(b.meta) for b in banks)
-    merged_paths = pd.DataFrame(
-        {"path": np.concatenate([b.meta["path"].to_numpy() for b in banks])})
+    # Over rel_path, not path: the shards may have been extracted from copies
+    # of the dataset mounted at different absolute roots, and the merged bank
+    # must fingerprint to what the ONE frozen manifest fingerprints to.
+    merged_ids = pd.DataFrame(
+        {"rel_path": [r for b in banks for r in b.rel_paths]})
+    roots = {b.config.get("manifest_root") for b in banks}
     writer = BankWriter(out_dir, n_total, ref.config["n_views"], ref.config["dim"],
                         ref.config["backbone"], ref.config["seed"],
-                        manifest_sha256=manifest_fingerprint(merged_paths),
+                        manifest_sha256=manifest_fingerprint(merged_ids),
                         checkpoint_every=max(1, n_total),
-                        extra_config=ref_extra)
+                        extra_config=ref_extra,
+                        # Only meaningful if every shard came from the same
+                        # mount; otherwise the merged bank's absolute paths
+                        # genuinely have no single root, and its rows carry
+                        # their own rel_path anyway.
+                        manifest_root=roots.pop() if len(roots) == 1 else None)
 
     out_idx = 0
     for b in banks:
