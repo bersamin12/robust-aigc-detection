@@ -22,6 +22,13 @@ tier. Three mechanisms use it, and none of them changes a single pixel:
 metadata is checkpointed as it goes -- see `bank.BankWriter`); `workers > 0`
 runs the CPU stage in a process pool while this process feeds the GPU; and
 `bank.merge_banks` concatenates independently-extracted shards afterwards.
+
+`shard_frame`/`shard_bounds` are how a caller cuts those shards. They live
+here, next to the RNG-key rule they exist to protect, rather than in one of
+the entry points: `scripts/extract_features.py` and
+`notebooks/kaggle_bootstrap.py` both hand a slice of one frozen manifest to
+`extract_bank`, and the two must agree on where the block boundaries fall or
+their shards overlap and `merge_banks` refuses the merged bank.
 """
 from __future__ import annotations
 
@@ -70,6 +77,84 @@ def _sample_recipe_excluding(rng: np.random.Generator, exclude: tuple[str, ...])
     if not kept:
         raise ValueError(f"excluding {exclude} leaves no transform families to sample")
     return sample_training_recipe(rng, families=kept)
+
+
+def shard_bounds(n: int, n_shards: int) -> list[tuple[int, int]]:
+    """`n_shards` contiguous half-open row ranges covering `range(n)` exactly.
+
+    CONTIGUOUS, never strided (`iloc[k::n]`), and that is not a style choice.
+    `bank.merge_banks` concatenates shards in the order it is handed them and
+    re-fingerprints the result over the concatenated identity list, and every
+    downstream reader indexes a bank POSITIONALLY against the manifest. Only
+    contiguous ascending blocks, merged in ascending shard order, reconstruct
+    the frozen manifest's row order. A strided split preserves index labels
+    and therefore produces byte-identical PIXELS -- so no pixel-level check
+    can see it -- while producing a bank whose rows run 0,5,10,...,1,6,11,...
+    That merges without complaint (no `row_id` overlap) and then fails
+    `FeatureBank.verify_against_manifest`, or worse, passes a check nobody ran
+    and trains a head against permuted labels.
+
+    The remainder goes to the FIRST `n % n_shards` shards, so the blocks are
+    balanced to within one row and the partition is exhaustive: every row is
+    extracted exactly once. Dropping the remainder (`n // n_shards` rows each)
+    would leave up to `n_shards - 1` images out of the merged bank, which
+    nothing raises on -- `merge_banks` checks for overlap, not for coverage.
+
+    This remainder rule is shared with `notebooks/kaggle_bootstrap.shard_bounds`
+    ON PURPOSE and must stay identical: `notebooks/run_shard.py` and
+    `scripts/extract_features.py` build shards of the SAME training bank, and
+    the two get merged. The two rules that look equally reasonable in
+    isolation are not interchangeable here -- at 120,001 rows over 5 shards,
+    "remainder first" and `np.linspace(...).astype(int)` (which
+    `scripts/extract_eval_bank.py` uses for the separate EVAL bank) put every
+    boundary one row apart, so mixing the entry points makes shard k and
+    shard k+1 overlap on one image and `merge_banks` refuses the lot after
+    five people have each paid for a session.
+    `tests/scripts/test_extract_features_cli.py` pins the agreement.
+    """
+    n, n_shards = int(n), int(n_shards)
+    if n_shards < 1:
+        raise ValueError(f"n_shards must be >= 1, got {n_shards}")
+    if n < 0:
+        raise ValueError(f"n must be >= 0, got {n}")
+    base, rem = divmod(n, n_shards)
+    bounds, start = [], 0
+    for k in range(n_shards):
+        stop = start + base + (1 if k < rem else 0)
+        bounds.append((start, stop))
+        start = stop
+    return bounds
+
+
+def shard_frame(df: pd.DataFrame, spec: str | None) -> pd.DataFrame:
+    """`--shard I/N` -> the I-th of N contiguous, disjoint, exhaustive blocks.
+
+    A plain `df.iloc[a:b]`, which keeps the frozen manifest's index LABELS.
+    There is no `reset_index` here and there must never be one: `extract_bank`
+    derives every view's RNG from `(seed, row_id, view_idx)` where `row_id` is
+    that index label, so a reset would restart every shard's key space at 0.
+    Five shards would then collide in RNG-key space and the same physical
+    image would carry different pixels depending on who extracted it --
+    silently. `extract_bank` raises on a duplicated index within one call, but
+    it cannot see that two SEPARATE sessions produced overlapping keys.
+
+    `spec` of `None` or `""` returns `df` unchanged, so the flag is optional.
+    """
+    if not spec:
+        return df
+    parts = str(spec).split("/")
+    try:
+        if len(parts) != 2:
+            raise ValueError
+        i, n = int(parts[0]), int(parts[1])
+    except ValueError:
+        raise ValueError(
+            f"--shard takes I/N with 0 <= I < N, e.g. 0/5; got {spec!r}") from None
+    if n < 1 or not (0 <= i < n):
+        raise ValueError(
+            f"--shard takes I/N with 0 <= I < N, e.g. 0/5; got {spec!r}")
+    start, stop = shard_bounds(len(df), n)[i]
+    return df.iloc[start:stop]
 
 
 #: One image's CPU work, as a picklable argument tuple for `_prepare_image`.
@@ -196,9 +281,17 @@ def extract_bank(
     (see the loop below for why, and what that requires of a caller that
     slices `manifest_df`).
 
+    `limit` truncates `manifest_df` to its first `limit` rows before anything
+    else. A caller that also shards must apply its own limit BEFORE calling
+    `shard_frame` and leave this one at None -- passing both would truncate
+    each shard a second time, so the N shards would no longer tile one
+    contiguous prefix (`scripts/extract_features.py` does exactly that).
+
     `exclude_families` forbids an entire transform family (spec FAMILIES
     names) from every sampled recipe in the bank, supporting the A3-LOTO
-    ablation run (spec §4.6).
+    ablation run (spec §4.6). It is NOT recorded in the bank's config, so
+    `merge_banks` cannot see a shard that was extracted with a different
+    value; every shard of one bank must be given the same one.
 
     `resume=True` continues an extraction into an existing `out_dir`, skipping
     the rows already written (see `BankWriter`). The same `manifest_df`,
