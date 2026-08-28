@@ -399,6 +399,31 @@ def test_resume_rejects_a_changed_extra_config(tmp_path):
                extra_config={"conditions": ["clean", "jpeg_q90"]}, resume=True)
 
 
+def test_resume_rejects_dropping_an_extra_config_key(tmp_path):
+    """"A different condition list" includes "no condition list".
+
+    A resume that omits `extra_config` used to be accepted -- the equality
+    check iterated only the REQUESTED keys -- and the next checkpoint then
+    rewrote config.json without `conditions`, erasing what makes the bank an
+    eval bank at all.
+    """
+    out = str(tmp_path / "xcd")
+    w = BankWriter(out, n_images=1, n_views=2, dim=3, backbone="test", seed=0,
+                   extra_config={"conditions": ["clean", "jpeg_q90"]})
+    w.write_image(0, {"path": "/a.png", "label": 0, "generator": "", "source": "s",
+                      "split": "train"},
+                  feats=np.zeros((2, 3), np.float32),
+                  presence=np.zeros((2, 6), np.float32),
+                  severity=np.zeros((2, 6), np.float32),
+                  proxies=np.zeros((2, 3), np.float32), recipes=["[]", "[]"])
+    w.close()
+    with pytest.raises(ValueError, match="cannot resume"):
+        BankWriter(out, n_images=1, n_views=2, dim=3, backbone="test", seed=0,
+                   resume=True)
+    # and the bank on disk is untouched by the refusal
+    assert FeatureBank.open(out).config["conditions"] == ["clean", "jpeg_q90"]
+
+
 def test_extra_config_may_not_shadow_a_core_config_key(tmp_path):
     with pytest.raises(ValueError, match="reserved"):
         BankWriter(str(tmp_path / "xcs"), n_images=1, n_views=2, dim=3,
