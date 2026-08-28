@@ -199,3 +199,78 @@ def test_eqi_reports_a_logistic_regression_that_did_not_converge():
 def test_eqi_rejects_a_non_positive_iteration_budget():
     with pytest.raises(ValueError, match="max_iter"):
         EQI(max_iter=0)
+
+
+# --- why predict() is NOT clamped to the fitted range (R34) -----------------
+#
+# `ConditionalTemperature.temperatures` clamps to the range the fit produced.
+# The analogous clamp on EQI is not merely unnecessary: its floor half breaks
+# the abstention gate and its cap half breaks the abstention ranking. Both
+# halves are pinned below, so a future "add the clamp for symmetry" change
+# fails rather than silently changing how much of the queue is auto-decided.
+
+def _severity_fit(seed=11, n=4000):
+    """EQI over a single severity column, plus the validation EQI it produced."""
+    rng = np.random.default_rng(seed)
+    sev = rng.random(n)
+    correct = (rng.random(n) < 0.95 - 0.5 * sev).astype(int)
+    e = EQI().fit(sev[:, None], correct, split=_val(n))
+    return e, sev, e.predict(sev[:, None]), rng
+
+
+def test_eqi_below_the_fitted_minimum_is_reported_not_floored():
+    """A floor at the fitted minimum would auto-decide evidence-free rows.
+
+    `fit_policy` puts the EQI gate at `quantile(EQI_val, 1 - target_coverage)`,
+    which at full target coverage is EXACTLY the fitted minimum, and `decide`
+    admits `ev >= threshold`. So a floor at that minimum lands an
+    out-of-range row precisely ON the gate: `review` becomes `clear` on
+    evidence far worse than validation ever saw.
+    """
+    from aigcdet.calibrate.policy import decide, fit_policy
+
+    e, sev, ev, rng = _severity_fit()
+    n = sev.size
+    # Severity ten times anything validation contained: no usable evidence.
+    beyond = e.predict(np.array([[10.0]]))
+    assert beyond[0] < ev.min(), "fixture never leaves the fitted range"
+
+    policy = fit_policy(rng.random(n), rng.integers(0, 2, n), ev,
+                        target_coverage=1.0, split=_val(n))
+    assert policy.eqi_threshold == ev.min(), "fixture does not reach the gate"
+
+    p = np.array([0.0])                       # confidently authentic
+    assert decide(p, beyond, policy)[0] == "review"
+    floored = np.clip(beyond, ev.min(), ev.max())
+    assert decide(p, floored, policy)[0] == "clear", (
+        "the floor no longer flips the decision, so this test has stopped "
+        "demonstrating why the clamp is refused")
+
+
+def test_eqi_above_the_fitted_maximum_keeps_its_ordering():
+    """A cap at the fitted maximum ties rows `risk_coverage` has to rank.
+
+    The cap cannot change routing -- it sits at or above a gate that is a
+    quantile of the same values -- so all it can do is collapse distinct
+    above-range evidence onto one number, which `eval.metrics.risk_coverage`
+    then cannot order.
+    """
+    e, _, ev, _ = _severity_fit()
+    better = e.predict(np.array([[-0.2], [-0.5]]))
+    assert (better > ev.max()).all(), "fixture never leaves the fitted range"
+    assert better[1] > better[0]
+    assert not np.isclose(better[0], better[1]), (
+        "the two above-range rows are indistinguishable, so this test cannot "
+        "see a cap")
+
+
+def test_eqi_does_not_saturate_before_it_leaves_the_fitted_range():
+    """The pair above is genuinely below the float ceiling.
+
+    `predict` DOES reach exactly 1.0 far enough out (checked here so the claim
+    is measured, not assumed); a fixture built there would tie under no clamp
+    at all and would pass the ordering test for the wrong reason.
+    """
+    e, _, _, _ = _severity_fit()
+    assert e.predict(np.array([[-40.0]]))[0] == 1.0
+    assert e.predict(np.array([[-0.2]]))[0] < 1.0
