@@ -97,7 +97,45 @@ class EQI:
         return self
 
     def predict(self, cond: np.ndarray) -> np.ndarray:
-        """P(correct) per row, in [0, 1]. The range is enforced, not assumed."""
+        """P(correct) per row, in [0, 1]. The range is enforced, not assumed.
+
+        **Deliberately NOT clamped to the range the fit produced**, unlike
+        `ConditionalTemperature.temperatures`. The two look symmetric and are
+        not, in either direction:
+
+        * A FLOOR at the fitted minimum is actively harmful. `fit_policy` sets
+          `eqi_threshold` to `quantile(EQI_val, 1 - target_coverage)`, so at
+          `target_coverage = 1.0` the gate IS the fitted minimum, and `decide`
+          admits it (`ev >= threshold`). A row whose degradation evidence is
+          far worse than anything validation saw scores ~1e-10 and is correctly
+          sent to a human; floored to the fitted minimum it lands exactly on
+          the gate and is auto-decided instead. The clamp would manufacture the
+          failure it was added to prevent -- a confident automatic decision on
+          evidence the fit never covered. This is pinned by a test.
+        * A CAP at the fitted maximum is inert where it would matter and
+          destructive where it would not. The cap is always at or above the
+          gate (the gate is a quantile of the very values the cap is the
+          maximum of), so it can never move a row from auto-decided to review:
+          routing is bit-identical with and without it. What it does change is
+          the ORDER -- it ties every above-range row at one value, and
+          `eval.metrics.risk_coverage` ranks abstentions by EQI, so the capped
+          curve resolves the ranking worse for no operational gain.
+
+        The hazard `ConditionalTemperature` clamps against has no analogue
+        here. There `T` is a *multiplier*: extrapolated down to `eps` it is an
+        unbounded 100x amplification of the logit and drives `p` to 1.000000,
+        a number nothing downstream can tell from a well-founded one. EQI is
+        not a multiplier; it is the reported quantity itself, a logistic
+        probability bounded in [0, 1] by construction and checked below.
+
+        The residual risk is real but is not clamp-shaped: an out-of-range
+        `cond` in a direction validation never spanned can project HIGH and
+        auto-decide a badly degraded image. No output clamp reaches that -- the
+        clamp's own ceiling sits above the gate. Closing it needs an
+        input-space out-of-distribution test on `cond` and a decision about how
+        much extra review load to spend, which is a policy question, not a
+        bound on this function's output.
+        """
         if not self._fitted:
             raise RuntimeError("EQI is not fitted; call fit() first")
         p = self.model.predict_proba(self._z(self._check_cond(cond)))[:, 1]
