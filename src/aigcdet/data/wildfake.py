@@ -329,8 +329,14 @@ SUBSETS: dict[str, WildFakeSubset] = {
         WildFakeSubset("GigaGAN", 1, 27610, "GAN_based/", ("Images/GAN_based.zip",)),
         WildFakeSubset("BigGAN", 1, 15540, "GAN_based/", ("Images/GAN_based.zip",)),
         WildFakeSubset("starGAN", 1, 15442, "GAN_based/", ("Images/GAN_based.zip",)),
-        WildFakeSubset("VQGAN", 1, 14000, "GAN_based/", ("Images/GAN_based.zip",)),
         # --- Images/Other_based.zip (13.34 GB) ---------------------------
+        # VQGAN is named like the GAN families but is NOT one of them on disk:
+        # VQGAN.csv rows read "./Other_based/Typical/VQGAN/..." and its
+        # Generator column is "Other_based". Filed under GAN_based/ by name,
+        # it made read_subset_csv refuse the whole batch (correctly) and cost
+        # a 47 GB download that found zero members. Grouped by the CSV, not
+        # by the name.
+        WildFakeSubset("VQGAN", 1, 14000, "Other_based/", ("Images/Other_based.zip",)),
         WildFakeSubset("MAGE", 1, 100000, "Other_based/", ("Images/Other_based.zip",)),
         WildFakeSubset("VQVAE", 1, 55000, "Other_based/", ("Images/Other_based.zip",)),
         WildFakeSubset("MAE", 1, 8390, "Other_based/", ("Images/Other_based.zip",)),

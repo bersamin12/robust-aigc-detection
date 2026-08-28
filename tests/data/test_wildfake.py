@@ -177,11 +177,16 @@ def test_an_unrecorded_archive_size_is_not_treated_as_free():
 
 
 def test_archive_sizes_are_declared_per_archive_not_per_subset():
-    """Seven GAN families are one 47.3 GB download, so size belongs to the
-    archive. A per-subset size would count it seven times."""
+    """Six GAN families are one 47.3 GB download, so size belongs to the
+    archive. A per-subset size would count it six times.
+
+    Six, not seven: VQGAN is named like a GAN family but its CSV rows live
+    under Other_based/, so it ships in a different archive. The literal here
+    was 7 while VQGAN was misfiled, which is a reminder that a hardcoded
+    count can encode the very grouping error it sits next to."""
     gan = [s for s in wf.SUBSETS.values()
            if s.zips == ("Images/GAN_based.zip",)]
-    assert len(gan) == 7
+    assert len(gan) == 6
     assert {wf.subset_gb(s) for s in gan} == {47.3}
 
 
@@ -525,3 +530,27 @@ def test_the_real_benchmark_paths_are_also_refused_by_the_training_gate():
     alone and leave the training gate blind to the real layout."""
     for subset, path in REAL_CSV_PATHS.items():
         assert wf.forbidden_reason(path), (subset, path)
+
+
+#: Verbatim first data rows of the upstream label CSVs, pasted from the real
+#: files -- not composed to match the registry. Composing them is what let a
+#: wrong marker pass every test once before (see the benchmark-half tests
+#: above), and a *name-based* grouping is exactly what these catch: VQGAN is
+#: named like the GAN families and ships in Other_based.zip.
+REAL_CSV_FIRST_ROWS = {
+    "VQGAN": "./Other_based/Typical/VQGAN/ade20k/0_samples_nopix_000910.png",
+    "MAE": "./Other_based/Advanced/MAE/gen_images/0.png",
+}
+
+
+@pytest.mark.parametrize("name", sorted(REAL_CSV_FIRST_ROWS))
+def test_subset_prefix_matches_the_real_upstream_csv_row(name):
+    subset = wf.SUBSETS[name]
+    path = REAL_CSV_FIRST_ROWS[name].lstrip("./")
+    assert path.startswith(subset.prefix), (
+        f"{name} declares prefix {subset.prefix!r} but its CSV row is {path!r}; "
+        "the prefix is what ties a subset to the archive downloaded for it")
+
+
+def test_vqgan_ships_in_other_based_despite_its_gan_name():
+    assert wf.SUBSETS["VQGAN"].zips == ("Images/Other_based.zip",)
