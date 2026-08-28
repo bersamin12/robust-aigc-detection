@@ -56,7 +56,8 @@ SOURCES: dict[str, SourceSpec] = {
     # selection because "sid_set" is a dataset, not a generator family.
     "sid_set": SourceSpec(
         name="sid_set",
-        licence="see https://huggingface.co/datasets/saberzl/SID_Set — confirm before use",
+        licence="CC BY 4.0 — https://huggingface.co/datasets/saberzl/SID_Set "
+                "(derived from COCO, OpenImages V7 and Flickr30k; attribution required). See docs/dataset_licences.md",
         real_buckets=frozenset({"real"}),
         pseudo_bucket="fake",
         generator_buckets=True,
@@ -65,7 +66,9 @@ SOURCES: dict[str, SourceSpec] = {
     # is a genuine generator family.
     "wildfake": SourceSpec(
         name="wildfake",
-        licence="see https://modelscope.cn/datasets/hy2628982280/WildFake — confirm before use",
+        licence="Apache-2.0 (ModelScope hub metadata) — covers the COMPILATION; "
+                "constituent real subsets keep their own upstream terms, several of "
+                "which are non-commercial. See docs/dataset_licences.md",
         real_buckets=frozenset({"real"}),
         generator_buckets=True,
     ),
