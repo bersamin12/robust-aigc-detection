@@ -267,13 +267,15 @@ def test_open_does_not_build_the_recipe_lookup(tmp_path):
 
 # --- H2: shard merge -------------------------------------------------------
 
-def _shard(tmp_path, name, row_ids, backbone="test", seed=0, n_views=N_VIEWS, dim=3):
+def _shard(tmp_path, name, row_ids, backbone="test", seed=0, n_views=N_VIEWS, dim=3,
+           extra_config=None):
     from aigcdet.features.bank import manifest_fingerprint
 
     paths = [f"/img{r}.png" for r in row_ids]
     fp = manifest_fingerprint(pd.DataFrame({"path": paths}))
     w = BankWriter(str(tmp_path / name), n_images=len(row_ids), n_views=n_views,
-                   dim=dim, backbone=backbone, seed=seed, manifest_sha256=fp)
+                   dim=dim, backbone=backbone, seed=seed, manifest_sha256=fp,
+                   extra_config=extra_config)
     for i, r in enumerate(row_ids):
         pres = np.zeros((n_views, 6), np.float32); pres[1:, 0] = 1.0
         sev = np.zeros((n_views, 6), np.float32); sev[1:, 0] = 0.3
@@ -361,3 +363,64 @@ def test_merge_banks_needs_at_least_one_shard(tmp_path):
 
     with pytest.raises(ValueError, match="at least one"):
         merge_banks([], str(tmp_path / "nothing"))
+
+
+# --- extra_config ----------------------------------------------------------
+
+def test_extra_config_is_recorded_in_config_json(tmp_path):
+    w = BankWriter(str(tmp_path / "xc"), n_images=1, n_views=2, dim=3,
+                   backbone="test", seed=0,
+                   extra_config={"conditions": ["clean", "jpeg_q90"]})
+    w.write_image(0, {"path": "/a.png", "label": 0, "generator": "", "source": "s",
+                      "split": "train"},
+                  feats=np.zeros((2, 3), np.float32),
+                  presence=np.zeros((2, 6), np.float32),
+                  severity=np.zeros((2, 6), np.float32),
+                  proxies=np.zeros((2, 3), np.float32), recipes=["[]", "[]"])
+    w.close()
+    assert FeatureBank.open(str(tmp_path / "xc")).config["conditions"] == \
+        ["clean", "jpeg_q90"]
+
+
+def test_resume_rejects_a_changed_extra_config(tmp_path):
+    """extra_config participates in the resume equality check.
+
+    A resume that quietly accepted a different condition list would continue
+    one bank's rows into another bank's view axis.
+    """
+    out = str(tmp_path / "xcr")
+    BankWriter(out, n_images=1, n_views=2, dim=3, backbone="test", seed=0,
+               extra_config={"conditions": ["clean", "jpeg_q90"]}).close()
+    with pytest.raises(ValueError, match="cannot resume"):
+        BankWriter(out, n_images=1, n_views=2, dim=3, backbone="test", seed=0,
+                   extra_config={"conditions": ["clean", "jpeg_q70"]}, resume=True)
+    # the identical list still resumes
+    BankWriter(out, n_images=1, n_views=2, dim=3, backbone="test", seed=0,
+               extra_config={"conditions": ["clean", "jpeg_q90"]}, resume=True)
+
+
+def test_extra_config_may_not_shadow_a_core_config_key(tmp_path):
+    with pytest.raises(ValueError, match="reserved"):
+        BankWriter(str(tmp_path / "xcs"), n_images=1, n_views=2, dim=3,
+                   backbone="test", seed=0, extra_config={"backbone": "other"})
+
+
+def test_merge_banks_carries_extra_config_through(tmp_path):
+    from aigcdet.features.bank import merge_banks
+
+    extra = {"conditions": ["clean", "jpeg_q90"]}
+    a = _shard(tmp_path, "e0", [1, 2], n_views=2, extra_config=extra)
+    b = _shard(tmp_path, "e1", [3], n_views=2, extra_config=extra)
+    m = FeatureBank.open(merge_banks([a, b], str(tmp_path / "merged_extra")))
+    assert m.config["conditions"] == ["clean", "jpeg_q90"]
+
+
+def test_merge_banks_rejects_shards_with_different_extra_config(tmp_path):
+    from aigcdet.features.bank import merge_banks
+
+    a = _shard(tmp_path, "e2", [1, 2], n_views=2,
+               extra_config={"conditions": ["clean", "jpeg_q90"]})
+    b = _shard(tmp_path, "e3", [3], n_views=2,
+               extra_config={"conditions": ["clean", "jpeg_q70"]})
+    with pytest.raises(ValueError, match="not part of the same bank"):
+        merge_banks([a, b], str(tmp_path / "bad_extra"))
