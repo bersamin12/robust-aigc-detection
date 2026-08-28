@@ -46,8 +46,14 @@ def test_declared_prefix_agrees_with_the_declared_archive(name):
     for archive in subset.zips:
         segments = wf.split_segments(archive)
         assert segments[0] == "Images", archive
-        # Drop "Images/" and the archive's own filename.
+        # Drop "Images/" and the archive's own extension, then stop at the
+        # first glob component: `part_*` names a SHARD of a tree, not a
+        # directory that appears in any Image_path.
         zip_path = segments[1:-1] + [segments[-1][:-len(".zip")]]
+        for i, part in enumerate(zip_path):
+            if "*" in part:
+                zip_path = zip_path[:i]
+                break
         shared = min(len(prefix), len(zip_path))
         assert prefix[:shared] == zip_path[:shared], (subset.prefix, archive)
 
@@ -61,7 +67,8 @@ def test_subsets_sharing_an_archive_agree_on_it():
         for archive in subset.zips:
             by_archive.setdefault(archive, set()).add(subset.prefix)
     assert by_archive["Images/Diffusion_based/DALLE.zip"] == {
-        "Diffusion_based/DALLE/", "Diffusion_based/DALLE/Advanced/DALLE3/"}
+        "Diffusion_based/DALLE/Typical/DALLE2/",
+        "Diffusion_based/DALLE/Advanced/DALLE3/"}
     assert len(by_archive["Images/GAN_based.zip"]) == 1
 
 
@@ -80,10 +87,102 @@ def test_only_the_two_benchmark_subsets_are_training_forbidden():
     assert forbidden == {"dalle3", "real_coco"}
 
 
-def test_subsets_with_no_established_archive_refuse_rather_than_guess():
-    assert wf.SUBSETS["sdxl"].zips == ()
-    with pytest.raises(ValueError, match="no established archive path"):
-        wf.resolve_for_training("sdxl")
+def test_a_subset_with_no_archive_and_no_reason_is_a_startup_error():
+    """Run at import over the real registry; exercised here on a fabricated
+    one, because with the real registry the branch can never fire and would
+    otherwise be code nothing would notice being deleted."""
+    bad = {"x": wf.WildFakeSubset("x", 1, 1, "x/", ())}
+    with pytest.raises(ValueError, match="declares no archive"):
+        wf._validate_registry(bad)
+    ok = {"x": wf.WildFakeSubset("x", 1, 1, "x/", (), unavailable="broken")}
+    assert wf._validate_registry(ok) == {"x": "x"}
+
+
+def test_every_registry_entry_declares_an_archive_or_a_reason():
+    for subset in wf.SUBSETS.values():
+        assert subset.zips or subset.unavailable, subset.name
+
+
+def test_a_subset_broken_upstream_is_refused_with_the_reason(tmp_path):
+    """`Images/Real/wukong.zip` lists as 0.00 GB against 265,696 CSV rows.
+    Declaring it beats letting it fail as a zero-image extraction, which reads
+    as a registry error of ours rather than a broken archive of theirs."""
+    assert wf.SUBSETS["real_wukong"].rows == 265696
+    with pytest.raises(ValueError, match="0.00 GB"):
+        wf.resolve_for_training("real_wukong")
+
+
+# --------------------------------------------------------------------------
+# the version axis, and what it costs to get wrong
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize(("typical", "advanced"), [
+    ("dalle2", "dalle3"), ("originsd", "sdxl"), ("mjv4", "mjv5")])
+def test_paired_generators_sit_in_opposite_trees_and_never_span_both(typical,
+                                                                     advanced):
+    """`Advanced`/`Typical` is a VERSION axis — the newer model of each pair is
+    the Advanced one — not a quality axis. Under the quality reading each
+    version would span both trees and a mis-declared subset would still find
+    its images in the other; it does not, and asking for mjv4 against the
+    Advanced tree fetches ~372 GB and matches nothing."""
+    t, a = wf.SUBSETS[typical], wf.SUBSETS[advanced]
+    assert "Typical" in wf.split_segments(t.prefix)
+    assert "Advanced" in wf.split_segments(a.prefix)
+    assert "Advanced" not in wf.split_segments(t.prefix)
+    assert "Typical" not in wf.split_segments(a.prefix)
+    for subset in (t, a):
+        assert len(subset.zips) == 1, subset.name
+
+
+def test_the_scored_benchmark_is_an_advanced_tree_generator():
+    """Consistent with the version reading, and it is what makes holding out
+    an Advanced family mean "a newer model" rather than merely "an unseen one"
+    (spec §4.6)."""
+    assert "Advanced" in wf.split_segments(wf.SUBSETS["dalle3"].prefix)
+
+
+# --------------------------------------------------------------------------
+# download budget
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize(("name", "gb"), [
+    ("sdxl", 322.0), ("mjv5", 372.0), ("mjv4", 196.0), ("originsd", 119.0)])
+def test_a_subset_larger_than_the_budget_is_refused_with_its_size(name, gb):
+    """A caller asking for mjv5 is told "372 GB" before the transfer starts,
+    not an hour in. Download volume is the binding acquisition risk
+    (spec §4.4)."""
+    assert wf.subset_gb(wf.SUBSETS[name]) == gb
+    with pytest.raises(ValueError, match=f"~{gb:.0f} GB"):
+        wf.check_download_budget([wf.SUBSETS[name]])
+
+
+def test_the_budget_can_be_overridden_explicitly():
+    wf.check_download_budget([wf.SUBSETS["mjv5"]], allow_large=True)
+
+
+def test_every_affordable_subset_passes_the_budget():
+    affordable = [s for s in wf.SUBSETS.values()
+                  if (g := wf.subset_gb(s)) is not None and g <= 60.0]
+    wf.check_download_budget(affordable)
+    assert {s.name for s in wf.SUBSETS.values()
+            if (g := wf.subset_gb(s)) is not None and g > 60.0} == {
+                "sdxl", "mjv5", "mjv4", "originsd"}
+
+
+def test_an_unrecorded_archive_size_is_not_treated_as_free():
+    """`Images/Real/*.zip` sizes were never published. `subset_gb` says None
+    rather than 0.0, so nothing can read "unrecorded" as "affordable"."""
+    assert wf.subset_gb(wf.SUBSETS["real_afhq"]) is None
+    assert all(z not in wf.ARCHIVE_GB for z in wf.SUBSETS["real_afhq"].zips)
+
+
+def test_archive_sizes_are_declared_per_archive_not_per_subset():
+    """Seven GAN families are one 47.3 GB download, so size belongs to the
+    archive. A per-subset size would count it seven times."""
+    gan = [s for s in wf.SUBSETS.values()
+           if s.zips == ("Images/GAN_based.zip",)]
+    assert len(gan) == 7
+    assert {wf.subset_gb(s) for s in gan} == {47.3}
 
 
 # --------------------------------------------------------------------------

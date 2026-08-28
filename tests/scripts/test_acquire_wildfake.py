@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
 import os
+import sys
 import zipfile
 
 import numpy as np
@@ -148,14 +150,21 @@ def test_a_benchmark_image_hiding_in_a_trainable_subsets_csv_raises(tmp_path):
     """dalle2 is trainable and shares DALLE.zip with the benchmark. A CSV row
     of its that points into Advanced/DALLE3 must stop the run, not be written:
     layer 2 reads the PATH, so no registry flag has to be right."""
-    subset = wf.SUBSETS["dalle2"]
     rels = ["Diffusion_based/DALLE/Typical/DALLE2/a/a.jpg",
             "Diffusion_based/DALLE/Advanced/DALLE3/dalle3/b/b.jpg"]
+    # The real registry declares dalle2 at `DALLE/Typical/DALLE2/`, so the CSV
+    # prefix check would reject the second row first and this test would pass
+    # without ever reaching the gate it names. The fixture deliberately
+    # LOOSENS the prefix to the parent, which is what a mis-declared registry
+    # looks like, so the per-path gate is the thing under test.
+    subset = _fake_subset("dalle2", 1, rels, "Diffusion_based/DALLE/",
+                          archive="Images/Diffusion_based/DALLE.zip")
     cache = str(tmp_path / "cache")
     _plant(cache, subset, rels)
-    patched = wf.WildFakeSubset(subset.name, 1, 2, subset.prefix, subset.zips)
+    assert wf.read_subset_csv(
+        subset, os.path.join(cache, "label_csv_files", "dalle2.csv")) == rels
     out = str(tmp_path / "raw")
-    with _registry({subset.name: patched}):
+    with _registry({"dalle2": subset}):
         with pytest.raises(ValueError, match="demo benchmark"):
             ad.acquire_wildfake(out, 0, ["dalle2"], cache_dir=cache)
 
@@ -417,16 +426,86 @@ def test_an_archive_holding_none_of_the_subsets_images_raises(tmp_path):
     with zipfile.ZipFile(zp, "w") as z:
         z.writestr("Diffusion_based/DDIM/somethingelse/x/x.jpg", _jpeg_bytes(0))
     with _registry({"ddim": subset}):
-        with pytest.raises(SystemExit, match="extracted 0 images"):
+        with pytest.raises(SystemExit, match="held none of the images"):
             ad.acquire_wildfake(str(tmp_path / "raw"), 0, ["ddim"], cache_dir=cache)
+
+
+def test_the_wrong_tree_is_abandoned_after_the_first_archive(tmp_path):
+    """The version axis makes this the expensive mistake: a subset declared
+    against the wrong tree matches nothing in ANY part of it. Warning about a
+    shortfall at the end would mean paying for all seven parts of a ~372 GB
+    glob first, so the first barren archive is fatal."""
+    rels = [f"Diffusion_based/Midjourney/Typical/mj_v4/{i}/{i}.jpg"
+            for i in range(3)]
+    subset = wf.WildFakeSubset(
+        "mjv4", 1, 3, "Diffusion_based/Midjourney/Typical/mj_v4/",
+        ("Images/Diffusion_based/Midjourney/Advanced/part_*.zip",))  # wrong tree
+    cache = str(tmp_path / "cache")
+    # Plant three Advanced-tree parts, none of which holds an mj_v4 image.
+    parts = [f"Images/Diffusion_based/Midjourney/Advanced/part_{i}.zip"
+             for i in range(3)]
+    _plant(cache, subset, rels, archive=parts[0], extra_members=())
+    zp = os.path.join(cache, *wf.split_segments(parts[0]))
+    os.remove(zp)
+    for part in parts:
+        p = os.path.join(cache, *wf.split_segments(part))
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with zipfile.ZipFile(p, "w") as z:
+            z.writestr("Diffusion_based/Midjourney/Advanced/mj_v5/a/a.jpg",
+                       _jpeg_bytes(0))
+    fetched = []
+
+    def fetch(member, cache_dir):
+        fetched.append(member)
+        return ad._hub_download(member, cache_dir)
+
+    with _registry({"mjv4": subset}):
+        with pytest.raises(SystemExit, match="held none of the images"):
+            ad.acquire_wildfake(str(tmp_path / "raw"), 0, ["mjv4"],
+                                cache_dir=cache, allow_large=True,
+                                fetch=fetch, list_files=lambda: parts)
+    assert fetched == ["label_csv_files/mjv4.csv", parts[0]]
+
+
+def test_a_later_part_holding_nothing_is_not_an_error(tmp_path):
+    """The exemption that keeps the rule from firing on ordinary sparseness:
+    once a subset has produced images, a later part of the same tree holding
+    none of its capped selection is expected, not a misdeclaration."""
+    rels = [f"Diffusion_based/Midjourney/Typical/mj_v4/{i}/{i}.jpg"
+            for i in range(3)]
+    subset = wf.WildFakeSubset(
+        "mjv4", 1, 3, "Diffusion_based/Midjourney/Typical/mj_v4/",
+        ("Images/Diffusion_based/Midjourney/Typical/part_*.zip",))
+    cache = str(tmp_path / "cache")
+    parts = [f"Images/Diffusion_based/Midjourney/Typical/part_{i}.zip"
+             for i in range(2)]
+    # The CSV lists all three rows; part_0 holds only the first two and part_1
+    # holds none of them, so the run reaches part_1 with work outstanding and
+    # gets nothing from it.
+    _plant(cache, subset, rels, archive=parts[0])
+    zp0 = os.path.join(cache, *wf.split_segments(parts[0]))
+    os.remove(zp0)
+    with zipfile.ZipFile(zp0, "w") as z:
+        for i, rel in enumerate(rels[:2]):
+            z.writestr(rel, _jpeg_bytes(i))
+    with zipfile.ZipFile(os.path.join(cache, *wf.split_segments(parts[1])),
+                         "w") as z:
+        z.writestr("Diffusion_based/Midjourney/Typical/mj_v4_filler/a/a.jpg",
+                   _jpeg_bytes(9))
+    out = str(tmp_path / "raw")
+    with _registry({"mjv4": subset}):
+        ad.acquire_wildfake(out, 0, ["mjv4"], cache_dir=cache, allow_large=True,
+                            list_files=lambda: parts)
+    assert len(_images_under(out)) == 2
 
 
 def test_a_multi_part_archive_stops_once_the_subset_is_complete(tmp_path):
     """`part_*.zip` trees run to ~51 GB per part; once the cap is met the
     remaining parts must not be fetched at all."""
-    rels = [f"Diffusion_based/SD/originalSD/o/{i}/{i}.jpg" for i in range(4)]
+    rels = [f"Diffusion_based/SD/originalSD/Typical/o/{i}/{i}.jpg"
+            for i in range(4)]
     subset = wf.WildFakeSubset(
-        "originsd", 1, 4, "Diffusion_based/SD/originalSD/",
+        "originsd", 1, 4, "Diffusion_based/SD/originalSD/Typical/",
         ("Images/Diffusion_based/SD/originalSD/Typical/part_*.zip",))
     cache = str(tmp_path / "cache")
     _plant(cache, subset, rels,
@@ -447,8 +526,11 @@ def test_a_multi_part_archive_stops_once_the_subset_is_complete(tmp_path):
 
     out = str(tmp_path / "raw")
     with _registry({"originsd": subset}):
+        # originsd is ~119 GB, over the budget: the override is what makes
+        # the multi-part path reachable at all.
         ad.acquire_wildfake(out, 0, ["originsd"], cache_dir=cache,
-                            fetch=fetch, list_files=lambda: parts)
+                            allow_large=True, fetch=fetch,
+                            list_files=lambda: parts)
     assert parts[1] not in fetched          # part_1 was never downloaded
     assert len(_images_under(out)) == 4
 
@@ -467,6 +549,117 @@ def test_two_rows_sharing_a_matching_tail_raise_rather_than_overwrite(tmp_path):
     with _registry({"ddim": subset}):
         with pytest.raises(SystemExit, match="share the archive-matching key"):
             ad.acquire_wildfake(str(tmp_path / "raw"), 0, ["ddim"], cache_dir=cache)
+
+
+def test_an_over_budget_subset_is_refused_before_anything_is_fetched(tmp_path):
+    """The gate has to be wired into the acquisition entry point, not merely
+    available beside it: `mjv5` is ~372 GB across seven parts, and the caller
+    must be told that before the first byte, not an hour in."""
+    def never(member, cache_dir):
+        raise AssertionError(f"nothing should be fetched, got {member!r}")
+
+    with pytest.raises(ValueError, match="~372 GB"):
+        ad.acquire_wildfake(str(tmp_path / "raw"), 10, ["mjv5"],
+                            cache_dir=str(tmp_path / "cache"), fetch=never)
+    assert not os.path.exists(tmp_path / "raw")
+
+
+@pytest.mark.parametrize(("argv", "expected"), [
+    ([], False),
+    (["--allow-large-archives"], True),
+])
+def test_the_cli_passes_the_large_archive_override_through(tmp_path, monkeypatch,
+                                                           argv, expected):
+    """The override has to be opt-in from the command line too. A flag that is
+    parsed but not forwarded reads as a working guard while every subset is
+    acquirable."""
+    seen = {}
+
+    def record(out, limit, generators, *, seed, allow_large):
+        seen.update(out=out, limit=limit, generators=generators, seed=seed,
+                    allow_large=allow_large)
+        return {}
+
+    monkeypatch.setattr(ad, "acquire_wildfake", record)
+    monkeypatch.setattr(sys, "argv", [
+        "acquire_data.py", "--dataset", "wildfake", "--out", str(tmp_path),
+        "--generators", "ddim", "--limit", "12", "--seed", "7", *argv])
+    ad.main()
+    assert seen["allow_large"] is expected
+    assert seen["generators"] == ["ddim"] and seen["limit"] == 12
+    assert seen["seed"] == 7
+    # Spec §4.5: the licence is recorded at acquisition time, by main().
+    with open(os.path.join(str(tmp_path), "LICENCES.json")) as f:
+        assert "wildfake" in json.load(f)
+
+
+def _plant_split_parts(cache, subset, rels, parts, split):
+    """CSV listing every row, with the rows dealt out across `parts`."""
+    _plant(cache, subset, rels, archive=parts[0])
+    for part in parts:
+        p = os.path.join(cache, *wf.split_segments(part))
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        if os.path.exists(p):
+            os.remove(p)
+    for part, members in zip(parts, split):
+        with zipfile.ZipFile(os.path.join(cache, *wf.split_segments(part)),
+                             "w") as z:
+            for i, rel in enumerate(members):
+                z.writestr(rel, _jpeg_bytes(i))
+
+
+def test_a_resumed_subset_is_exempt_from_the_barren_check(tmp_path):
+    """The interrupted multi-part case the exemption exists for. A run that
+    already extracted part_0's images and died is resumed; part_0 now yields
+    nothing new, because everything still outstanding lives in part_1. Without
+    the exemption that reads as "wrong tree" and the resume dies on the first
+    archive — turning an ordinary interruption into an unrecoverable one."""
+    rels = [f"Diffusion_based/Midjourney/Typical/mj_v4/{i}/{i}.jpg"
+            for i in range(3)]
+    subset = wf.WildFakeSubset(
+        "mjv4", 1, 3, "Diffusion_based/Midjourney/Typical/mj_v4/",
+        ("Images/Diffusion_based/Midjourney/Typical/part_*.zip",))
+    cache = str(tmp_path / "cache")
+    parts = [f"Images/Diffusion_based/Midjourney/Typical/part_{i}.zip"
+             for i in range(2)]
+    out = str(tmp_path / "raw")
+
+    # Phase 1: the interrupted run only ever sees part_0.
+    _plant_split_parts(cache, subset, rels, parts, [rels[:2], rels[2:]])
+    with _registry({"mjv4": subset}):
+        ad.acquire_wildfake(out, 0, ["mjv4"], cache_dir=cache, allow_large=True,
+                            list_files=lambda: parts[:1])
+    assert len(_images_under(out)) == 2
+
+    # Phase 2: the resume sees both parts. part_0 yields nothing new.
+    _plant_split_parts(cache, subset, rels, parts, [rels[:2], rels[2:]])
+    fetched = []
+
+    def fetch(member, cache_dir):
+        fetched.append(member)
+        return ad._hub_download(member, cache_dir)
+
+    with _registry({"mjv4": subset}):
+        ad.acquire_wildfake(out, 0, ["mjv4"], cache_dir=cache, allow_large=True,
+                            fetch=fetch, list_files=lambda: parts)
+    assert parts[0] in fetched and parts[1] in fetched
+    assert len(_images_under(out)) == 3
+
+
+def test_the_volume_report_names_archives_of_unrecorded_size(capsys):
+    """Archives are shared, so the total is over DISTINCT archives — asking
+    for four GAN families is one 47.3 GB download, not four. And the eight
+    `Images/Real/*.zip` sizes were never published: unrecorded must be SAID,
+    because a total that silently omits them reads as the whole cost."""
+    gan = [wf.SUBSETS[n] for n in ("BigGAN", "styleGAN", "VQGAN")]
+    ad._report_download_volume(gan)
+    out = capsys.readouterr().out
+    assert "~47 GB across 1 archive(s)" in out
+    assert "unrecorded" not in out
+
+    ad._report_download_volume(gan + [wf.SUBSETS["real_ffhq"]])
+    out = capsys.readouterr().out
+    assert "size unrecorded for ['Images/Real/ffhq.zip']" in out
 
 
 def test_requesting_no_generators_raises(tmp_path):

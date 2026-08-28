@@ -40,6 +40,42 @@ it runs layer 2 itself, so the check cannot be forgotten at a call site.
 The benchmark is a different verb: `benchmark_dest()`, which INVERTS the same
 marker table — a path must MATCH a benchmark marker to be materialised there.
 One table drives both, so the two halves cannot drift apart.
+
+`Advanced` / `Typical` is a VERSION axis, not a quality axis
+------------------------------------------------------------
+
+Resolved by grouping every `Image_path` in all 34 label CSVs by prefix depth.
+Every subset sits entirely in ONE tree, never both:
+
+    mjv4      Midjourney/Typical/mj_v4      mjv5    Midjourney/Advanced/mj_v5
+    dalle2    DALLE/Typical/DALLE2          dalle3  DALLE/Advanced/DALLE3
+    originsd  originalSD/Typical            sdxl    originalSD/Advanced
+
+`IsAdvanced` tracks the generator GENERATION: the newer model of each pair is
+the "Advanced" one. Two consequences that are not bookkeeping:
+
+- It changes what a held-out generator MEANS (spec §4.6). Holding out an
+  Advanced-tree family holds out a NEWER model, which is the realistic
+  deployment case, not merely an unseen one. That the scored benchmark is
+  `dalle3` — Advanced — is consistent with that reading.
+- It changes the cost of getting the mapping wrong. Under the earlier reading
+  (a quality axis, so each version spans both trees) a mis-declared subset
+  looked survivable: one tree would come up empty and the other would still
+  deliver. It does not. Asking for `mjv4` against the Advanced tree fetches
+  seven archives totalling ~372 GB and matches nothing. So a subset declares
+  its EXACT tree, and `_run_extraction` treats "the first archive fetched for
+  a subset yielded none of its images" as a fatal registry error rather than a
+  shortfall to warn about.
+
+Download volume is the binding acquisition risk (spec §4.4), not compute and
+not peak disk — archives are deleted one at a time. Four subsets are larger
+than the whole budget and are refused by `check_download_budget` unless a
+caller explicitly overrides: sdxl ~322 GB, mjv5 ~372 GB, mjv4 ~196 GB,
+originsd ~119 GB. The affordable archives, in GB:
+
+    DDIM 6.1   DDPM 8.1   Other_based 13.3   Imagen 17.1   VQDM 17.4
+    ADM 18.6   DALLE 25.6 (benchmark only)   SDwithAdaptor 42.0
+    GAN_based 47.3   personalizedSD 48.7
 """
 from __future__ import annotations
 
@@ -92,8 +128,9 @@ class WildFakeSubset:
     #: has been verified upstream (dalle3).
     prefix: str
     #: Repo-relative archive paths. `*` is a glob expanded against the Hub's
-    #: file listing (the multi-part `part_*.zip` trees). Empty means the
-    #: subset's archive has NOT been established: it raises rather than guesses.
+    #: file listing (the multi-part `part_*.zip` trees). Sizes live in
+    #: `ARCHIVE_GB`, keyed by these strings — size is a property of the
+    #: archive, not of the subset, and several subsets share one archive.
     zips: tuple[str, ...]
     #: Extra spellings that resolve to this subset. Matching is already
     #: case- and hyphen-insensitive, so these are only for the rest.
@@ -101,6 +138,11 @@ class WildFakeSubset:
     #: Non-empty => never acquirable into the training tree; the string is the
     #: reason, and is what the raise says.
     training_forbidden: str = ""
+    #: Non-empty => cannot be acquired AT ALL, for a reason upstream rather
+    #: than a rule of ours (a broken archive). Kept in the registry rather
+    #: than deleted, so a request for it gets the reason instead of
+    #: "unknown subset", and so the row count stays recorded.
+    unavailable: str = ""
     note: str = ""
 
 
@@ -147,6 +189,43 @@ FORBIDDEN_PATH_MARKERS: tuple[tuple[tuple[str, ...], str], ...] = (
 )
 
 
+#: Download volume in GB per archive, from the Hub listing. Keyed by the
+#: strings in `WildFakeSubset.zips`, so a `part_*.zip` entry is the TOTAL over
+#: that tree's parts, which is what a caller actually pays.
+#:
+#: `Images/Real/*.zip` are absent: their sizes were not published in the
+#: layout survey. Absent means UNRECORDED, not "small" — `subset_gb` reports
+#: them as unknown and the budget gate cannot judge them, which is stated
+#: where it is printed rather than quietly assumed away. The one real archive
+#: whose size IS known is `wukong.zip`, and it is known to be 0.00 GB, which
+#: is why that subset is declared `unavailable` instead.
+ARCHIVE_GB: dict[str, float] = {
+    "Images/Diffusion_based/ADM.zip": 18.6,
+    "Images/Diffusion_based/DDIM.zip": 6.1,
+    "Images/Diffusion_based/DDPM.zip": 8.1,
+    "Images/Diffusion_based/Imagen.zip": 17.1,
+    "Images/Diffusion_based/VQDM.zip": 17.4,
+    "Images/Diffusion_based/DALLE.zip": 25.6,
+    "Images/Other_based.zip": 13.3,
+    "Images/GAN_based.zip": 47.3,
+    "Images/Diffusion_based/SD/SDwithAdaptor.zip": 42.0,
+    "Images/Diffusion_based/SD/personalizedSD.zip": 48.7,
+    "Images/Diffusion_based/SD/originalSD/Typical/part_*.zip": 119.0,
+    "Images/Diffusion_based/SD/originalSD/Advanced/part_*.zip": 322.0,
+    "Images/Diffusion_based/Midjourney/Typical/part_*.zip": 196.0,
+    "Images/Diffusion_based/Midjourney/Advanced/part_*.zip": 372.0,
+}
+
+#: A single subset above this many GB is refused unless the caller overrides.
+#: Chosen from the data rather than from a round number: the largest archive
+#: on the affordable list is personalizedSD at 48.7 GB and the smallest
+#: refused subset is originsd at 119 GB, so anything in between separates
+#: them. This gates DOWNLOAD VOLUME, which spec §4.4 names as the binding
+#: acquisition risk; it is not a peak-disk gate, because `_run_extraction`
+#: holds one archive at a time and deletes it before fetching the next.
+DOWNLOAD_BUDGET_GB: float = 60.0
+
+
 SUBSETS: dict[str, WildFakeSubset] = {
     s.name: s
     for s in (
@@ -165,7 +244,14 @@ SUBSETS: dict[str, WildFakeSubset] = {
         WildFakeSubset("real_laion5b", 0, 271831, "Real/laion5b/",
                        ("Images/Real/laion5b.zip",)),
         WildFakeSubset("real_wukong", 0, 265696, "Real/wukong/",
-                       ("Images/Real/wukong.zip",)),
+                       ("Images/Real/wukong.zip",),
+                       unavailable="`Images/Real/wukong.zip` lists as 0.00 GB "
+                                   "on the ModelScope hub despite 265,696 rows "
+                                   "in wukong.csv, so the archive is empty or "
+                                   "broken upstream. Declared here rather than "
+                                   "left to fail as a zero-image extraction, "
+                                   "which would read as a registry error of "
+                                   "ours."),
         # --- Images/Diffusion_based/*.zip --------------------------------
         WildFakeSubset("adm", 1, 155022, "Diffusion_based/ADM/",
                        ("Images/Diffusion_based/ADM.zip",)),
@@ -177,7 +263,7 @@ SUBSETS: dict[str, WildFakeSubset] = {
                        ("Images/Diffusion_based/Imagen.zip",)),
         WildFakeSubset("vqdm", 1, 153479, "Diffusion_based/VQDM/",
                        ("Images/Diffusion_based/VQDM.zip",)),
-        WildFakeSubset("dalle2", 1, 55638, "Diffusion_based/DALLE/",
+        WildFakeSubset("dalle2", 1, 55638, "Diffusion_based/DALLE/Typical/DALLE2/",
                        ("Images/Diffusion_based/DALLE.zip",),
                        aliases=("dalle_2",),
                        note="shares DALLE.zip with dalle3, whose Advanced/DALLE3/ "
@@ -187,36 +273,46 @@ SUBSETS: dict[str, WildFakeSubset] = {
                        aliases=("dalle_3", "dalle_advanced", "dalle3_advanced"),
                        training_forbidden=_DALLE3_FORBIDDEN),
         # --- Images/Diffusion_based/SD/*.zip -----------------------------
+        # `<subset>_<variant>` maps to `<parent>/<variant>`. The lora and
+        # finetune prefixes are quoted from the CSV survey; the other three
+        # follow the identical shape. If one of those three is wrong the CSV
+        # prefix check rejects it for ~10 MB, before any archive is fetched.
         WildFakeSubset("SDwithAdaptor_controlnet", 1, 86991,
-                       "Diffusion_based/SD/SDwithAdaptor/",
+                       "Diffusion_based/SD/SDwithAdaptor/controlnet/",
                        ("Images/Diffusion_based/SD/SDwithAdaptor.zip",)),
         WildFakeSubset("SDwithAdaptor_lora", 1, 56545,
-                       "Diffusion_based/SD/SDwithAdaptor/",
+                       "Diffusion_based/SD/SDwithAdaptor/lora/",
                        ("Images/Diffusion_based/SD/SDwithAdaptor.zip",)),
         WildFakeSubset("SDwithAdaptor_lycris", 1, 56445,
-                       "Diffusion_based/SD/SDwithAdaptor/",
+                       "Diffusion_based/SD/SDwithAdaptor/lycris/",
                        ("Images/Diffusion_based/SD/SDwithAdaptor.zip",)),
         WildFakeSubset("personalizedSD_finetune", 1, 153274,
-                       "Diffusion_based/SD/personalizedSD/",
+                       "Diffusion_based/SD/personalizedSD/finetune/",
                        ("Images/Diffusion_based/SD/personalizedSD.zip",)),
         WildFakeSubset("personalizedSD_dreambooth", 1, 56593,
-                       "Diffusion_based/SD/personalizedSD/",
+                       "Diffusion_based/SD/personalizedSD/dreambooth/",
                        ("Images/Diffusion_based/SD/personalizedSD.zip",)),
-        WildFakeSubset("originsd", 1, 271267, "Diffusion_based/SD/originalSD/",
-                       ("Images/Diffusion_based/SD/originalSD/Typical/part_*.zip",
-                        "Images/Diffusion_based/SD/originalSD/Advanced/part_*.zip"),
-                       note="~51 GB per quality tier, split across part_*.zip; "
-                            "parts are fetched and deleted one at a time"),
-        # --- Images/Diffusion_based/Midjourney/**/part_*.zip -------------
-        # Advanced/Typical is a QUALITY axis (the CSVs' IsAdvanced column), not
-        # a version axis, so both mjv4 and mjv5 span both trees.
-        WildFakeSubset("mjv4", 1, 202046, "Diffusion_based/Midjourney/",
-                       ("Images/Diffusion_based/Midjourney/Typical/part_*.zip",
-                        "Images/Diffusion_based/Midjourney/Advanced/part_*.zip"),
+        # originsd and sdxl are the Typical/Advanced pair of one generator
+        # family: they do NOT share a tree, and neither spans both.
+        WildFakeSubset("originsd", 1, 271267,
+                       "Diffusion_based/SD/originalSD/Typical/",
+                       ("Images/Diffusion_based/SD/originalSD/Typical/part_*.zip",)),
+        WildFakeSubset("sdxl", 1, 204240,
+                       "Diffusion_based/SD/originalSD/Advanced/",
+                       ("Images/Diffusion_based/SD/originalSD/Advanced/part_*.zip",),
+                       aliases=("sd_xl",)),
+        # --- Images/Diffusion_based/Midjourney/<tree>/part_*.zip ---------
+        # Advanced/Typical is a VERSION axis: v4 is the Typical tree and v5 the
+        # Advanced one, and neither spans both. Getting this backwards fetches
+        # ~372 GB and matches nothing, which is why a barren first archive is
+        # fatal rather than a warning.
+        WildFakeSubset("mjv4", 1, 202046,
+                       "Diffusion_based/Midjourney/Typical/mj_v4/",
+                       ("Images/Diffusion_based/Midjourney/Typical/part_*.zip",),
                        aliases=("midjourney_v4", "midjourneyv4")),
-        WildFakeSubset("mjv5", 1, 236578, "Diffusion_based/Midjourney/",
-                       ("Images/Diffusion_based/Midjourney/Typical/part_*.zip",
-                        "Images/Diffusion_based/Midjourney/Advanced/part_*.zip"),
+        WildFakeSubset("mjv5", 1, 236578,
+                       "Diffusion_based/Midjourney/Advanced/mj_v5/",
+                       ("Images/Diffusion_based/Midjourney/Advanced/part_*.zip",),
                        aliases=("midjourney_v5", "midjourneyv5")),
         # --- Images/GAN_based.zip (47.33 GB) -----------------------------
         WildFakeSubset("DF-GAN", 1, 191980, "GAN_based/", ("Images/GAN_based.zip",)),
@@ -230,16 +326,6 @@ SUBSETS: dict[str, WildFakeSubset] = {
         WildFakeSubset("MAGE", 1, 100000, "Other_based/", ("Images/Other_based.zip",)),
         WildFakeSubset("VQVAE", 1, 55000, "Other_based/", ("Images/Other_based.zip",)),
         WildFakeSubset("MAE", 1, 8390, "Other_based/", ("Images/Other_based.zip",)),
-        # --- archive not established -------------------------------------
-        # `sdxl.csv` exists (204,240 rows) but which archive holds it was not
-        # confirmed upstream: it is plausibly under originalSD and plausibly
-        # its own tree. Declaring a guess would spend a ~51 GB download to find
-        # out, so this raises with instructions instead — the same discipline
-        # the whole-function SystemExit used to enforce, now scoped to the one
-        # entry that actually needs it.
-        WildFakeSubset("sdxl", 1, 204240, "", (),
-                       note="archive path unconfirmed; run the Hub file listing "
-                            "and read the first Image_path of sdxl.csv"),
     )
 }
 
@@ -334,9 +420,28 @@ def _normalise_name(name: str) -> str:
     return name.lower().replace("-", "_")
 
 
-def _build_index() -> dict[str, str]:
+def _validate_registry(subsets: dict[str, WildFakeSubset]) -> dict[str, str]:
+    """Check the registry's internal invariants and return the spelling index.
+
+    Run at import, so a badly declared entry is a startup error rather than a
+    surprise an hour into a download. Two invariants:
+
+    1. Every subset declares at least one archive, or an `unavailable` reason.
+       A subset with neither would resolve happily and then extract nothing,
+       and "extracted nothing" is the same symptom as pointing at the wrong
+       tree — a distinction worth keeping.
+    2. No two subsets share a spelling. Ambiguity here is not cosmetic: one of
+       the colliding entries could be benchmark-forbidden, and a request would
+       then resolve to the other.
+    """
     index: dict[str, str] = {}
-    for subset in SUBSETS.values():
+    for subset in subsets.values():
+        if not subset.zips and not subset.unavailable:
+            raise ValueError(
+                f"WildFake subset {subset.name!r} declares no archive and no "
+                "`unavailable` reason. Establish which archive holds it from "
+                "the first Image_path of its CSV, or say why it cannot be "
+                "acquired — do not leave it to fail as an empty extraction.")
         for spelling in (subset.name,) + subset.aliases:
             key = _normalise_name(spelling)
             if index.get(key, subset.name) != subset.name:
@@ -350,8 +455,45 @@ def _build_index() -> dict[str, str]:
 
 
 #: Every accepted spelling -> canonical subset name. Built at import so an
-#: ambiguous alias is a startup error, not a silent mis-resolution.
-NAME_INDEX: dict[str, str] = _build_index()
+#: ambiguous alias, or an entry with no archive, is a startup error rather
+#: than a silent mis-resolution or an empty extraction.
+NAME_INDEX: dict[str, str] = _validate_registry(SUBSETS)
+
+
+def subset_gb(subset: WildFakeSubset) -> float | None:
+    """Total GB that must be downloaded to acquire `subset`, or None when any
+    of its archives has no recorded size. None means UNRECORDED — it is never
+    treated as free."""
+    sizes = [ARCHIVE_GB.get(z) for z in subset.zips]
+    return None if any(g is None for g in sizes) else sum(sizes)
+
+
+def check_download_budget(subsets: list[WildFakeSubset],
+                          allow_large: bool = False) -> None:
+    """Refuse a subset whose archives exceed `DOWNLOAD_BUDGET_GB`.
+
+    Stated up front, with the number, because the alternative is discovering
+    it an hour into a transfer. Spec §4.4 names download volume as the binding
+    acquisition risk, and four subsets are individually larger than the whole
+    budget: sdxl (~322 GB), mjv5 (~372 GB), mjv4 (~196 GB), originsd (~119 GB).
+
+    Only ever refuses per SUBSET, never on the combined total of a request:
+    subsets share archives (all seven GAN families are one 47.3 GB download),
+    so summing them would refuse legitimate combinations and push callers onto
+    `allow_large`, which would then also disable the check that matters.
+    """
+    if allow_large:
+        return
+    for subset in subsets:
+        gb = subset_gb(subset)
+        if gb is not None and gb > DOWNLOAD_BUDGET_GB:
+            raise ValueError(
+                f"WildFake subset {subset.name!r} needs ~{gb:.0f} GB of "
+                f"downloads ({', '.join(subset.zips)}), over the "
+                f"{DOWNLOAD_BUDGET_GB:.0f} GB per-subset budget. Download "
+                "volume is the binding acquisition risk (spec §4.4), so this "
+                "is refused up front rather than an hour in. Pass "
+                "allow_large=True (--allow-large-archives) to override.")
 
 
 def resolve(name: str) -> WildFakeSubset:
@@ -381,12 +523,10 @@ def resolve_for_training(name: str) -> WildFakeSubset:
         raise ValueError(
             f"refusing to acquire WildFake subset {subset.name!r} into the "
             f"training tree. {subset.training_forbidden}")
-    if not subset.zips:
+    if subset.unavailable:
         raise ValueError(
-            f"WildFake subset {subset.name!r} has no established archive path "
-            f"in aigcdet.data.wildfake.SUBSETS ({subset.note}). Confirm it and "
-            "add it to the registry rather than guessing: a wrong archive is a "
-            "tens-of-gigabytes download that ends in an empty extraction.")
+            f"WildFake subset {subset.name!r} cannot be acquired. "
+            f"{subset.unavailable}")
     return subset
 
 
