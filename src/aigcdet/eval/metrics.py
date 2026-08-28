@@ -16,14 +16,30 @@ def roc_auc(y: np.ndarray, s: np.ndarray) -> float:
 
 
 def threshold_at_fpr(y: np.ndarray, s: np.ndarray, target_fpr: float = 0.01) -> float:
-    """Lowest threshold whose false-positive rate does not exceed the target."""
-    fpr, _, thr = roc_curve(y, s)
+    """Lowest threshold whose false-positive rate does not exceed the target.
+
+    `drop_intermediate=False` is load-bearing. `roc_curve` defaults to dropping
+    ROC vertices that lie on a straight line, which is right for plotting and
+    wrong here: some of the dropped vertices are thresholds that satisfy the
+    target, and skipping them returns a stricter threshold than the lowest
+    qualifying one. On randomised trials the default was exact in 3275 of 3600
+    cases and stricter in the other 325 (never permissive, so it never
+    overspent the FPR budget -- it just left coverage on the table); with the
+    drop disabled it is exact in 3600 of 3600.
+    """
+    fpr, _, thr = roc_curve(y, s, drop_intermediate=False)
     ok = np.where(fpr <= target_fpr)[0]
     return float(thr[ok[-1]]) if len(ok) else float(np.max(s) + 1.0)
 
 
 def tpr_at_fpr(y: np.ndarray, s: np.ndarray, target_fpr: float = 0.01) -> float:
-    fpr, tpr, _ = roc_curve(y, s)
+    """TPR at the lowest threshold whose FPR does not exceed the target.
+
+    `drop_intermediate=False` for the same reason as `threshold_at_fpr`: a
+    dropped vertex is an operating point the caller asked about and did not get,
+    which understates the reported TPR.
+    """
+    fpr, tpr, _ = roc_curve(y, s, drop_intermediate=False)
     ok = np.where(fpr <= target_fpr)[0]
     return float(tpr[ok[-1]]) if len(ok) else 0.0
 

@@ -1,3 +1,5 @@
+import dataclasses
+
 import numpy as np
 import pytest
 
@@ -21,6 +23,19 @@ def _population(n=4000, seed=0):
                  np.where(y == 1, rng.uniform(0.7, 1.0, n), rng.uniform(0.0, 0.3, n)),
                  rng.uniform(0.3, 0.7, n))
     return p, y, eqi
+
+
+def _sigmoid_population(n=4000, seed=0):
+    """Probabilities the way the pipeline makes them: a sigmoid of a logit.
+
+    `_population`'s `rng.uniform` draws are k/2**53, for which `1 - (1 - p)` is
+    exactly `p`; sigmoid outputs are not, which is where the complement form of
+    the clear threshold goes wrong.
+    """
+    rng = np.random.default_rng(int(seed))
+    y = (rng.random(n) < 0.5).astype(int)
+    z = rng.normal(np.where(y == 1, 2.0, -2.0), 1.5)
+    return 1.0 / (1.0 + np.exp(-z)), y
 
 
 # A hand-checkable population with heavily TIED probabilities. Ties are where a
@@ -93,7 +108,21 @@ def test_clear_threshold_equals_a_directly_computed_real_side_reference(target_f
 def test_clear_threshold_is_an_observed_probability_not_a_rounded_complement():
     """`1 - (1 - p)` is not `p` in binary floating point. A clear threshold one
     ulp below an observed probability silently stops clearing that whole tie
-    group; one ulp above can clear a group the target did not pay for."""
+    group.
+
+    Which probabilities it bites is not obvious and is worth stating, because it
+    is why this fixture uses decimal literals rather than `rng.random()`: for
+    raw uniform doubles the round trip is exact (0 of 5,000,000 measured), since
+    they are all k/2**53. For the sigmoid outputs a calibrated detector actually
+    produces it fails for 38.9% of values, and for 2-dp rounded scores 32.0%.
+
+    The harm is one-directional: a pure COVERAGE LOSS that understates the
+    Impact figure, never an FPR overclaim. Measured over 3000 randomised
+    targets, all 497 differing cleared sets went the conservative way and none
+    exceeded the budget -- gaining a member would need two observed
+    probabilities within one ulp of each other, which float probabilities do
+    not produce.
+    """
     pol = fit_policy(_TIED_P, _TIED_Y, np.ones(10), target_fpr=0.0,
                      target_coverage=1.0, split=_val(_TIED_P))
     assert pol.clear_threshold in _TIED_P
@@ -102,15 +131,40 @@ def test_clear_threshold_is_an_observed_probability_not_a_rounded_complement():
     assert list(d) == ["clear"] * 3 + ["review"] * 3 + ["flag"] * 4
 
 
+@pytest.mark.parametrize("seed", [0, 1, 2])
+@pytest.mark.parametrize("target_fpr", [0.005, 0.01, 0.05])
+def test_clear_threshold_is_exact_on_probabilities_shaped_like_the_pipeline_s(
+        target_fpr, seed):
+    """The regime the detector actually ships in.
+
+    `_population` draws `p` from `rng.uniform`, where the complement round trip
+    happens to be exact, so it cannot see this bug at all. Real probabilities
+    come off a sigmoid, where `1 - (1 - p) != p` for 38.9% of values: on 20
+    seeds x 4 targets of this population the complement form put the threshold
+    on a value no image had in 57 of 80 cases.
+    """
+    p, y = _sigmoid_population(seed=seed)
+    pol = fit_policy(p, y, np.ones(len(p)), target_fpr=target_fpr,
+                     target_coverage=1.0, split=_val(p))
+    assert pol.clear_threshold in p
+    assert pol.clear_threshold == _reference_clear_threshold(p, y, target_fpr)
+
+
 @pytest.mark.parametrize("target_fpr", [0.0, 0.005, 0.01, 0.05, 0.1])
-def test_neither_threshold_is_ever_more_permissive_than_the_exact_optimum(target_fpr):
-    """`threshold_at_fpr` may drop collinear ROC vertices, which can make it
-    stricter than the exact optimum. Stricter is safe; looser would overspend
-    the FPR budget. Pin the direction on both sides."""
+def test_both_thresholds_are_the_exact_optimum_not_merely_a_safe_one(target_fpr):
+    """Equality on both sides, against the brute-force references.
+
+    This was an inequality while `threshold_at_fpr` used `roc_curve`'s default
+    `drop_intermediate=True`, which deletes collinear ROC vertices -- some of
+    them thresholds that satisfy the target. That was safe (stricter, never
+    looser: it spent less than the FPR budget) but it silently cost coverage,
+    which is the Impact figure. With the drop disabled both sides are exact,
+    and asserting equality here fails if that ever regresses.
+    """
     p, y, eqi = _population(seed=5)
     pol = fit_policy(p, y, eqi, target_fpr=target_fpr, split=_val(p))
-    assert pol.flag_threshold >= _reference_flag_threshold(p, y, target_fpr)
-    assert pol.clear_threshold <= _reference_clear_threshold(p, y, target_fpr)
+    assert pol.flag_threshold == _reference_flag_threshold(p, y, target_fpr)
+    assert pol.clear_threshold == _reference_clear_threshold(p, y, target_fpr)
 
 
 @pytest.mark.parametrize("seed", [0, 1, 2])
@@ -246,6 +300,39 @@ def test_auto_decided_fraction_rejects_an_empty_decision_array():
 
 
 # --------------------------------------------------------------------------
+# The shipped operating point
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("target_coverage", [0.25, 0.5, 0.85])
+def test_eqi_gate_defers_exactly_the_share_the_coverage_target_names(target_coverage):
+    """`target_coverage` is the Impact figure's other half, and a percent-vs-
+    fraction slip in the quantile argument would defer 92.5% instead of 15%
+    while every other test stayed green. Pin the knob where it can fail: the
+    two existing coverage tests sit at 1.0 and 0.0, and 1 - 1.0 == 0 is
+    identical under every wrong formula."""
+    p, y, eqi = _population()
+    pol = fit_policy(p, y, eqi, target_coverage=target_coverage, split=_val(p))
+    assert (eqi >= pol.eqi_threshold).mean() == pytest.approx(target_coverage)
+
+
+def test_the_shipped_defaults_are_the_one_percent_eighty_five_percent_operating_point():
+    """`target_fpr=0.01, target_coverage=0.85` are the numbers spec §1.3/§6.1
+    states publicly. Every other test passes its targets explicitly, so both
+    literals could be edited without a failure. Assert the behaviour the
+    defaults produce rather than `__defaults__`, which pins the spelling
+    instead of the operating point."""
+    p, y, eqi = _population()
+    pol = fit_policy(p, y, eqi, split=_val(p))
+
+    # The FPR guarantee, over the population it is guaranteed on: all authentic.
+    assert (p[y == 0] >= pol.flag_threshold).mean() <= 0.01
+    # Spent symmetrically on the clear side.
+    assert (p[y == 1] <= pol.clear_threshold).mean() <= 0.01
+    # And 85% of the queue clears the EQI gate.
+    assert (eqi >= pol.eqi_threshold).mean() == pytest.approx(0.85)
+
+
+# --------------------------------------------------------------------------
 # The reported numbers
 # --------------------------------------------------------------------------
 
@@ -333,3 +420,69 @@ def test_auto_and_review_fractions_are_over_the_whole_queue_and_sum_to_one():
     assert rep["review_fraction"] == pytest.approx((d == "review").mean())
     assert rep["auto_fraction"] + rep["review_fraction"] == pytest.approx(1.0)
     assert rep["n_auto"] == int((d != "review").sum())
+
+
+def test_realised_fpr_is_not_bounded_by_the_all_authentic_rate_in_either_direction():
+    """The one inference a reader must not draw from `realised_fpr`.
+
+    `target_fpr` is guaranteed over ALL authentic rows. `realised_fpr`
+    conditions on the auto-decided subset afterwards, and that conditioning is
+    not signed: across eight seeds of the same population it lands above the
+    all-authentic rate five times and below it three times. A docstring or a
+    write-up that says "the EQI gate removes the weakest images, which is why
+    this is lower" turns a 1.28% into "below the 1% we targeted".
+
+    This test asserts only that BOTH directions occur, so the day someone
+    "fixes" the code or the prose to make one of them impossible, it fails. The
+    targets are passed explicitly rather than defaulted, so that a change to the
+    shipped defaults fails the operating-point test above and not this one.
+    """
+    higher = lower = 0
+    for seed in range(8):
+        p, y, eqi = _population(seed=seed)
+        pol = fit_policy(p, y, eqi, target_fpr=0.01, target_coverage=0.85,
+                         split=_val(p))
+        rep = policy_report(p, y, eqi, pol)
+        all_authentic_fpr = float((p[y == 0] >= pol.flag_threshold).mean())
+        # The guarantee itself holds on every seed, on its own population.
+        assert all_authentic_fpr <= 0.01
+        higher += rep["realised_fpr"] > all_authentic_fpr
+        lower += rep["realised_fpr"] < all_authentic_fpr
+    assert higher > 0, "realised_fpr never exceeded the all-authentic rate"
+    assert lower > 0, "realised_fpr never fell below the all-authentic rate"
+
+
+# --------------------------------------------------------------------------
+# Guards whose absence changes no other test
+# --------------------------------------------------------------------------
+
+def test_policy_is_frozen_so_a_report_cannot_describe_other_thresholds():
+    """`policy_report` calls `decide` with the policy it was handed. A policy
+    mutated between the two would silently describe decisions nobody made."""
+    pol = Policy(flag_threshold=0.9, clear_threshold=0.1, eqi_threshold=0.5)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        pol.flag_threshold = 0.5
+
+
+@pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])
+@pytest.mark.parametrize("column", ["p", "eqi"])
+def test_fit_policy_rejects_non_finite_scores(bad, column):
+    """A NaN silently loses every comparison, so a NaN probability is neither
+    flagged nor cleared and quietly inflates the review queue; an inf sails
+    past both thresholds."""
+    p, y, eqi = _population(n=200)
+    p, eqi = p.copy(), eqi.copy()
+    if column == "p":
+        p[7] = bad
+    else:
+        eqi[7] = bad
+    with pytest.raises(ValueError, match="finite"):
+        fit_policy(p, y, eqi, split=_val(p))
+
+
+def test_fit_policy_rejects_empty_inputs():
+    """`np.quantile` of an empty array is a NaN threshold plus a RuntimeWarning,
+    and every downstream rate becomes 0/0."""
+    empty = np.array([], dtype=float)
+    with pytest.raises(ValueError, match="empty"):
+        fit_policy(empty, np.array([], dtype=int), empty, split=_val(empty))

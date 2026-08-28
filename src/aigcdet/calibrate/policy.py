@@ -1,8 +1,12 @@
 """Clear / Review / Flag (spec §1.3, §3.7).
 
 The output number this exists to produce: the share of a moderation queue the
-system decides without a human, while holding false positives on authentic
-images at the target rate. That is the Impact figure the rubric asks for.
+system decides without a human, while holding false positives at the target
+rate over ALL authentic validation rows. That is the Impact figure the rubric
+asks for. The guarantee is over that whole population and no other: the rate
+recomputed on any sub-population -- the auto-decided images in particular --
+is a different number that may land either side of the target. See
+`policy_report`.
 
 Two independent gates decide an image. The probability gates say *what* the
 answer is: `p >= flag_threshold` is AI-generated, `p <= clear_threshold` is
@@ -99,9 +103,8 @@ def fit_policy(p: np.ndarray, y: np.ndarray, eqi: np.ndarray,
     landing one ulp off an observed probability silently moves that entire tie
     group between "clear" and "review".
 
-    Both thresholds inherit `threshold_at_fpr`'s conservatism -- it can return
-    a stricter threshold than the exact optimum, never a looser one -- so the
-    realised rates land at or under the target on both sides.
+    Both thresholds are the exact lowest/highest qualifying observed score, so
+    the realised rates land at or under the target on both sides.
     """
     if not 0.0 <= target_fpr <= 1.0:
         raise ValueError(f"target_fpr must be in [0, 1], got {target_fpr!r}")
@@ -160,9 +163,18 @@ def policy_report(p: np.ndarray, y: np.ndarray, eqi: np.ndarray,
       This is the reviewer-load figure.
     - `review_fraction`: over ALL images -- the complement of `auto_fraction`.
     - `realised_fpr`: over the AUTO-DECIDED AUTHENTIC images only (`n_authentic_auto`)
-      -- the share of them flagged as AI-generated. It is NOT the false-positive
-      rate over all authentic images: the EQI gate has already removed the
-      least-evidenced ones from this population, which is why it is lower.
+      -- the share of them flagged as AI-generated.
+
+      It is NOT the false-positive rate `target_fpr` guarantees. That guarantee
+      holds over ALL authentic validation rows; this number conditions on the
+      auto-decided subset afterwards, and conditioning can move it in EITHER
+      direction. Do not assume it is the lower of the two. On the population
+      this module was developed against it is HIGHER: 1.28% over the 1169
+      auto-decided authentic rows against 0.96% over all 1969 authentic rows,
+      and across eight seeds of that population it came out higher in five and
+      lower in three. Quote it as what it is -- the false-positive rate a
+      reviewer would see among the images nobody looked at -- and quote the
+      all-authentic rate separately when the claim is about the target.
     - `accuracy_on_auto`: over the AUTO-DECIDED images only (`n_auto`) -- the
       share whose decision matches the label. It is not the accuracy of the
       detector on the full set, which is lower.
