@@ -17,10 +17,15 @@ The threshold behind `fp_by_source.md` is a DIAGNOSTIC threshold, stated in
 the file, and it is fitted ON THE VERY ROWS the file then reports. Two
 consequences the file spells out rather than leaving to the reader:
 
-- the AGGREGATE false-positive rate across all sources is `--target-fpr` (1% by
-  default) BY CONSTRUCTION. It measures the threshold, not the detector. Only
-  the RELATIVE concentration across sources carries information -- which is
-  what §6.6 asks this sheet for.
+- the AGGREGATE false-positive rate across all sources measures the THRESHOLD,
+  not the detector, so only the RELATIVE concentration across sources carries
+  information -- which is what §6.6 asks this sheet for. The aggregate is NOT
+  `--target-fpr` "by construction", as this file used to claim:
+  `threshold_at_fpr` returns the lowest threshold whose FPR does not EXCEED the
+  target, so the realised rate is at most the target and is quantised to
+  `1/n_authentic` -- over 50 authentic rows a 1% target realises 0.0%, over 250
+  it realises 0.8%. The file therefore prints the REALISED rate beside the
+  target rather than asserting one it does not have.
 - it is not the deployment operating point. That one comes from
   `calibrate.policy`, fitted on internal validation and shipped with the
   model; quoting this number as a deployed false-positive rate would be wrong.
@@ -37,6 +42,7 @@ import pandas as pd
 from aigcdet.eval.errors import contact_sheet, fp_rate_by_source, top_errors
 from aigcdet.eval.metrics import threshold_at_fpr
 from aigcdet.features.bank import FeatureBank
+from aigcdet.operating_point import TARGET_FPR, fpr_label
 
 #: Columns pulled off the eval bank onto the scores. `path` is what the sheet
 #: renders; `split` is provenance -- an error sheet spanning benchmark rows and
@@ -88,6 +94,21 @@ def attach_paths(scores: pd.DataFrame, meta: pd.DataFrame) -> pd.DataFrame:
     return merged
 
 
+def realised_fp_rate(by_source: pd.DataFrame) -> tuple[int, int, float]:
+    """`(n_fp, n_authentic, rate)` aggregated over every source.
+
+    The aggregate the file used to assert was `--target-fpr` "by construction".
+    It is not: `threshold_at_fpr` returns the lowest threshold whose FPR does
+    not EXCEED the target, so the realised rate is bounded ABOVE by the target
+    and quantised to `1/n_authentic` -- at 50 authentic rows a 1% target can
+    only realise 0%, because one false positive is already 2%.
+    """
+    n_authentic = int(by_source["n_authentic"].sum())
+    n_fp = int(by_source["n_fp"].sum())
+    rate = n_fp / n_authentic if n_authentic else float("nan")
+    return n_fp, n_authentic, rate
+
+
 def write_fp_by_source(path: str, by_source: pd.DataFrame, condition: str,
                        threshold: float, provenance: str, splits: dict,
                        target_fpr: float | None) -> None:
@@ -99,12 +120,21 @@ def write_fp_by_source(path: str, by_source: pd.DataFrame, condition: str,
     write dies with UnicodeEncodeError after both contact sheets have already
     been rendered.
     """
+    n_fp, n_authentic, rate = realised_fp_rate(by_source)
     fitted = ("" if target_fpr is None else
-              f"It was fitted on the very rows tabulated below, so the "
-              f"AGGREGATE `fp_rate` across all sources is {target_fpr:.1%} by "
-              "construction and measures the threshold rather than the "
-              "detector. Only the RELATIVE concentration across sources carries "
-              "information. ")
+              "It was fitted on the very rows tabulated below, so the AGGREGATE "
+              "`fp_rate` across all sources measures the threshold rather than "
+              "the detector: it is bounded above by the target and quantised to "
+              "1/n_authentic, never equal to the target by construction. Only "
+              "the RELATIVE concentration across sources carries information. ")
+    realised = (f"**Realised aggregate FP rate:** {rate:.2%} "
+                f"({n_fp} of {n_authentic} authentic rows)"
+                if n_authentic else
+                "**Realised aggregate FP rate:** undefined -- no authentic rows")
+    if target_fpr is not None and n_authentic:
+        realised += (f", against a {target_fpr:.1%} target "
+                     f"(the finest rate this many authentic rows can express is "
+                     f"{1.0 / n_authentic:.2%})")
     with open(path, "w", encoding="utf-8") as f:
         f.write("# False-positive rate by source\n\n")
         f.write(f"**Condition:** `{condition}`  \n")
@@ -116,6 +146,7 @@ def write_fp_by_source(path: str, by_source: pd.DataFrame, condition: str,
                 "This is NOT the deployment operating point; that one is fitted "
                 "on internal validation by `calibrate.policy` and reported "
                 "there.\n\n")
+        f.write(realised + ".\n\n")
         f.write("`fp_rate` is blank for a source that contributed no authentic "
                 "image: an empty denominator is not a rate of zero.\n\n")
         f.write(markdown_table(by_source) + "\n")
@@ -130,8 +161,11 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--condition", default="clean")
     ap.add_argument("--out", default="docs/errors")
     ap.add_argument("--k", type=int, default=24)
-    ap.add_argument("--target-fpr", type=float, default=0.01,
-                    help="FPR the diagnostic threshold is placed at")
+    ap.add_argument("--target-fpr", type=float, default=TARGET_FPR,
+                    help="FPR the diagnostic threshold is placed at; defaults "
+                         "to the project operating point "
+                         f"({fpr_label(TARGET_FPR)}), the same constant §6.4 "
+                         "selection and calibrate.policy take theirs from")
     ap.add_argument("--threshold", type=float, default=None,
                     help="explicit diagnostic threshold; overrides --target-fpr")
     return ap
@@ -199,6 +233,12 @@ def main(argv=None) -> str:
     write_fp_by_source(out_md, by_source, a.condition, threshold, provenance,
                        splits, None if a.threshold is not None else a.target_fpr)
     print(by_source.to_string(index=False))
+    n_fp, n_authentic, rate = realised_fp_rate(by_source)
+    print(f"realised aggregate fp_rate: {rate:.2%} ({n_fp}/{n_authentic} "
+          "authentic rows)"
+          + ("" if a.threshold is not None else
+             f", against a {a.target_fpr:.1%} target -- bounded above by it and "
+             "quantised to 1/n_authentic, not equal to it by construction"))
     print(f"wrote {out_md}")
     return out_md
 

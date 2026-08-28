@@ -57,28 +57,42 @@ import numpy as np
 import pandas as pd
 
 from aigcdet.eval.metrics import tpr_at_fpr
+from aigcdet.operating_point import TARGET_FPR, fpr_label, tpr_column_name
 
 #: The rungs eligible to be the headline model (spec §6.4). A0-A2 are ablation
 #: controls: they exist to show what A3+ buys, so a control winning is a
 #: finding to report, never a model to ship.
 ELIGIBLE_RUNGS: tuple[str, ...] = ("a3", "a4", "a5", "a6")
 
+#: The operating point the rule is specified at (spec §6.1, §6.4).
+#:
+#: NOT a literal, and no longer this module's own: it is the project-wide
+#: `operating_point.TARGET_FPR`, which `eval.report.condition_metrics`,
+#: `calibrate.policy.fit_policy` and `scripts/make_error_sheet.py` default from
+#: as well. As four separate literals, moving this one moved the headline rule
+#: and left the reported `tpr_at_1pct` column, the deployed decision policy and
+#: the error sheet's diagnostic threshold behind at 1%.
+#:
+#: A module constant rather than a call-site literal because `SELECTION_RULE`
+#: below and `SELECTION_METRIC`'s NAME are both rendered FROM it: a rule string
+#: that says "1% FPR" while the call site passes 0.05 would make
+#: `selection.json` -- the artefact whose entire purpose is to record the rule
+#: -- state a rule that was not used.
+SELECTION_TARGET_FPR: float = TARGET_FPR
+
 #: The one key `select_headline` reads. Named for the whole rule -- robust,
-#: held-out-generator, TPR at 1% FPR -- so that a result dict carrying only
-#: `val_auc` fails loudly rather than being selected on the wrong criterion.
-SELECTION_METRIC: str = "heldout_robust_tpr_at_1pct"
+#: held-out-generator, TPR at the operating point -- so that a result dict
+#: carrying only `val_auc` fails loudly rather than being selected on the wrong
+#: criterion. The operating point in the name is DERIVED from
+#: `SELECTION_TARGET_FPR`: at the project default this is exactly
+#: `heldout_robust_tpr_at_1pct`, and at any other it says so rather than
+#: leaving a key that names an operating point nobody selected at.
+SELECTION_METRIC: str = f"heldout_robust_{tpr_column_name(SELECTION_TARGET_FPR)}"
 
 #: Keys that are NOT the selection metric, listed in the error message so the
 #: reader is told why the AUC sitting right there is not a substitute.
 NON_SELECTION_KEYS: tuple[str, ...] = (
     "val_auc", "val_auc_mean_views", "clean_auc", "auc", "robust_auc")
-
-#: The operating point the rule is specified at (spec §6.1, §6.4). A module
-#: constant rather than a call-site literal because `SELECTION_RULE` below is
-#: rendered FROM it: a rule string that says "1% FPR" while the call site
-#: passes 0.05 would make `selection.json` -- the artefact whose entire purpose
-#: is to record the rule -- state a rule that was not used.
-SELECTION_TARGET_FPR: float = 0.01
 
 #: Result-dict keys through which a caller may declare the provenance of its
 #: numbers -- the population, the splits and the operating point -- so the
@@ -97,7 +111,7 @@ SELECTION_POPULATION: str = (
 
 SELECTION_RULE: str = (
     "the rung among " + "/".join(r.upper() for r in ELIGIBLE_RUNGS) + " with "
-    f"the highest mean TPR @ {SELECTION_TARGET_FPR:.0%} FPR over the degraded "
+    f"the highest mean TPR @ {fpr_label(SELECTION_TARGET_FPR)} FPR over the degraded "
     "conditions, computed on " + SELECTION_POPULATION + " (spec §6.4). Fixed "
     "before any result existed; not clean AUC, not val_auc, not the external "
     "benchmark.")
@@ -286,7 +300,8 @@ def _metric_of(rung: str, result: Mapping) -> float:
     if SELECTION_METRIC not in result:
         raise ValueError(
             f"rung {rung!r} carries no {SELECTION_METRIC!r} (it has "
-            f"{sorted(result)}). The §6.4 rule selects on robust TPR @ 1% FPR "
+            f"{sorted(result)}). The §6.4 rule selects on robust TPR @ "
+            f"{fpr_label(SELECTION_TARGET_FPR)} FPR "
             f"and on nothing else: {list(NON_SELECTION_KEYS)} are clean-view or "
             "whole-grid AUCs and are NOT substitutes -- the robustness grid "
             "routinely disagrees with them. Compute the metric with "
