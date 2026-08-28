@@ -43,6 +43,37 @@ def test_threshold_at_fpr_actually_holds_that_fpr(separable):
     assert realised <= 0.02
 
 
+def test_threshold_at_fpr_returns_the_lowest_qualifying_threshold_not_the_next_vertex_up():
+    """`roc_curve(drop_intermediate=True)` deletes ROC vertices that sit on a
+    straight line. Here the three authentic images give a collinear run, so the
+    0.6 and 0.5 vertices are dropped -- and 0.6 is the answer.
+
+    Authentic p = {0.3, 0.5, 0.6}; AI p = {0.9}. At thr=0.6 the FPR is exactly
+    1/3, which does not exceed the 1/3 target; at thr=0.5 it is 2/3, which does.
+    So the lowest qualifying threshold is 0.6. With the vertex dropped the
+    function skipped to 0.9, a stricter operating point than the caller asked
+    for.
+    """
+    s = np.array([0.6, 0.9, 0.3, 0.5])
+    y = np.array([0, 1, 0, 0])
+    assert M.threshold_at_fpr(y, s, 1 / 3) == 0.6
+
+
+def test_tpr_at_fpr_reports_the_dropped_vertex_the_caller_asked_about():
+    """A detector with no discriminative power: authentic and AI scores are the
+    same four values, so the ROC is the diagonal and every vertex is collinear
+    with its neighbours. Dropping them collapsed every answer onto the first
+    vertex.
+
+    At a 0.5 FPR budget, thr=0.7 admits 2 of 4 authentic (FPR 0.5) and catches
+    2 of 4 AI (TPR 0.5). The dropped-vertex version reported 0.25.
+    """
+    s = np.array([0.9, 0.9, 0.7, 0.7, 0.5, 0.5, 0.3, 0.3])
+    y = np.array([1, 0, 1, 0, 1, 0, 1, 0])
+    assert M.tpr_at_fpr(y, s, 0.5) == 0.5
+    assert M.tpr_at_fpr(y, s, 0.75) == 0.75
+
+
 def test_accuracy_at_threshold_matches_hand_computed_value():
     # thr=0.5; predictions = (s >= thr) = [0, 1, 0, 1, 1, 1].
     # Matches y=[0,0,1,1,0,1] at indices 0, 3, 5 -> 3/6 correct, a genuine mix
