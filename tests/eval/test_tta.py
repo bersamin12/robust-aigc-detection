@@ -80,8 +80,35 @@ def test_the_composite_views_really_compose_both_halves():
 
 
 def test_the_declared_views_are_exactly_the_implemented_ones():
-    from aigcdet.eval.tta import _VIEW_FUNCS
+    from aigcdet.eval.tta import _VIEW_FUNCS, _VIEW_SPECS
     assert tuple(_VIEW_FUNCS) == TTA_VIEWS
+    # Both must come from the one declaration. A view implemented straight into
+    # `_VIEW_FUNCS`, or listed straight into `TTA_VIEWS`, would have no declared
+    # ops -- and `VIEW_PARAMS`, which the held-out-band check reads, is derived
+    # from those ops. That is exactly how a jpeg q=70 view survived the suite.
+    assert tuple(_VIEW_SPECS) == TTA_VIEWS
+    assert set(_VIEW_FUNCS) == set(_VIEW_SPECS)
+
+
+def test_every_view_is_built_from_ops_of_a_declared_kind():
+    """There is no third, unclassified kind of op.
+
+    `VIEW_PARAMS` is "the degradation steps of every view". That is only a
+    complete statement if every step is classified, so an op in neither table
+    is refused at composition time rather than silently counting as geometric.
+    """
+    from aigcdet.eval.tta import (
+        _DEGRADATION_OPS, _GEOMETRIC_OPS, _VIEW_SPECS, _compose,
+    )
+    known = set(_DEGRADATION_OPS) | set(_GEOMETRIC_OPS)
+    assert not set(_DEGRADATION_OPS) & set(_GEOMETRIC_OPS)
+    for name, steps in _VIEW_SPECS.items():
+        for op, _ in steps:
+            assert op in known, (name, op)
+    with pytest.raises(ValueError, match="unknown TTA op"):
+        _compose((("posterize", 4),))
+    with pytest.raises(ValueError, match="needs a severity value"):
+        _compose((("jpeg", None),))
 
 
 def test_unknown_view_raises():
@@ -98,16 +125,68 @@ def test_no_tta_view_lands_inside_a_heldout_severity_band():
     also the severity every image is silently re-encoded at before scoring,
     which is the kind of footnote a reader should never have to reconstruct.
     `jpeg_95` and `blur_0.3` both sit outside; this fails if either moves in.
+
+    The set checked is DERIVED from the view declarations, not hand-listed
+    beside them. When it was hand-listed, adding a jpeg q=70 view -- the dead
+    centre of `HELDOUT_JPEG_Q` -- and leaving `VIEW_PARAMS` alone passed the
+    whole suite, this test included.
     """
     from aigcdet.augment.recipes import HELDOUT_BLUR_SIGMA, HELDOUT_JPEG_Q
-    from aigcdet.eval.tta import VIEW_PARAMS
+    from aigcdet.eval.tta import VIEW_PARAMS, check_views_avoid_heldout_bands
 
-    for view, (family, value) in VIEW_PARAMS.items():
+    check_views_avoid_heldout_bands()          # the shipped views, re-checked
+    bands = {"jpeg": HELDOUT_JPEG_Q, "blur": HELDOUT_BLUR_SIGMA}
+    for view, steps in VIEW_PARAMS.items():
         assert view in TTA_VIEWS
-        band = {"jpeg": HELDOUT_JPEG_Q, "blur": HELDOUT_BLUR_SIGMA}[family]
-        assert not band[0] <= value <= band[1], (
-            f"TTA view {view!r} uses {family}={value}, inside the held-out band "
-            f"{band}")
+        assert steps, view
+        for family, value in steps:
+            band = bands[family]
+            assert not band[0] <= value <= band[1], (
+                f"TTA view {view!r} uses {family}={value}, inside the held-out "
+                f"band {band}")
+
+
+def test_the_checked_degradations_are_derived_from_the_views_themselves():
+    """Kills the mutant that adds a degradation view without declaring it.
+
+    `VIEW_PARAMS` must be exactly the degradation steps of `_VIEW_SPECS` -- for
+    every view, not just the ones somebody remembered. A view with a
+    degradation step and no `VIEW_PARAMS` entry is a severity the held-out-band
+    check never sees.
+    """
+    from aigcdet.eval.tta import (
+        _DEGRADATION_OPS, _VIEW_SPECS, VIEW_PARAMS, degradation_params,
+    )
+    assert VIEW_PARAMS == degradation_params(_VIEW_SPECS)
+    assert set(VIEW_PARAMS) == {"jpeg_95", "blur_0.3", "hflip_jpeg_95"}
+    for name, steps in _VIEW_SPECS.items():
+        has_degradation = any(op in _DEGRADATION_OPS for op, _ in steps)
+        assert has_degradation == (name in VIEW_PARAMS), name
+
+
+def test_a_degradation_view_cannot_be_added_without_reaching_the_band_check():
+    """The mutation the reviewer ran, run here against the real check.
+
+    Adding a jpeg q=70 view means adding it to `_VIEW_SPECS`, because that is
+    the only place a view can be written -- `TTA_VIEWS`, `_VIEW_FUNCS` and
+    `VIEW_PARAMS` are all derived from it. The band check is then handed a
+    severity in the dead centre of `HELDOUT_JPEG_Q` and refuses. Before this
+    restructuring the same mutant left the hand-maintained `VIEW_PARAMS`
+    untouched and the whole suite passed, this test's ancestor included.
+    """
+    from aigcdet.augment.recipes import HELDOUT_JPEG_Q
+    from aigcdet.eval.tta import (
+        _VIEW_SPECS, check_views_avoid_heldout_bands, degradation_params,
+    )
+    assert HELDOUT_JPEG_Q[0] <= 70 <= HELDOUT_JPEG_Q[1], \
+        "fixture: q=70 must be inside the held-out band for this to mean anything"
+    mutant = dict(_VIEW_SPECS) | {"jpeg_70": (("jpeg", 70),)}
+    assert degradation_params(mutant)["jpeg_70"] == (("jpeg", 70),)
+    with pytest.raises(ValueError, match="inside the held-out severity band"):
+        check_views_avoid_heldout_bands(degradation_params(mutant))
+    # ... and a geometric view added the same way is still fine.
+    check_views_avoid_heldout_bands(
+        degradation_params(dict(_VIEW_SPECS) | {"scale_2": (("scale", 2.0),)}))
 
 
 # --- the averaged logit ----------------------------------------------------

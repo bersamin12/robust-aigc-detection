@@ -15,7 +15,7 @@ the manifest yields byte-identical views to the full run.
 """
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Mapping, Sequence
 
 import numpy as np
 import pandas as pd
@@ -129,6 +129,60 @@ def extract_eval_bank(manifest_df: pd.DataFrame, backbone_name: str, out_dir: st
 #: coverage across compared rungs").
 _COMPARABLE_KEYS = ("n_views", "conditions", "backbone", "manifest_sha256")
 
+#: The evaluation-axis half of `_COMPARABLE_KEYS`: what was scored, over which
+#: views, from which manifest. Every bank in a table must agree on all three,
+#: composite or not. `backbone` is the other half and is handled separately,
+#: because a declared composite is allowed to disagree on it (R43, below).
+_AXIS_KEYS = tuple(k for k in _COMPARABLE_KEYS if k != "backbone")
+
+#: Config keys by which a bank DECLARES itself a composite of other banks
+#: (`eval.fusion.FusedEvalBank` writes both).
+_COMPOSITE_KEYS = ("fused_from", "fused_backbones")
+
+
+def _declared_composite(config: Mapping) -> bool:
+    """Whether this bank declares itself a composite, and says so consistently.
+
+    Rung A5 as the spec defines it is DINOv3 + SigLIP2 fused (§6.4), so its row
+    has two backbones and `_COMPARABLE_KEYS` would refuse it a place in the
+    results table beside any single-backbone rung -- meaning the A5 the spec
+    describes could not be reported at all. The ruled fix (R43) is that a
+    declared composite is comparable when its parents are comparable on every
+    OTHER key, which `eval.fusion.assert_fusion_parents` already forces
+    (`manifest_sha256`, `n_views`, `conditions`, and element-wise `split` and
+    `label`), and which the composite's own `_AXIS_KEYS` therefore state.
+
+    The exemption attaches to the DECLARATION, not to the row. A bank claiming
+    it is fused must name its parents and their backbones, and its `backbone`
+    must be exactly the composite of those names -- so a row that borrowed one
+    parent's name is refused here rather than being let into the table under a
+    label that hides half of what produced it (the R24 confound, laundered).
+    """
+    parents = config.get("fused_from")
+    backbones = config.get("fused_backbones")
+    if parents is None and backbones is None:
+        return False
+    if not isinstance(parents, (list, tuple)) or not isinstance(backbones, (list, tuple)):
+        raise ValueError(
+            f"a bank declares itself fused but does not say what from: "
+            f"fused_from={parents!r}, fused_backbones={backbones!r}. Both must "
+            "be lists, because the composite's exemption from the backbone "
+            "check is granted to what it declares.")
+    if len(parents) != len(backbones) or len(parents) < 2:
+        raise ValueError(
+            f"a bank declares itself fused from {len(parents)} parent(s) with "
+            f"{len(backbones)} backbone(s); a fusion has at least two parents "
+            "and one recorded backbone per parent.")
+    expected = "+".join(dict.fromkeys(str(b) for b in backbones))
+    if str(config.get("backbone")) != expected:
+        raise ValueError(
+            f"a bank declares itself fused from backbones {list(backbones)}, "
+            f"whose composite name is {expected!r}, but records "
+            f"backbone={config.get('backbone')!r}. A composite row is admitted "
+            "beside single-backbone rungs because it SAYS what produced it; one "
+            "that borrows a parent's name is the R24 confound wearing a label.")
+    return True
+
 
 def assert_banks_comparable(banks: Sequence[FeatureBank]) -> None:
     """Refuse to compare banks that differ in view coverage, backbone or rows.
@@ -137,14 +191,23 @@ def assert_banks_comparable(banks: Sequence[FeatureBank]) -> None:
     different images are not a model comparison at all: the numbers differ
     because the *evaluation* differed, which invalidates the model-selection
     kill criterion this table exists to serve.
+
+    The one exception is the backbone of a DECLARED composite (`_declared_composite`,
+    R43): rung A5 IS the two-backbone rung, so its row names both and is not
+    refused for doing so. Every bank that is not a composite must still agree
+    with every other on the backbone -- the check is over the set of plain
+    backbones, not against whichever bank happened to be passed first, so a
+    composite in the list cannot become a bridge that lets two single-backbone
+    rungs on different embeddings into the same table.
     """
     if len(banks) < 2:
         return
-    ref = banks[0]
-    for other in banks[1:]:
-        differing = {k: (ref.config.get(k), other.config.get(k))
-                     for k in _COMPARABLE_KEYS
-                     if ref.config.get(k) != other.config.get(k)}
+    configs = [getattr(b, "config", {}) for b in banks]
+    composite = [_declared_composite(c) for c in configs]
+    ref, ref_config = banks[0], configs[0]
+    for other, config in zip(banks[1:], configs[1:]):
+        differing = {k: (ref_config.get(k), config.get(k))
+                     for k in _AXIS_KEYS if ref_config.get(k) != config.get(k)}
         if differing:
             raise ValueError(
                 f"banks at {ref.path} and {other.path} are not comparable: they "
@@ -152,6 +215,18 @@ def assert_banks_comparable(banks: Sequence[FeatureBank]) -> None:
                 "coverage, backbone or row set between compared rungs turns a "
                 "rung comparison into a comparison of augmentation budgets, "
                 "which invalidates the model-selection kill criterion.")
+    plain = {getattr(bank, "path", "?"): str(config.get("backbone"))
+             for bank, config, is_composite in zip(banks, configs, composite)
+             if not is_composite}
+    if len(set(plain.values())) > 1:
+        raise ValueError(
+            f"banks at {sorted(plain)} are not comparable: they disagree on "
+            f"backbone {plain}. Differing view "
+            "coverage, backbone or row set between compared rungs turns a rung "
+            "comparison into a comparison of augmentation budgets, which "
+            "invalidates the model-selection kill criterion. (A rung that "
+            "DECLARES itself a fusion of several backbones -- rung A5 -- is "
+            "exempt from this key and is not counted here.)")
 
 
 @torch.no_grad()

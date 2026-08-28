@@ -11,8 +11,8 @@ import pandas as pd
 import pytest
 
 from aigcdet.eval.fusion import (
-    FusedEvalBank, assert_fusion_parents, fuse_scores, fused_splits,
-    zscore_by_condition,
+    ALL_ROWS, FIT_SPLITS_FOR_SELECTION, POPULATION_COLUMN, FusedEvalBank,
+    assert_fusion_parents, fuse_scores, fused_splits, zscore_by_condition,
 )
 from aigcdet.eval.metrics import roc_auc
 from aigcdet.features.bank import N_FAMILIES, BankWriter, FeatureBank
@@ -160,14 +160,24 @@ def test_without_zscoring_the_larger_scale_would_have_dominated():
                - roc_auc(unscaled["label"], unscaled["score"])) > 1e-3
 
 
-def test_fusion_of_two_noisy_views_beats_either_alone():
+def test_fusion_of_two_noisy_views_beats_the_BETTER_of_the_two():
+    """Against `max`, not `min`.
+
+    `auc_f >= min(auc_a, auc_b)` is satisfied by any output at least as good as
+    the WORSE parent -- including one that simply returns the better parent, and
+    including several that are worse than it. The two frames here are
+    independent noisy views of the same signal, which is the case where
+    averaging is supposed to help, so the fused rung must beat BOTH parents by a
+    margin the noise cannot account for.
+    """
     a, b = _df(0, 1.0), _df(7, 1.0)
     fused = fuse_scores([a, b])
     sel = lambda d: d[d["condition"] == "clean"]           # noqa: E731
     auc_a = roc_auc(sel(a)["label"], sel(a)["score"])
     auc_b = roc_auc(sel(b)["label"], sel(b)["score"])
     auc_f = roc_auc(sel(fused)["label"], sel(fused)["score"])
-    assert auc_f >= min(auc_a, auc_b)
+    assert auc_a != auc_b, "fixture cannot tell `max` from `min`"
+    assert auc_f > max(auc_a, auc_b) + 0.02, (auc_a, auc_b, auc_f)
 
 
 def test_fusion_preserves_row_count_and_keys():
@@ -260,6 +270,206 @@ def test_frames_that_disagree_on_a_rows_label_are_rejected():
     b.loc[0, "label"] = 1 - int(b.loc[0, "label"])
     with pytest.raises(ValueError, match="disagree on the label"):
         fuse_scores([a, b])
+
+
+# --- C2: which rows set the fusion weights ---------------------------------
+#
+# The ablation tier's bank is 5k internal validation plus a 5k subsample of the
+# organisers' benchmark (spec §4.4a). Standardising over the whole frame lets
+# the benchmark rows set half of each parent's sigma, and sigma_1/sigma_2 is
+# exactly how much each backbone contributes -- so A5's §6.4 selection number
+# becomes a function of how the demo set happens to spread. The fixtures below
+# make that reachable (the two heads separate the benchmark differently, which
+# §6.5 expects) and then assert the fix removes it.
+
+_N_SELECTION, _N_BENCHMARK = 200, 400
+_FIT = FIT_SPLITS_FOR_SELECTION
+
+
+def _selection_splits():
+    """A bank's split column: a §6.4 selection population plus benchmark rows."""
+    half = _N_SELECTION // 2
+    split = np.array(["val_internal"] * half + ["heldout_generator"] * half
+                     + ["benchmark"] * _N_BENCHMARK)
+    label = np.array([0] * half + [1] * half + [0, 1] * (_N_BENCHMARK // 2))
+    return split, label
+
+
+def _tiered_df(seed, benchmark_separation, conditions=("clean", "jpeg_q30")):
+    """One head's scores over a bank that holds both tiers' rows.
+
+    `benchmark_separation` is how well this head separates the benchmark half.
+    The selection rows are drawn identically whatever it is, so any change in a
+    selection-population metric came from the benchmark rows and nothing else.
+    """
+    split, label = _selection_splits()
+    rng = np.random.default_rng(seed)
+    rows = []
+    for cond in conditions:
+        separation = np.where(split == "benchmark", benchmark_separation, 1.0)
+        rows.append(pd.DataFrame({
+            "condition": cond, "image_idx": np.arange(len(label)),
+            "label": label, "generator": "g", "source": "s",
+            "score": rng.normal(label * separation, 1.0),
+        }))
+    return pd.concat(rows, ignore_index=True)
+
+
+def _on_selection_rows(fused, split):
+    return fused["score"].to_numpy()[np.isin(split[fused["image_idx"].to_numpy()],
+                                             list(_FIT))]
+
+
+def test_the_benchmark_rows_do_not_set_a_declared_fusions_weights():
+    """The C2 guarantee, asserted where it bites: A5's selection metric.
+
+    Same two heads, same selection rows; only how well each separates the
+    organisers' benchmark varies. With the population declared, the fused score
+    on every selection row is bit-identical and so is the §6.4 selection metric.
+    """
+    from aigcdet.eval.errors import heldout_robust_tpr
+    split, _ = _selection_splits()
+    baseline = fuse_scores([_tiered_df(0, 1.0), _tiered_df(7, 1.0)],
+                           splits=split, fit_splits=_FIT)
+    for separation in (3.0, 6.0, 10.0, 25.0):
+        fused = fuse_scores([_tiered_df(0, separation), _tiered_df(7, 1.0)],
+                            splits=split, fit_splits=_FIT)
+        np.testing.assert_allclose(_on_selection_rows(fused, split),
+                                   _on_selection_rows(baseline, split), atol=1e-12)
+        assert heldout_robust_tpr(fused, split) == \
+            heldout_robust_tpr(baseline, split)
+
+
+def test_without_a_declared_population_the_benchmark_rows_move_the_selection_metric():
+    """Proves the fixture above can express the failure it rules out.
+
+    This is the defect, run: the whole-frame fit is the shipped default, and
+    under it the §6.4 selection metric of an unchanged pair of heads on an
+    unchanged selection population moves because the demo set's spread moved.
+    If this ever stops failing to be invariant, the test above asserts nothing.
+    """
+    from aigcdet.eval.errors import heldout_robust_tpr
+    split, _ = _selection_splits()
+    baseline = fuse_scores([_tiered_df(0, 1.0), _tiered_df(7, 1.0)])
+    moved = [heldout_robust_tpr(
+        fuse_scores([_tiered_df(0, s), _tiered_df(7, 1.0)]), split)
+        for s in (3.0, 6.0, 10.0, 25.0)]
+    assert any(m != heldout_robust_tpr(baseline, split) for m in moved), moved
+    scaled = fuse_scores([_tiered_df(0, 25.0), _tiered_df(7, 1.0)])
+    assert np.abs(_on_selection_rows(scaled, split)
+                  - _on_selection_rows(baseline, split)).max() > 0.1
+
+
+def test_a_declared_fit_still_standardises_and_returns_every_row():
+    """Restricting the FIT is not dropping rows: the fused frame covers the
+    whole bank, because the robustness table is built over all of it."""
+    split, _ = _selection_splits()
+    a, b = _tiered_df(0, 8.0), _tiered_df(7, 1.0)
+    fused = fuse_scores([a, b], splits=split, fit_splits=_FIT)
+    assert len(fused) == len(a)
+    np.testing.assert_array_equal(fused["image_idx"].to_numpy(),
+                                  a["image_idx"].to_numpy())
+    assert fused["score"].notna().all()
+    # The fit rows are what came out standardised; the benchmark rows did not,
+    # which is the whole point -- they were measured against the selection
+    # population's scale rather than setting it.
+    fit_rows = np.isin(split[fused["image_idx"].to_numpy()], list(_FIT))
+    for cond in ("clean", "jpeg_q30"):
+        here = (fused["condition"] == cond).to_numpy() & fit_rows
+        assert abs(float(fused["score"].to_numpy()[here].mean())) < 0.35
+
+
+def test_the_zscore_population_is_recorded_on_the_output():
+    """The fused score is not a fixed function of the two heads without it."""
+    split, _ = _selection_splits()
+    a, b = _tiered_df(0, 8.0), _tiered_df(7, 1.0)
+    declared = fuse_scores([a, b], splits=split, fit_splits=_FIT)
+    assert set(declared[POPULATION_COLUMN]) == \
+        {"split=heldout_generator+val_internal"}
+    assert declared.attrs[POPULATION_COLUMN] == \
+        "split=heldout_generator+val_internal"
+    undeclared = fuse_scores([a, b])
+    assert set(undeclared[POPULATION_COLUMN]) == {ALL_ROWS}
+    assert undeclared.attrs[POPULATION_COLUMN] == ALL_ROWS
+    assert ALL_ROWS != "split=heldout_generator+val_internal"
+
+
+def test_the_fit_population_for_selection_is_the_selection_population():
+    """`FIT_SPLITS_FOR_SELECTION` must not drift from `errors.SELECTION_SPLITS`.
+
+    They are the same rows on purpose: the rows that decide how much each
+    backbone contributes are the rows the selection metric is read on, and the
+    organisers' benchmark subsample is in neither.
+    """
+    from aigcdet.eval.errors import SELECTION_SPLITS
+    assert FIT_SPLITS_FOR_SELECTION == tuple(SELECTION_SPLITS)
+    assert "benchmark" not in FIT_SPLITS_FOR_SELECTION
+
+
+def test_splits_and_fit_splits_must_be_given_together():
+    split, _ = _selection_splits()
+    a, b = _tiered_df(0, 1.0), _tiered_df(7, 1.0)
+    with pytest.raises(ValueError, match="go together"):
+        fuse_scores([a, b], splits=split)
+    with pytest.raises(ValueError, match="go together"):
+        fuse_scores([a, b], fit_splits=_FIT)
+    with pytest.raises(ValueError, match="fit_splits is empty"):
+        fuse_scores([a, b], splits=split, fit_splits=[])
+
+
+def test_a_declared_population_the_bank_does_not_contain_is_refused():
+    """Otherwise the recorded population names rows that were never there."""
+    split, _ = _selection_splits()
+    a, b = _tiered_df(0, 1.0), _tiered_df(7, 1.0)
+    with pytest.raises(ValueError, match="does not contain"):
+        fuse_scores([a, b], splits=split, fit_splits=("val_internal", "test_ood"))
+
+
+def test_a_condition_with_no_row_in_the_fit_population_is_refused():
+    """Standardising a condition on another condition's rows is not
+    standardising it; a NaN column would propagate through every metric."""
+    split, _ = _selection_splits()
+    a, b = _tiered_df(0, 1.0), _tiered_df(7, 1.0)
+    fit = np.isin(split, list(_FIT)) & (np.arange(len(split)) < 0)
+    with pytest.raises(ValueError, match="nothing to fit"):
+        zscore_by_condition(a, np.zeros(len(a), dtype=bool))
+    lopsided = np.isin(split[a["image_idx"].to_numpy()], list(_FIT)) & \
+        (a["condition"].to_numpy() == "clean")
+    with pytest.raises(ValueError, match="no row in the declared"):
+        zscore_by_condition(a, lopsided)
+    assert not fit.any()
+
+
+def test_a_fit_mask_of_the_wrong_length_is_refused():
+    a = _df(0, 1.0)
+    with pytest.raises(ValueError, match="one boolean per row"):
+        zscore_by_condition(a, np.ones(len(a) - 1, dtype=bool))
+
+
+def test_split_column_shorter_than_the_frames_image_idx_is_refused():
+    """`splits` is positionally indexed by image_idx, as in `errors`."""
+    split, _ = _selection_splits()
+    a, b = _tiered_df(0, 1.0), _tiered_df(7, 1.0)
+    truncated = split[:_N_SELECTION - 50]          # still holds both fit splits
+    assert set(truncated) == set(_FIT)
+    with pytest.raises(ValueError, match="positionally indexed by image_idx"):
+        fuse_scores([a, b], splits=truncated, fit_splits=_FIT)
+
+
+def test_the_fit_is_matched_on_image_idx_and_not_on_row_order():
+    """A frame listed in another order must get the same fused score.
+
+    `_aligned` already matches rows on keys rather than position; the fit mask
+    has to be derived the same way or a shuffled parent would be standardised
+    against another row's split.
+    """
+    split, _ = _selection_splits()
+    a, b = _tiered_df(0, 8.0), _tiered_df(7, 1.0)
+    shuffled = b.sample(frac=1.0, random_state=5).reset_index(drop=True)
+    straight = fuse_scores([a, b], splits=split, fit_splits=_FIT)
+    mixed = fuse_scores([a, shuffled], splits=split, fit_splits=_FIT)
+    np.testing.assert_allclose(mixed["score"].to_numpy(),
+                               straight["score"].to_numpy(), atol=1e-12)
 
 
 # --- which bank's splits apply to a fused frame ----------------------------
@@ -371,19 +581,157 @@ def test_the_fused_banks_backbone_names_every_backbone_that_produced_it(tmp_path
     assert FusedEvalBank([a, same]).config["backbone"] == "dinov3l"
 
 
-def test_a_cross_backbone_fused_row_is_refused_by_the_table_guard(tmp_path):
-    """The consequence of the composite name, asserted where it bites.
+def test_a_declared_cross_backbone_fused_row_may_share_the_table(tmp_path):
+    """R43: the spec's A5 is DINOv3 + SigLIP2 fused (§6.4).
 
-    Documented limitation: under the current `_COMPARABLE_KEYS` a fused row
-    whose backbones differ cannot share a table with a single-backbone rung.
+    With `backbone` compared for equality across every bank, that row is
+    refused a place beside any single-backbone rung -- so the A5 the spec
+    describes could not appear in the results at all. A DECLARED composite is
+    exempt from that key; its parents are already forced to agree on every
+    other one by `assert_fusion_parents`.
     """
     from aigcdet.eval.grid import assert_banks_comparable
     a = _bank(tmp_path, "a", backbone="dinov3l")
     b = _bank(tmp_path, "b", backbone="siglip2l")
-    with pytest.raises(ValueError, match="not comparable"):
-        assert_banks_comparable([a, FusedEvalBank([a, b])])
+    fused = FusedEvalBank([a, b])
+    assert fused.config["backbone"] == "dinov3l+siglip2l"
+    assert_banks_comparable([a, fused])
+    assert_banks_comparable([fused, a])
     same = _bank(tmp_path, "c", backbone="dinov3l")
     assert_banks_comparable([a, FusedEvalBank([a, same])])
+
+
+def test_the_exemption_is_only_for_the_backbone_key(tmp_path):
+    """A composite still has to have been the same evaluation.
+
+    The exemption is for the treatment under test (a second backbone), not for
+    the condition axis, the manifest or the row set -- those are what make two
+    rungs a model comparison rather than a comparison of evaluations.
+    """
+    from aigcdet.eval.grid import assert_banks_comparable
+    a = _bank(tmp_path, "a", backbone="dinov3l")
+    b = _bank(tmp_path, "b", backbone="siglip2l")
+    other_axis = _bank(tmp_path, "d", conditions=("clean", "blur_s2.0"))
+    with pytest.raises(ValueError, match="not comparable"):
+        assert_banks_comparable([other_axis, FusedEvalBank([a, b])])
+    other_manifest = _bank(tmp_path, "e", fingerprint="different")
+    with pytest.raises(ValueError, match="not comparable"):
+        assert_banks_comparable([other_manifest, FusedEvalBank([a, b])])
+
+
+def test_a_composite_that_borrows_one_parents_name_is_refused(tmp_path):
+    """The exemption is granted to the declaration, not to the row.
+
+    A row claiming to be fused from DINOv3 and SigLIP2 while calling itself
+    `dinov3l` would take the exemption AND hide half of what produced it --
+    the R24 confound wearing a label. Kills the mutant that grants the
+    exemption on the presence of `fused_from` alone.
+    """
+    from aigcdet.eval.grid import assert_banks_comparable
+    a = _bank(tmp_path, "a", backbone="dinov3l")
+    b = _bank(tmp_path, "b", backbone="siglip2l")
+    liar = FusedEvalBank([a, b])
+    liar.config["backbone"] = "dinov3l"
+    with pytest.raises(ValueError, match="borrows a parent's name"):
+        assert_banks_comparable([a, liar])
+    half = FusedEvalBank([a, b])
+    half.config["fused_backbones"] = ["dinov3l"]
+    with pytest.raises(ValueError, match="at least two parents"):
+        assert_banks_comparable([a, half])
+    unsaid = FusedEvalBank([a, b])
+    unsaid.config["fused_from"] = None
+    with pytest.raises(ValueError, match="does not say what from"):
+        assert_banks_comparable([a, unsaid])
+
+
+def test_a_composite_cannot_bridge_two_single_backbone_rungs(tmp_path):
+    """The hole the exemption would open if it were checked against bank 0.
+
+    `assert_banks_comparable` compares every bank against the first. If the
+    first is a composite and the backbone key is simply skipped for the pair, a
+    DINOv3 rung and a SigLIP2 rung both pass -- and a table comparing two
+    different embeddings is the R24 confound the guard exists to stop.
+    """
+    from aigcdet.eval.grid import assert_banks_comparable
+    a = _bank(tmp_path, "a", backbone="dinov3l")
+    b = _bank(tmp_path, "b", backbone="siglip2l")
+    fused = FusedEvalBank([a, b])
+    with pytest.raises(ValueError, match="not comparable"):
+        assert_banks_comparable([fused, a, b])
+    with pytest.raises(ValueError, match="not comparable"):
+        assert_banks_comparable([a, b, fused])
+
+
+# --- C3: the fused row in the robustness table -----------------------------
+
+def _scores_for(bank, seed=0):
+    """A score frame covering exactly the rows and conditions of `bank`."""
+    rng = np.random.default_rng(seed)
+    meta = bank.meta
+    rows = []
+    for cond in bank.config["conditions"]:
+        rows.append(pd.DataFrame({
+            "condition": cond, "image_idx": meta["image_idx"].to_numpy(),
+            "label": meta["label"].to_numpy(), "generator": "g", "source": "s",
+            "score": rng.normal(meta["label"].to_numpy() * 1.0, 1.0),
+        }))
+    return pd.concat(rows, ignore_index=True)
+
+
+def test_the_fused_bank_states_how_many_images_it_holds(tmp_path):
+    """Without `n_images`, `_check_banks` SKIPS its bank-size check.
+
+    That check is what stops a 5k selection-tier bank sitting beside a 13.8k
+    final-report score frame. A config that omits the key made the A5 row the
+    one row in the table exempt from it -- and the table still reported
+    `banks_verified = True`.
+    """
+    a = _bank(tmp_path, "a", backbone="dinov3l", n=8)
+    b = _bank(tmp_path, "b", backbone="siglip2l", n=8)
+    assert FusedEvalBank([a, b]).config["n_images"] == 8
+
+
+def test_a_bank_that_will_not_say_how_many_images_it_holds_is_refused(tmp_path):
+    """C3: absent `n_images` must RAISE, not skip -- the same reasoning
+    `_check_banks` already applies to an absent `manifest_sha256`."""
+    from aigcdet.eval.report import robustness_table
+    a = _bank(tmp_path, "a", backbone="dinov3l", n=8)
+    b = _bank(tmp_path, "b", backbone="siglip2l", n=8)
+    fused = FusedEvalBank([a, b])
+    scores = {"a3": _scores_for(a, seed=1), "a5": _scores_for(a, seed=2)}
+    banks = {"a3": a, "a5": fused}
+    robustness_table(scores, tier="smoke", n_boot=8, banks=banks)  # the control
+
+    del fused.config["n_images"]
+    with pytest.raises(ValueError, match="records no n_images"):
+        robustness_table(scores, tier="smoke", n_boot=8, banks=banks)
+
+
+def test_a_fused_row_from_the_wrong_tiers_bank_is_refused(tmp_path):
+    """The check the missing `n_images` was skipping, run on a fused row.
+
+    A four-image fused bank against a score frame covering twenty images is two
+    different evaluation tiers in one table; before `n_images` reached
+    `FusedEvalBank`, this was accepted and rendered with no banner.
+    """
+    from aigcdet.eval.report import robustness_table
+    a = _bank(tmp_path, "a", backbone="dinov3l", n=4)
+    b = _bank(tmp_path, "b", backbone="siglip2l", n=4)
+    big = _bank(tmp_path, "big", backbone="dinov3l", n=20)
+    scores = {"a3": _scores_for(big, seed=1), "a5": _scores_for(big, seed=2)}
+    with pytest.raises(ValueError, match="do not belong to these scores"):
+        robustness_table(scores, tier="smoke", n_boot=8,
+                         banks={"a3": big, "a5": FusedEvalBank([a, b])})
+
+
+def test_the_fused_bank_refuses_a_parent_that_misstates_its_own_row_count(tmp_path):
+    """The fused row's size is what `_check_banks` compares against the scores,
+    so it cannot be stated from a bank that disagrees with itself."""
+    a = _bank(tmp_path, "a", backbone="dinov3l", n=8)
+    b = _bank(tmp_path, "b", backbone="siglip2l", n=8)
+    b.config["n_images"] = 9
+    with pytest.raises(ValueError, match="but holds 8 metadata row"):
+        FusedEvalBank([a, b])
 
 
 def test_the_fused_bank_says_what_it_is():
