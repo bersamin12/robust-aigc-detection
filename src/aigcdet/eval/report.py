@@ -4,13 +4,31 @@ This module renders the numbers a reader acts on, so its job is as much refusal
 as computation: a presentation defect here is indistinguishable from a
 measurement defect to whoever reads the table.
 
+Every per-condition number here is a §6.1 REPORTING metric, computed over
+every row of the frame it is handed -- internal-validation authentic and
+generated rows, held-out-generator rows and benchmark rows alike. None of them
+is the §6.4 model-selection rule, which restricts the population to
+`val_internal` authentic vs `heldout_generator` generated and drops `clean`
+(`eval.errors.heldout_robust_tpr`). The two disagree in practice, and the
+column that looks most like the rule -- `tpr_at_1pct` -- is the one that
+disagrees most, because a rung can buy whole-frame TPR on the seen generators
+it was trained on while losing it on the held-out ones selection is about. So
+`robustness_table` carries the §6.4 number ITSELF, in a column named for it,
+whenever the caller can supply it: a table and a `selection.json` that name
+different winners is the failure this column exists to prevent.
+
 Two accuracy columns are reported deliberately. `acc_oracle` re-tunes the
 threshold per condition, which most papers do and which implicitly assumes
 test-time knowledge of the degradation. `acc_fixed` uses one threshold chosen
 on clean validation and frozen, which is the deployment condition. The gap
-between them is score drift under degradation.
+between them is score drift under degradation -- and only if the frozen
+threshold really did come from clean VALIDATION. Fitted on the clean rows of
+the frame being scored it is not frozen at all, it is zero on `clean` by
+construction, and at the `final_report` tier it is fitted on the external
+benchmark, so `robustness_table` refuses to tabulate `acc_fixed` without an
+explicit threshold (`clean_validation_threshold` computes one).
 
-Four things this module refuses to do rather than do plausibly:
+Five things this module refuses to do rather than do plausibly:
 
 1. **Compare incomparable rungs.** `robustness_table` checks that every rung
    was scored over the same conditions, in the same order, on the same images,
@@ -34,7 +52,13 @@ Four things this module refuses to do rather than do plausibly:
    did not". It is flagged per condition, aggregated into its own summary
    column, marked in the markdown and the heatmap, and its disappearance from a
    reshaped table is an error rather than a silent omission.
-4. **Let one rendering path be weaker than another.** `to_markdown` and
+4. **Tabulate a metric it cannot actually compute.** `ece` and `brier` need
+   calibrated probabilities, which a score frame does not carry; asked for one
+   without `probs`, the table would render a full grid of NaN -- blank cells in
+   the markdown, a uniformly-coloured heatmap -- and say nothing about it.
+   `robustness_table` refuses the metric instead, and names the argument that
+   would make it computable.
+5. **Let one rendering path be weaker than another.** `to_markdown` and
    `save_heatmap` run the *same* gate, `_check_renderable`. The figure ships as
    `docs/robustness_table.png` next to the markdown and is what a reader looks
    at first, so it must not be the path where a relabelled tier or a dropped
@@ -42,6 +66,7 @@ Four things this module refuses to do rather than do plausibly:
 """
 from __future__ import annotations
 
+import warnings
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING
 
@@ -53,11 +78,16 @@ from aigcdet.augment.recipes import FAMILIES, N_FAMILIES
 from aigcdet.augment.scenarios import (
     CORE_CONDITIONS, EVAL_GRID, HELDOUT_SEVERITY_CONDITIONS,
 )
+from aigcdet.eval.errors import (
+    SELECTION_METRIC, SELECTION_RULE, SELECTION_SPLITS, IneligibleRungWarning,
+    select_headline,
+)
 from aigcdet.eval.metrics import (
     accuracy_at_threshold, bootstrap_ci, expected_calibration_error, roc_auc,
     tpr_at_fpr,
 )
 from aigcdet.features.proxies import PROXY_NAMES
+from aigcdet.operating_point import TARGET_FPR, fpr_label, tpr_column_name
 
 if TYPE_CHECKING:  # `features.bank` drags in torch/PIL/cv2; only needed for types
     from aigcdet.features.bank import FeatureBank
@@ -112,12 +142,32 @@ BANKS_NOT_VERIFIED = "banks-not-verified"
 #: error rather than a bare TypeError that never mentions BANKS_NOT_VERIFIED.
 _REQUIRED = object()
 
-#: `condition_metrics` columns that may be tabulated as a robustness metric.
-#: Validated BEFORE any rung is scored: `heldout_severity` is a flag and `n`,
-#: `boot_seed`, `boot_n` are provenance, and none of the four is a metric.
-METRIC_COLUMNS: tuple[str, ...] = (
-    "auc", "auc_lo", "auc_hi", "tpr_at_1pct", "acc_oracle", "acc_fixed", "ece",
-)
+
+def metric_columns(target_fpr: float = TARGET_FPR) -> tuple[str, ...]:
+    """`condition_metrics` columns that may be tabulated as a robustness metric.
+
+    The TPR entry's NAME is derived from the operating point rather than
+    written out, so a table built at another `target_fpr` advertises the
+    column it actually holds instead of one named for 1%.
+    """
+    return ("auc", "auc_lo", "auc_hi", tpr_column_name(target_fpr),
+            "acc_oracle", "acc_fixed", "ece")
+
+
+#: The tabulable metrics at the project operating point. Validated BEFORE any
+#: rung is scored: `heldout_severity` is a flag and `n`, `boot_seed`, `boot_n`,
+#: `clean_threshold`, `clean_threshold_source` are provenance, and none of
+#: those is a metric.
+METRIC_COLUMNS: tuple[str, ...] = metric_columns(TARGET_FPR)
+
+#: Metrics that cannot be computed from scores alone. `condition_metrics`
+#: returns NaN for them unless `probs` is given, and `robustness_table` refuses
+#: to tabulate one rather than render a grid of blanks.
+PROBABILITY_METRICS: frozenset[str] = frozenset({"ece"})
+
+#: The one metric whose value depends on a threshold the frame being scored
+#: cannot supply honestly (see `clean_validation_threshold`).
+THRESHOLD_METRICS: frozenset[str] = frozenset({"acc_fixed"})
 
 #: Bootstrap settings for every reported AUC (spec §6.1: 1000 resamples, 95%
 #: CI). The seed is a parameter and is recorded in the table, because a CI that
@@ -134,7 +184,8 @@ HELDOUT_MARK: str = " (unseen)"
 #: `_condition_columns` can separate the two from the column names alone --
 #: which survives any reshape, unlike `DataFrame.attrs`.
 _SUMMARY_PREFIXES = ("robust_", "heldout_", "seen_")
-_SUMMARY_NAMES = ("tier", "n_images", "boot_seed", "boot_n", "banks_verified")
+_SUMMARY_NAMES = ("tier", "n_images", "boot_seed", "boot_n", "banks_verified",
+                  "target_fpr", "clean_threshold", "clean_threshold_source")
 
 #: Which proxy validates which degradation family, and which WAY the proxy is
 #: expected to move as the learned severity rises (spec §3.4).
@@ -199,15 +250,78 @@ def _best_threshold(y: np.ndarray, s: np.ndarray) -> float:
 
 # --- per-condition metrics -------------------------------------------------
 
+def clean_validation_threshold(scores_df: pd.DataFrame, splits,
+                               split: str = SELECTION_SPLITS[0]) -> float:
+    """The frozen deployment threshold behind `acc_fixed`, from clean VALIDATION.
+
+    `acc_fixed` is only the deployment number its column name claims if the
+    threshold came from clean validation data and nothing else.
+    `condition_metrics` cannot do that for itself: a score frame has no split
+    column (`score_grid` emits `image_idx`, `label`, `score`, `generator`,
+    `source`), so its only available default is the clean rows of the very
+    frame it is scoring -- which at the `final_report` tier is the external
+    benchmark, and which makes the `clean` column's `acc_fixed - acc_oracle`
+    gap zero by construction.
+
+    This helper builds the threshold from the eval bank's own split column, the
+    same way `errors.heldout_robust_tpr` builds the §6.4 population: `splits` is
+    `bank.meta["split"]`, positionally indexed by `image_idx`.
+    """
+    required = {"condition", "image_idx", "label", "score"}
+    missing = required - set(scores_df.columns)
+    if missing:
+        raise ValueError(
+            f"scores_df is missing column(s) {sorted(missing)}; it must be a "
+            "frame as produced by eval.grid.score_grid")
+    values = np.asarray(splits).astype(str)
+    idx = scores_df["image_idx"].to_numpy()
+    if len(idx) and (idx.min() < 0 or idx.max() >= len(values)):
+        raise ValueError(
+            f"scores_df has image_idx in [{idx.min()}, {idx.max()}] but `splits` "
+            f"has {len(values)} entries; `splits` must be the eval bank's own "
+            "split column, positionally indexed by image_idx")
+    rows = scores_df[(values[idx] == str(split))
+                     & (scores_df["condition"].to_numpy() == "clean")]
+    if rows.empty or rows["label"].nunique() < 2:
+        present = {str(s): int(n) for s, n in
+                   zip(*np.unique(values[idx], return_counts=True))} if len(idx) \
+            else {}
+        raise ValueError(
+            f"no clean {str(split)!r} rows with both classes, so the frozen "
+            f"deployment threshold cannot be fitted ({len(rows)} row(s) found; "
+            f"the scored bank holds splits {present}). Fitting it on whatever "
+            "rows are to hand is exactly what this function exists to avoid: on "
+            "the benchmark it spends the set §6.7 says is touched once, and on "
+            "the scored condition it makes acc_fixed a second acc_oracle.")
+    return _best_threshold(rows["label"].to_numpy(), rows["score"].to_numpy())
+
+
 def condition_metrics(scores_df: pd.DataFrame, probs: pd.Series | np.ndarray | None = None,
                       clean_threshold: float | None = None,
                       seed: int = DEFAULT_BOOT_SEED,
-                      n_boot: int = DEFAULT_N_BOOT) -> pd.DataFrame:
-    """One row per condition: AUC with a bootstrap CI, TPR@1%FPR, both
-    accuracies, ECE, n, and the unseen-severity flag.
+                      n_boot: int = DEFAULT_N_BOOT,
+                      target_fpr: float = TARGET_FPR) -> pd.DataFrame:
+    """One row per condition: AUC with a bootstrap CI, TPR at the operating
+    point, both accuracies, ECE, n, and the unseen-severity flag.
+
+    Every metric here is computed over EVERY row it is handed and is therefore
+    a §6.1 reporting metric, not the §6.4 selection rule -- see the module
+    docstring, and `eval.errors.heldout_robust_tpr` for the rule.
+
+    `target_fpr` defaults to the project-wide `operating_point.TARGET_FPR`, the
+    same constant `errors.SELECTION_TARGET_FPR`, `calibrate.policy.fit_policy`
+    and `scripts/make_error_sheet.py` take theirs from, and the TPR column is
+    NAMED from it (`tpr_at_1pct` at the 1% default), so a moved operating point
+    cannot leave a column labelled with the old one.
 
     `seed` and `n_boot` are recorded in the returned frame (`boot_seed`,
-    `boot_n`) so a reported interval can be reproduced from the table alone.
+    `boot_n`) so a reported interval can be reproduced from the table alone,
+    and so are `target_fpr`, the `clean_threshold` used and where it came from
+    (`clean_threshold_source`). That last column is not decoration: with
+    `clean_threshold=None` the threshold is fitted on the clean rows of THIS
+    frame, which makes `acc_fixed == acc_oracle` on `clean` by construction and
+    is not a frozen validation threshold at all. Pass one from
+    `clean_validation_threshold`; `robustness_table` requires it.
     """
     required = {"condition", "label", "score"}
     missing = required - set(scores_df.columns)
@@ -223,7 +337,9 @@ def condition_metrics(scores_df: pd.DataFrame, probs: pd.Series | np.ndarray | N
                              f"{len(df)} rows; they must align row for row")
         df["prob"] = p
 
+    threshold_source = "supplied"
     if clean_threshold is None:
+        threshold_source = "fitted_on_the_scored_clean_rows"
         clean = df[df["condition"] == "clean"]
         if clean.empty:
             raise ValueError(
@@ -235,6 +351,7 @@ def condition_metrics(scores_df: pd.DataFrame, probs: pd.Series | np.ndarray | N
                                           clean["score"].to_numpy())
     clean_threshold = float(clean_threshold)
 
+    tpr_column = tpr_column_name(target_fpr)
     rows = []
     for cond, g in df.groupby("condition", sort=False):
         y, s = g["label"].to_numpy(), g["score"].to_numpy()
@@ -242,7 +359,10 @@ def condition_metrics(scores_df: pd.DataFrame, probs: pd.Series | np.ndarray | N
         rows.append({
             "condition": cond,
             "auc": roc_auc(y, s), "auc_lo": lo, "auc_hi": hi,
-            "tpr_at_1pct": tpr_at_fpr(y, s, 0.01),
+            # Column NAME and value from the same `target_fpr`, so they cannot
+            # come apart: a table headed `tpr_at_1pct` holding TPR at some
+            # other operating point is unfalsifiable once written.
+            tpr_column: tpr_at_fpr(y, s, target_fpr),
             "acc_oracle": accuracy_at_threshold(y, s, _best_threshold(y, s)),
             "acc_fixed": accuracy_at_threshold(y, s, clean_threshold),
             "ece": (expected_calibration_error(y, g["prob"].to_numpy())
@@ -251,6 +371,9 @@ def condition_metrics(scores_df: pd.DataFrame, probs: pd.Series | np.ndarray | N
             "heldout_severity": cond in HELDOUT_SEVERITY_CONDITIONS,
             "boot_seed": seed,
             "boot_n": n_boot,
+            "target_fpr": float(target_fpr),
+            "clean_threshold": clean_threshold,
+            "clean_threshold_source": threshold_source,
         })
     return pd.DataFrame(rows)
 
@@ -406,10 +529,94 @@ def _check_banks(banks: Mapping[str, "FeatureBank"], per_rung: Mapping[str, pd.D
                 "evaluation tier will match on conditions and not on rows)")
 
 
+def _check_selection(selection: Mapping[str, float] | None,
+                     per_rung: Mapping[str, pd.DataFrame]) -> dict | None:
+    """Every rung's §6.4 number, or none at all.
+
+    A partial mapping is refused rather than filled with NaN: a blank cell in
+    the selection column of a comparison table reads as "this rung lost", and
+    the rung whose number is missing is exactly the one a reader would
+    otherwise assume was checked.
+    """
+    if selection is None:
+        return None
+    if not isinstance(selection, Mapping):
+        raise ValueError(
+            f"selection must be a {{rung: float}} mapping of "
+            f"{SELECTION_METRIC}, got {type(selection).__name__}")
+    if set(selection) != set(per_rung):
+        raise ValueError(
+            f"selection covers rungs {sorted(selection)} but the table covers "
+            f"{sorted(per_rung)}. The §6.4 column must hold every rung's "
+            "number or none of them: a blank cell there reads as a rung that "
+            "lost the selection rather than one that was never measured. "
+            "Compute it with eval.errors.heldout_robust_tpr.")
+    out = {}
+    for rung, value in selection.items():
+        v = float(value)
+        if not np.isfinite(v):
+            raise ValueError(
+                f"rung {rung!r} has a non-finite {SELECTION_METRIC} ({value!r}); "
+                "NaN silently loses every comparison it takes part in, and this "
+                "column is the one the headline is chosen from")
+        out[rung] = v
+    return out
+
+
+def _check_probs(probs: Mapping[str, object] | None,
+                 per_rung: Mapping[str, pd.DataFrame]) -> dict:
+    """Per-rung calibrated probabilities, aligned row for row with the scores."""
+    if probs is None:
+        return {}
+    if not isinstance(probs, Mapping):
+        raise ValueError(f"probs must be a {{rung: probabilities}} mapping, got "
+                         f"{type(probs).__name__}")
+    if set(probs) != set(per_rung):
+        raise ValueError(
+            f"probs covers rungs {sorted(probs)} but the table covers "
+            f"{sorted(per_rung)}; pass one array per rung or none at all, "
+            "because a rung silently falling back to NaN would render as a "
+            "blank row in a table of numbers")
+    for rung, p in probs.items():
+        if len(np.asarray(p)) != len(per_rung[rung]):
+            raise ValueError(
+                f"probs for rung {rung!r} has {len(np.asarray(p))} entries but "
+                f"its score frame has {len(per_rung[rung])} rows; they must "
+                "align row for row")
+    return dict(probs)
+
+
+def _check_thresholds(clean_threshold: Mapping[str, float] | float | None,
+                      per_rung: Mapping[str, pd.DataFrame]) -> dict:
+    """One frozen threshold per rung, from a scalar or a per-rung mapping."""
+    if clean_threshold is None:
+        return {}
+    if isinstance(clean_threshold, Mapping):
+        if set(clean_threshold) != set(per_rung):
+            raise ValueError(
+                f"clean_threshold covers rungs {sorted(clean_threshold)} but "
+                f"the table covers {sorted(per_rung)}; pass one per rung, one "
+                "float for all of them, or none at all")
+        values = {rung: float(v) for rung, v in clean_threshold.items()}
+    else:
+        values = {rung: float(clean_threshold) for rung in per_rung}
+    for rung, v in values.items():
+        if not np.isfinite(v):
+            raise ValueError(
+                f"clean_threshold for rung {rung!r} is {v!r}; a non-finite "
+                "threshold accepts everything or nothing and reports that as "
+                "an accuracy")
+    return values
+
+
 def robustness_table(per_rung: Mapping[str, pd.DataFrame], tier: str,
                      metric: str = "auc", seed: int = DEFAULT_BOOT_SEED,
                      n_boot: int = DEFAULT_N_BOOT,
                      banks: Mapping[str, "FeatureBank"] | str = _REQUIRED,
+                     selection: Mapping[str, float] | None = None,
+                     probs: Mapping[str, object] | None = None,
+                     clean_threshold: Mapping[str, float] | float | None = None,
+                     target_fpr: float = TARGET_FPR,
                      ) -> pd.DataFrame:
     """Rungs x conditions for one metric, plus summary and provenance columns.
 
@@ -421,7 +628,29 @@ def robustness_table(per_rung: Mapping[str, pd.DataFrame], tier: str,
     are the "robust to what we trained on" versus "robust to what we did not"
     split, which is the most informative comparison in the table.
 
-    Provenance columns: `tier`, `n_images`, `boot_seed`, `boot_n`. They are
+    None of those is the §6.4 selection rule, whatever `metric` is. They are
+    §6.1 reporting metrics over EVERY scored row; §6.4 restricts to
+    `val_internal` authentic against `heldout_generator` generated, which is a
+    different population and a different number, and the two name different
+    winners on real data. `selection` (rung -> `errors.heldout_robust_tpr`)
+    puts the actual rule's number in the table as its own column, named
+    `SELECTION_METRIC`, so the table and `selection.json` cannot disagree about
+    which rung the ladder chose. It is optional because a caller may genuinely
+    not have the split column the rule needs -- and when it is absent, every
+    rendering says the table carries no selection number rather than leaving a
+    reader to read one off the nearest TPR-shaped column.
+
+    `probs` (rung -> per-row calibrated probabilities) is what makes
+    probability metrics computable. Without it `metric="ece"` is REFUSED rather
+    than rendered as a full grid of NaN.
+
+    `clean_threshold` is required for `metric="acc_fixed"`: either one float
+    for every rung or one per rung, and it must come from clean validation data
+    (`clean_validation_threshold`). Defaulting it would fit the frozen
+    deployment threshold on the very rows the table scores.
+
+    Provenance columns: `tier`, `n_images`, `boot_seed`, `boot_n`,
+    `target_fpr`, and `clean_threshold` when one was supplied. They are
     real columns rather than `DataFrame.attrs` entries because attrs do not
     survive a reshape or a round trip through CSV, and a table whose tier went
     missing in transit is one whose numbers can be quoted at the wrong tier.
@@ -473,12 +702,45 @@ def robustness_table(per_rung: Mapping[str, pd.DataFrame], tier: str,
             f"condition name(s) {colliding} collide with the table's reserved "
             f"summary columns (names {list(_SUMMARY_NAMES)}, prefixes "
             f"{list(_SUMMARY_PREFIXES)}); rename the condition")
-    if metric not in METRIC_COLUMNS:
+    allowed_metrics = metric_columns(target_fpr)
+    if metric not in allowed_metrics:
         # Checked BEFORE the first rung is scored: validating inside the loop
         # spends a full 20 x n_boot resampling pass before rejecting the call,
         # and `heldout_severity` -- a bool flag, not a metric -- passed it.
-        raise ValueError(f"unknown metric {metric!r}; it must be one of "
-                         f"{list(METRIC_COLUMNS)}")
+        hint = ""
+        if metric in metric_columns(TARGET_FPR):
+            hint = (f" (that is the column name at the project operating point "
+                    f"{fpr_label(TARGET_FPR)}, but this table is being built at "
+                    f"{fpr_label(target_fpr)}, where it is "
+                    f"{tpr_column_name(target_fpr)!r})")
+        raise ValueError(f"unknown metric {metric!r}{hint}; it must be one of "
+                         f"{list(allowed_metrics)}")
+    if metric in PROBABILITY_METRICS and probs is None:
+        # Refused BEFORE any rung is scored, for the same reason: the answer
+        # would be a full grid of NaN, which renders as blank markdown cells
+        # and a uniformly-coloured heatmap -- a table that looks like a result.
+        raise ValueError(
+            f"metric {metric!r} needs calibrated probabilities and none were "
+            "given: a score frame carries scores, and every cell of the table "
+            "would be NaN -- blank in the markdown, a flat colour in the "
+            "heatmap. Pass probs={rung: p} (one calibrated probability per row "
+            "of that rung's score frame, e.g. from calibrate.temperature), or "
+            f"tabulate a score-only metric "
+            f"{[m for m in allowed_metrics if m not in PROBABILITY_METRICS]}.")
+    if metric in THRESHOLD_METRICS and clean_threshold is None:
+        raise ValueError(
+            f"metric {metric!r} needs a `clean_threshold` and none was given. "
+            "Defaulting it fits the frozen deployment threshold on the clean "
+            "rows of the frame being scored, which is not clean validation "
+            f"data: at tier {tier!r} it makes acc_fixed a second acc_oracle on "
+            "the `clean` column by construction, and at the final_report tier "
+            "it fits the deployment threshold on the external benchmark that "
+            "§6.7 says is touched once. Pass "
+            "clean_threshold=clean_validation_threshold(scores, "
+            "bank.meta['split']) per rung, or tabulate acc_oracle.")
+    selection = _check_selection(selection, per_rung)
+    probs = _check_probs(probs, per_rung)
+    thresholds = _check_thresholds(clean_threshold, per_rung)
     if banks_verified:
         _check_banks(banks, per_rung, conditions)
 
@@ -488,12 +750,18 @@ def robustness_table(per_rung: Mapping[str, pd.DataFrame], tier: str,
 
     rows = {}
     for rung, scores in per_rung.items():
-        m = condition_metrics(scores, seed=seed, n_boot=n_boot).set_index("condition")
+        m = condition_metrics(scores, probs=probs.get(rung),
+                              clean_threshold=thresholds.get(rung), seed=seed,
+                              n_boot=n_boot, target_fpr=target_fpr,
+                              ).set_index("condition")
         row = {c: float(m.loc[c, metric]) for c in conditions}
         for label, subset in (("robust", degraded), ("heldout", heldout),
                               ("seen", seen)):
             row[f"{label}_{metric}"] = (float(m.loc[subset, metric].mean())
                                         if subset else float("nan"))
+        # The §6.4 number, beside the §6.1 ones, under the rule's own name.
+        if selection is not None:
+            row[SELECTION_METRIC] = float(selection[rung])
         row["tier"] = tier
         row["n_images"] = int(scores["image_idx"].nunique()
                               if "image_idx" in scores.columns
@@ -501,11 +769,15 @@ def robustness_table(per_rung: Mapping[str, pd.DataFrame], tier: str,
         row["boot_seed"] = seed
         row["boot_n"] = n_boot
         row["banks_verified"] = banks_verified
+        row["target_fpr"] = float(target_fpr)
+        if rung in thresholds:
+            row["clean_threshold"] = float(thresholds[rung])
         rows[rung] = row
 
     table = pd.DataFrame.from_dict(rows, orient="index")
     table.attrs["tier"] = tier
     table.attrs["metric"] = metric
+    table.attrs["target_fpr"] = float(target_fpr)
     table.attrs["heldout_severity_conditions"] = heldout
     return table
 
@@ -557,10 +829,17 @@ def heatmap_limits(metric: str) -> tuple[float, float]:
 
     AUC is floored at 0.5 because chance is a meaningful bottom of scale and
     anchoring every figure there makes them comparable. Every other metric --
-    notably `tpr_at_1pct`, the §6.4 model-selection metric, which routinely
-    sits well below 0.5 -- gets the full 0..1 range: clamping those at 0.5
-    would render every struggling rung the identical colour and hide exactly
-    the differences the figure is drawn to show.
+    notably `tpr_at_1pct`, §6.1's per-condition reporting TPR at the operating
+    point, which routinely sits well below 0.5 -- gets the full 0..1 range:
+    clamping those at 0.5 would render every struggling rung the identical
+    colour and hide exactly the differences the figure is drawn to show.
+
+    `tpr_at_1pct` is NOT the §6.4 model-selection metric, and calling it that
+    (as this docstring once did) invites a reader to pick the headline model
+    off this figure. §6.4 selects on `errors.SELECTION_METRIC`, computed over
+    `val_internal` authentic against `heldout_generator` generated with `clean`
+    excluded; the column here is computed over every scored row, benchmark and
+    seen-generator fakes included, and the two rank rungs differently.
     """
     return (0.5, 1.0) if metric == "auc" else (0.0, 1.0)
 
@@ -674,19 +953,130 @@ def _markdown_table(table: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
-#: One line per tier, written into every report so the row/condition budget the
-#: number was produced under travels with it.
+#: What each tier is FOR. One line per tier, written into every report.
+#:
+#: These say what the tier is used for and nothing about how many rows or
+#: conditions a given table covers, because this module cannot know that from a
+#: label -- it can only read it off the table, which is what
+#: `describe_tier` does. The previous version asserted the plan's budget as
+#: fact ("the complete benchmark over the 15 core conditions"), which a 40-row
+#: smoke-sized `final_report` table repeated verbatim: a sentence about the
+#: plan, printed above numbers that contradicted it, in the artefact a report
+#: writer quotes from.
 TIER_DESCRIPTIONS: dict[str, str] = {
-    "ablation": ("Selection tier: 5k internal validation plus a 5k stratified "
-                 "benchmark subsample, over the full 20-condition grid. Used "
-                 "for ablations and model selection only."),
-    "final_report": ("Final-report tier: the complete benchmark over the 15 "
-                     "core conditions, run once. Numbers quoted in the report "
-                     "come from here."),
+    "ablation": ("Selection tier: internal validation plus a stratified "
+                 "benchmark subsample, over the full grid. Used for ablations "
+                 "and model selection only."),
+    "final_report": ("Final-report tier: the external benchmark over the core "
+                     "conditions, run once. Numbers quoted in the report come "
+                     "from here."),
     "smoke": ("Smoke tier: an arbitrary subset of conditions on an arbitrary "
               "number of rows, run to prove the pipeline executes. The numbers "
               "are not an evaluation of anything and must not be quoted."),
 }
+
+#: The row/condition budget each tier is PLANNED at (plan global constraints,
+#: spec §4.4a). Rendered explicitly as a plan, next to what the table actually
+#: covers, so the two can be compared instead of the first being mistaken for
+#: the second. `None` where the plan sets no budget.
+TIER_PLANNED_BUDGET: dict[str, str | None] = {
+    "ablation": ("5k internal validation plus a 5k stratified benchmark "
+                 "subsample, over the 20-condition grid"),
+    "final_report": "the complete ~13.8k benchmark over the 15 core conditions",
+    "smoke": None,
+}
+
+
+def describe_tier(tier: str, table: pd.DataFrame | None = None) -> str:
+    """The tier line for a report: what the tier is for, what the PLAN budgets
+    it at, and what this table actually contains.
+
+    The observed half is measured from the table -- rungs, condition columns,
+    `n_images` -- rather than asserted, so a `final_report` table over 40 images
+    says 40 images. Nothing in this repository checks a table's row count
+    against the plan (the §4.4a subsample that would produce it,
+    `eval.grid.stratified_subsample`, has no caller yet), so the honest report
+    is the observed composition with the plan quoted beside it as a plan.
+    """
+    _check_tier(tier)
+    text = TIER_DESCRIPTIONS[tier]
+    planned = TIER_PLANNED_BUDGET.get(tier)
+    if planned:
+        text += f" Planned budget for this tier: {planned}."
+    if table is None:
+        return text
+    conditions = _condition_columns(table)
+    images = (sorted({int(n) for n in table["n_images"].tolist()})
+              if "n_images" in table.columns else [])
+    observed = (" or ".join(f"{n} image(s)" for n in images) if images
+                else "an unrecorded number of images")
+    return (f"{text} THIS TABLE covers {len(table)} rung(s) x "
+            f"{len(conditions)} condition(s) over {observed}, which is what "
+            "the numbers below were computed on; the budget above is the plan, "
+            "not a property of this table.")
+
+
+def selection_provenance(table: pd.DataFrame) -> str:
+    """The paragraph that keeps a rendering of this table and `selection.json`
+    from naming different winners.
+
+    Either the table carries the §6.4 number -- in which case the rule, the
+    column and the rung it picks are stated here, from the column itself -- or
+    it does not, in which case that is stated, because the alternative is a
+    reader picking the headline off whichever column looks most like the rule.
+    The winner is computed by `errors.select_headline`, not re-derived here, so
+    the eligibility filter and the tie-break cannot drift from §6.4's.
+    """
+    metric = _metric_of(table)
+    reporting = (
+        f"The per-condition columns and `robust_{metric}` are §6.1 REPORTING "
+        "metrics, computed over every scored row -- internal-validation "
+        "authentic and generated, held-out-generator and benchmark alike. They "
+        "are not the model-selection rule and can rank the rungs differently.")
+    if SELECTION_METRIC not in table.columns:
+        return (f"**§6.4 selection metric:** not carried in this table. "
+                f"{reporting} The headline model is chosen on "
+                f"`{SELECTION_METRIC}` and is recorded in `selection.json`; it "
+                "cannot be read off this table.\n\n")
+    winner, error = _headline_of(table)
+    chosen = f"`{winner}`" if error is None else f"not selectable from this table ({error})"
+    return (f"**§6.4 selection metric:** column `{SELECTION_METRIC}`, the rule "
+            f"the headline model is chosen by -- {SELECTION_RULE} Highest "
+            f"among the eligible rungs in this table: {chosen}. {reporting}\n\n")
+
+
+def _headline_of(table: pd.DataFrame) -> tuple[str | None, str | None]:
+    """`(winner, error)` under §6.4, from the table's own selection column.
+
+    The choice is made by `errors.select_headline`, never re-derived here, so
+    the A3-A6 eligibility filter and the tie-break cannot drift from §6.4's.
+    The dicts are declaration-free on purpose: `_check_provenance` refuses a
+    DECLARED mismatch, and a renderer has no standing to declare a population
+    on the producer's behalf.
+
+    The `IneligibleRungWarning` a control's win raises belongs to the run that
+    computed the metric, not to each rendering of it, so it is suppressed here
+    -- `to_markdown` and `save_heatmap` would otherwise re-raise it once per
+    file written, from a table that cannot say anything new about it.
+    """
+    values = {rung: float(table.loc[rung, SELECTION_METRIC]) for rung in table.index}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", IneligibleRungWarning)
+        try:
+            return select_headline({r: {SELECTION_METRIC: v}
+                                    for r, v in values.items()}), None
+        except ValueError as exc:
+            return None, str(exc)
+
+
+def _selection_subtitle(table: pd.DataFrame) -> str:
+    """One line for the figure: the §6.4 winner, or that the rule is absent."""
+    if SELECTION_METRIC not in table.columns:
+        return f"{SELECTION_METRIC} not in this table -- see selection.json"
+    winner, error = _headline_of(table)
+    if error is not None:
+        return "no eligible rung for the §6.4 headline in this table"
+    return f"§6.4 headline ({SELECTION_METRIC}): {winner}"
 
 
 def to_markdown(table: pd.DataFrame, tier: str, path: str) -> None:
@@ -716,8 +1106,9 @@ def to_markdown(table: pd.DataFrame, tier: str, path: str) -> None:
         for banner in banners:
             f.write(f"> **{banner.upper()}**\n\n")
         f.write(f"**Evaluation tier:** {tier}\n\n")
-        f.write(f"{TIER_DESCRIPTIONS[tier]}\n\n")
+        f.write(f"{describe_tier(tier, table)}\n\n")
         f.write(provenance)
+        f.write(selection_provenance(table))
         f.write(f"Conditions marked `{HELDOUT_MARK.strip()}` use a severity the "
                 "training sampler never drew (spec §4.6, held-out severity "
                 f"bands): {', '.join(marked)}.\n\n")
@@ -749,7 +1140,11 @@ def save_heatmap(table: pd.DataFrame, path: str) -> None:
     metric = _metric_of(table)
     vmin, vmax = heatmap_limits(metric)
 
-    fig, ax = plt.subplots(figsize=(2 + 0.45 * len(cols), 1.5 + 0.45 * len(table)))
+    # The title carries up to three lines (metric, the §6.4 headline, banners),
+    # so the figure is tall enough for them: at the old height `tight_layout`
+    # could not fit the decorations and warned, which is a rendering that has
+    # already gone wrong by the time anyone reads the PNG.
+    fig, ax = plt.subplots(figsize=(2 + 0.45 * len(cols), 2.6 + 0.45 * len(table)))
     im = ax.imshow(table[cols].to_numpy(dtype=float), aspect="auto",
                    vmin=vmin, vmax=vmax, cmap="viridis")
     ax.set_xticks(range(len(cols)))
@@ -757,6 +1152,10 @@ def save_heatmap(table: pd.DataFrame, path: str) -> None:
     ax.set_yticks(range(len(table)))
     ax.set_yticklabels([str(i) for i in table.index], fontsize=8)
     title = f"{metric} by condition (tier: {tier})"
+    # The figure is what gets screenshotted, so it must not be the one place a
+    # reader can pick a headline model off a §6.1 colour scale. Either it names
+    # the rung the §6.4 rule chose, or it says the rule is not in this table.
+    title += "\n" + _selection_subtitle(table)
     if banners:
         title += "\n" + " | ".join(b.upper() for b in banners)
     ax.set_title(title, fontsize=9)

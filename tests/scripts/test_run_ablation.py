@@ -787,3 +787,110 @@ def test_tta_records_its_cost_multiplier_and_the_tier_it_applies_to(
     assert f"{len(TTA_VIEWS)}x" in printed and "ablation" in printed
     record = json.loads((tmp_path / "out" / "selection.json").read_text())
     assert record["tta"] == report["tta"]
+
+
+# --- the table and selection.json cannot disagree -------------------------
+
+def _table_row(text, rung):
+    """`{column: cell}` for one rung of the written markdown table."""
+    header = [c.strip() for c in
+              [line for line in text.splitlines() if line.startswith("| rung |")][0]
+              .split("|")[1:-1]]
+    row = [c.strip() for c in
+           [line for line in text.splitlines() if line.startswith(f"| {rung} |")][0]
+           .split("|")[1:-1]]
+    return dict(zip(header[1:], row[1:]))
+
+
+def test_the_written_table_carries_the_same_selection_number_as_selection_json(
+        tmp_path):
+    """Kills the mutant that builds the table without `selection=`.
+
+    Without it the shipped `robustness_table.md` holds only §6.1 columns
+    computed over EVERY scored row -- benchmark and seen-generator fakes
+    included -- while `selection.json` holds the §6.4 number over a different
+    population. A reader picks the headline off the table's best column, and
+    the two artefacts name different rungs.
+    """
+    with _quiet_control_warning():
+        report = ra.main(_argv(tmp_path))
+
+    text = (tmp_path / "out" / "robustness_table.md").read_text(encoding="utf-8")
+    for rung in ("a0", "a3"):
+        cell = float(_table_row(text, rung)[SELECTION_METRIC])
+        assert cell == pytest.approx(report["summary"][rung][SELECTION_METRIC],
+                                     abs=5e-5)
+    # And the rule, the disclaimer and the chosen rung are all in the file.
+    assert f"Highest among the eligible rungs in this table: `{report['headline']}`" \
+        in text
+    assert "REPORTING" in text
+    assert report["headline"] == "a3"
+
+
+def test_the_table_states_what_it_actually_covers_rather_than_the_plan(tmp_path):
+    """The tier sentence used to assert the plan's row budget as this table's.
+
+    Kills the mutant that writes `TIER_DESCRIPTIONS[tier]` alone: on this
+    fixture that sentence claims a 5k+5k evaluation above a 240-image one.
+    """
+    with _quiet_control_warning():
+        ra.main(_argv(tmp_path))
+    text = (tmp_path / "out" / "robustness_table.md").read_text(encoding="utf-8")
+    assert "THIS TABLE covers 2 rung(s) x 20 condition(s) over 240 image(s)" in text
+    assert "Planned budget" in text
+
+
+def test_ece_is_refused_by_the_orchestrator_rather_than_tabulated_blank(
+        tmp_path, capsys):
+    """`--metric ece` was reachable and produced an all-NaN table and a blank
+    heatmap: this script has no producer of calibrated probabilities.
+
+    Refused at PARSE time, so the ladder is not trained first. Kills the mutant
+    that leaves `ece` in the accepted choices and lets `robustness_table` raise
+    after every rung has trained.
+    """
+    with pytest.raises(SystemExit):
+        ra.main(_argv(tmp_path, **{"--metric": "ece"}))
+    assert "ece" in capsys.readouterr().err
+    assert not (tmp_path / "rungs").exists(), "a rejected metric trained a rung"
+    assert not (tmp_path / "out" / "robustness_table.md").exists()
+
+
+def test_acc_fixed_uses_a_threshold_from_internal_validation(tmp_path):
+    """`--metric acc_fixed` must not fit its frozen threshold on the rows it
+    scores -- at the final-report tier those are the external benchmark.
+
+    Kills the mutant that drops `clean_threshold=` from the orchestrator's
+    `robustness_table` call (the table then refuses) and the one that fits it
+    on every clean row rather than the val_internal ones.
+    """
+    from aigcdet.eval.grid import score_grid
+    from aigcdet.eval.report import clean_validation_threshold
+    from aigcdet.features.bank import FeatureBank
+    from aigcdet.train.train_head import load_detector
+
+    argv = _argv(tmp_path, rungs=("a3",), **{"--metric": "acc_fixed"})
+    with _quiet_control_warning():
+        report = ra.main(argv)
+    text = (tmp_path / "out" / "robustness_table.md").read_text(encoding="utf-8")
+    assert report["table_metric"] == "acc_fixed"
+
+    bank = FeatureBank.open(argv[argv.index("--eval-bank") + 1])
+    model, _ = load_detector(str(tmp_path / "rungs" / "a3" / "checkpoint.pt"),
+                             device="cpu")
+    scores = score_grid(model, bank, device="cpu")
+    splits = bank.meta["split"].to_numpy()
+    expected = clean_validation_threshold(scores, splits)
+    assert float(_table_row(text, "a3")["clean_threshold"]) == pytest.approx(
+        expected, abs=5e-5)
+    # What this fixture CAN tell apart: fitting on the clean view only versus
+    # on every view of the validation rows. It cannot tell "val_internal clean"
+    # from "all clean" -- its benchmark block is cleanly separated, so both fits
+    # land on the same score -- and that discrimination is pinned instead by
+    # tests/eval/test_report.py's purpose-built fixture, whose benchmark
+    # authentics sit on the generated cluster.
+    from aigcdet.eval.report import _best_threshold
+    val_all_views = scores[(splits[scores["image_idx"].to_numpy()] == "val_internal")]
+    assert expected != pytest.approx(
+        _best_threshold(val_all_views["label"].to_numpy(),
+                        val_all_views["score"].to_numpy()))

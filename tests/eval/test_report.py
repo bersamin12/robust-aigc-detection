@@ -211,8 +211,10 @@ def test_heldout_and_seen_means_split_the_degraded_conditions_correctly():
 def test_summary_column_is_named_after_the_metric_it_averages():
     """A TPR mean must not be published in a column called `robust_auc`.
 
-    Kills the mutant that hardcodes the aggregate column name: under it the
-    §6.4 selection metric (robust TPR @ 1% FPR) would be presented as an AUC.
+    Kills the mutant that hardcodes the aggregate column name: under it §6.1's
+    reported robust TPR @ 1% FPR would be presented as an AUC. (It is a
+    REPORTING metric over every scored row, not the §6.4 selection rule -- that
+    one is `errors.SELECTION_METRIC` and has its own column here.)
     """
     t = robustness_table({"a0": _scores(seed=1)}, tier="ablation", metric="tpr_at_1pct",
                          n_boot=_NB, banks=_NOBANK)
@@ -547,8 +549,9 @@ def test_save_heatmap_writes_a_png_and_ignores_the_summary_columns(tmp_path):
     assert matplotlib.get_backend().lower() == "agg"
 
 
-def test_heatmap_scale_does_not_flatten_the_selection_metric(tmp_path):
-    """TPR @ 1% FPR -- the §6.4 selection metric -- lives well below 0.5.
+def test_heatmap_scale_does_not_flatten_the_reported_tpr(tmp_path):
+    """TPR @ 1% FPR -- §6.1's reported TPR, not §6.4's selection rule -- lives
+    well below 0.5.
 
     Kills the mutant that hardcodes `vmin=0.5` for every metric: under it two
     tables whose only difference is sub-0.5 TPR values render byte-identical,
@@ -1043,8 +1046,11 @@ def test_n_is_the_per_condition_row_count_not_the_whole_frame(tmp_path):
 def test_tpr_at_1pct_is_measured_at_one_percent_fpr():
     """Kills the mutant publishing `tpr_at_fpr(y, s, 0.05)` under this name.
 
-    This is the §6.4 SELECTION metric; reporting the 5% figure under the 1%
-    heading changes which model ships.
+    This is §6.1's REPORTING TPR at the project operating point, computed over
+    every scored row -- not the §6.4 selection rule, which restricts to
+    val_internal authentic against heldout_generator generated and drops clean
+    (`errors.heldout_robust_tpr`). Reporting the 5% figure under the 1% heading
+    still misstates the operating point the whole report is written at.
     """
     df = _scores(n=120, seed=6)
     m = condition_metrics(df, seed=0, n_boot=_NB).set_index("condition")
@@ -1179,3 +1185,356 @@ def test_proxied_families_is_exported_and_is_the_default():
     explicit = validate_degradation_head(pred, proxies, families=PROXIED_FAMILIES)
     assert list(default["family"]) == list(PROXIED_FAMILIES)
     assert default["spearman"].tolist() == explicit["spearman"].tolist()
+
+
+# --- C1: the table carries the §6.4 number, not just a TPR-shaped column ---
+
+def _split_scores(sep_held, sep_val_fake, seed, n=60, conditions=None,
+                  bench_shift=0.0):
+    """A score frame over the four populations an eval bank really holds.
+
+    `_scores` above is one undifferentiated block, which is exactly the fixture
+    that cannot see the C1 defect: with no splits, §6.1's whole-frame TPR and
+    §6.4's held-out-generator TPR are the same number. Here the two are pulled
+    apart on purpose -- `sep_held` separates the held-out-generator fakes, which
+    §6.4 selects on, and `sep_val_fake` the SEEN-generator fakes, which only the
+    whole-frame column sees.
+
+    Returns `(scores, splits)` with `splits` positionally indexed by image_idx,
+    exactly as `bank.meta["split"]` is. `bench_shift` moves the BENCHMARK
+    authentic rows, the confound that makes a threshold fitted on the scored
+    frame differ from one fitted on validation.
+    """
+    rng = np.random.default_rng(seed)
+    splits = np.array(["val_internal"] * n + ["val_internal"] * n
+                      + ["heldout_generator"] * n + ["benchmark"] * n)
+    labels = np.array([0] * n + [1] * n + [1] * n + [0] * n)
+    rows = []
+    for cond in (EVAL_GRID if conditions is None else conditions):
+        mu = np.where(labels == 1, sep_val_fake, 0.0).astype(float)
+        mu[splits == "heldout_generator"] = sep_held
+        mu[splits == "benchmark"] += bench_shift
+        rows.append(pd.DataFrame({"condition": cond,
+                                  "image_idx": np.arange(len(labels)),
+                                  "label": labels, "generator": "g",
+                                  "source": "src",
+                                  "score": rng.normal(mu, 1.0)}))
+    return pd.concat(rows, ignore_index=True), splits
+
+
+def _disagreeing_rungs(conditions=None):
+    """Two rungs the §6.1 column and the §6.4 rule rank in OPPOSITE orders.
+
+    `a3` finds the held-out generators and nothing else; `a4` finds only the
+    seen ones. The whole-frame TPR column prefers a4 (it has more separable
+    positives overall); §6.4, which looks only at held-out-generator fakes
+    against val_internal authentics, prefers a3.
+    """
+    a3, splits = _split_scores(3.5, 0.0, seed=1, conditions=conditions)
+    a4, _ = _split_scores(0.0, 6.0, seed=2, conditions=conditions)
+    return {"a3": a3, "a4": a4}, splits
+
+
+def test_the_tables_tpr_column_and_the_64_rule_can_name_different_winners():
+    """The premise of the selection column, asserted rather than assumed.
+
+    If this ever stops holding, the fixture has stopped exercising the defect
+    and the tests below are vacuous.
+    """
+    from aigcdet.eval.errors import heldout_robust_tpr
+
+    per_rung, splits = _disagreeing_rungs()
+    t = robustness_table(per_rung, tier="ablation", metric="tpr_at_1pct",
+                         n_boot=_NB, banks=_NOBANK)
+    rule = {r: heldout_robust_tpr(df, splits) for r, df in per_rung.items()}
+    assert t["robust_tpr_at_1pct"].idxmax() == "a4"
+    assert max(rule, key=rule.get) == "a3"
+
+
+def test_the_selection_metric_is_carried_as_its_own_column():
+    """Kills the mutant that drops `selection` on the floor.
+
+    Without the column a reader picks the headline off `robust_tpr_at_1pct`,
+    which on this fixture names the rung §6.4 rejects -- a `robustness_table.md`
+    saying A4 next to a `selection.json` saying A3.
+    """
+    from aigcdet.eval.errors import SELECTION_METRIC, heldout_robust_tpr
+
+    per_rung, splits = _disagreeing_rungs()
+    rule = {r: heldout_robust_tpr(df, splits) for r, df in per_rung.items()}
+    t = robustness_table(per_rung, tier="ablation", metric="tpr_at_1pct",
+                         n_boot=_NB, banks=_NOBANK, selection=rule)
+    assert SELECTION_METRIC in t.columns
+    for rung, value in rule.items():
+        assert float(t.loc[rung, SELECTION_METRIC]) == pytest.approx(value)
+    assert t[SELECTION_METRIC].idxmax() == "a3" != t["robust_tpr_at_1pct"].idxmax()
+    # And it is a summary column: not plotted, not counted as a condition, so
+    # it cannot break the tier's coverage check or wash out the heatmap.
+    from aigcdet.eval.report import _condition_columns
+    assert SELECTION_METRIC not in _condition_columns(t)
+
+
+def test_the_markdown_names_the_64_winner_and_not_the_column_winner(tmp_path):
+    """Kills the mutant that renders the table without the selection paragraph,
+    and the one that reads the headline off `robust_<metric>`."""
+    from aigcdet.eval.errors import SELECTION_METRIC, heldout_robust_tpr
+
+    per_rung, splits = _disagreeing_rungs()
+    rule = {r: heldout_robust_tpr(df, splits) for r, df in per_rung.items()}
+    t = robustness_table(per_rung, tier="ablation", metric="tpr_at_1pct",
+                         n_boot=_NB, banks=_NOBANK, selection=rule)
+    p = tmp_path / "sel.md"
+    to_markdown(t, tier="ablation", path=str(p))
+    text = p.read_text()
+    assert SELECTION_METRIC in text
+    assert "Highest among the eligible rungs in this table: `a3`" in text
+    assert "REPORTING" in text                    # the §6.1 disclaimer
+    assert f"| {SELECTION_METRIC} |" in text      # a real column in the table
+
+
+def test_a_table_without_the_selection_column_says_so(tmp_path):
+    """The negative case must be stated, not left blank: a reader who cannot
+    see a §6.4 column reads the headline off whichever column looks like it."""
+    from aigcdet.eval.errors import SELECTION_METRIC
+
+    t = robustness_table({"a0": _scores(seed=1)}, tier="ablation", n_boot=_NB,
+                         banks=_NOBANK)
+    p = tmp_path / "nosel.md"
+    to_markdown(t, tier="ablation", path=str(p))
+    text = p.read_text()
+    assert "not carried in this table" in text
+    assert "selection.json" in text
+    assert SELECTION_METRIC in text               # named, so it can be looked up
+
+
+def test_the_heatmap_states_the_64_headline_too(tmp_path, monkeypatch):
+    """The figure is what gets screenshotted, so it must not be the one path
+    where a headline can be read off a §6.1 colour scale.
+
+    Kills the mutant that drops the subtitle from `save_heatmap`.
+    """
+    from aigcdet.eval.errors import heldout_robust_tpr
+
+    per_rung, splits = _disagreeing_rungs()
+    rule = {r: heldout_robust_tpr(df, splits) for r, df in per_rung.items()}
+    t = robustness_table(per_rung, tier="ablation", metric="tpr_at_1pct",
+                         n_boot=_NB, banks=_NOBANK, selection=rule)
+    title = _render_and_capture(monkeypatch, t, str(tmp_path / "sel.png"))["title"]
+    assert "a3" in title and "§6.4" in title
+
+    bare = robustness_table(per_rung, tier="ablation", metric="tpr_at_1pct",
+                            n_boot=_NB, banks=_NOBANK)
+    bare_title = _render_and_capture(monkeypatch, bare,
+                                     str(tmp_path / "bare.png"))["title"]
+    assert "a3" not in bare_title and "selection.json" in bare_title
+
+
+def test_a_partial_or_unusable_selection_mapping_is_refused():
+    """A blank cell in the selection column reads as a rung that LOST."""
+    per_rung, splits = _disagreeing_rungs()
+    with pytest.raises(ValueError, match="selection covers rungs"):
+        robustness_table(per_rung, tier="ablation", n_boot=_NB, banks=_NOBANK,
+                         selection={"a3": 0.5})
+    with pytest.raises(ValueError, match="non-finite"):
+        robustness_table(per_rung, tier="ablation", n_boot=_NB, banks=_NOBANK,
+                         selection={"a3": 0.5, "a4": float("nan")})
+
+
+# --- I1: a metric with no producer is refused, not rendered blank ----------
+
+def test_ece_without_probabilities_is_refused_rather_than_tabulated_as_nan():
+    """Kills the mutant that lets `metric="ece"` through to `condition_metrics`
+    with no probabilities.
+
+    Every cell is then NaN, which renders as blank markdown cells and a flat
+    heatmap -- a table that looks like a result and says nothing.
+    """
+    with pytest.raises(ValueError, match="calibrated probabilities"):
+        robustness_table({"a0": _scores(seed=1)}, tier="ablation", metric="ece",
+                         n_boot=_NB, banks=_NOBANK)
+
+
+def test_ece_is_tabulated_when_probabilities_are_supplied():
+    """The positive control: the refusal is about missing inputs, not about the
+    metric being unsupported."""
+    scores = _scores(n=200, seed=3)
+    probs = 1.0 / (1.0 + np.exp(-scores["score"].to_numpy()))
+    t = robustness_table({"a0": scores}, tier="ablation", metric="ece",
+                         n_boot=_NB, banks=_NOBANK, probs={"a0": probs})
+    assert t.loc["a0", "clean"] == pytest.approx(
+        expected_calibration_error(
+            scores[scores["condition"] == "clean"]["label"].to_numpy(),
+            probs[(scores["condition"] == "clean").to_numpy()]))
+    assert np.isfinite(t.loc["a0", "robust_ece"])
+
+
+def test_probabilities_must_cover_every_rung_and_align_row_for_row():
+    scores = _scores(n=40, seed=3)
+    probs = 1.0 / (1.0 + np.exp(-scores["score"].to_numpy()))
+    with pytest.raises(ValueError, match="probs covers rungs"):
+        robustness_table({"a0": scores, "a3": _scores(n=40, seed=4)},
+                         tier="ablation", metric="ece", n_boot=_NB,
+                         banks=_NOBANK, probs={"a0": probs})
+    with pytest.raises(ValueError, match="align row for row"):
+        robustness_table({"a0": scores}, tier="ablation", metric="ece",
+                         n_boot=_NB, banks=_NOBANK, probs={"a0": probs[:10]})
+
+
+# --- I2: the frozen threshold comes from validation, not from the scored rows
+
+def test_acc_fixed_is_refused_without_a_threshold_from_validation():
+    """Kills the mutant that lets `robustness_table` default the threshold.
+
+    Defaulted, it is fitted on the clean rows of the frame being scored: at the
+    final_report tier that frame IS the benchmark §6.7 says is touched once,
+    and on `clean` it makes acc_fixed a second acc_oracle.
+    """
+    with pytest.raises(ValueError, match="clean_threshold"):
+        robustness_table({"a0": _scores(seed=1)}, tier="ablation",
+                         metric="acc_fixed", n_boot=_NB, banks=_NOBANK)
+
+
+def test_a_supplied_threshold_reopens_the_gap_the_two_columns_exist_to_show():
+    """With the threshold fitted on the scored frame's own clean rows, the
+    `clean` column's acc_fixed - acc_oracle gap is zero BY CONSTRUCTION -- the
+    one condition where the reported score drift cannot be non-zero.
+
+    The fixture shifts the BENCHMARK authentic rows up, which is the confound
+    that makes the difference visible: the frame-fitted threshold is tuned to
+    them, a validation-fitted one is not. Kills the mutant that ignores a
+    supplied `clean_threshold`.
+    """
+    from aigcdet.eval.report import clean_validation_threshold
+
+    scores, splits = _split_scores(3.5, 2.0, seed=11,
+                                   conditions=["clean", "jpeg_q30"],
+                                   bench_shift=2.0)
+    fitted_here = condition_metrics(scores, seed=0, n_boot=_NB).set_index("condition")
+    assert float(fitted_here.loc["clean", "acc_fixed"]) == pytest.approx(
+        float(fitted_here.loc["clean", "acc_oracle"]))
+
+    threshold = clean_validation_threshold(scores, splits)
+    from_validation = condition_metrics(scores, clean_threshold=threshold,
+                                        seed=0, n_boot=_NB).set_index("condition")
+    assert float(from_validation.loc["clean", "acc_fixed"]) < float(
+        from_validation.loc["clean", "acc_oracle"])
+    assert (from_validation["acc_fixed"] <= from_validation["acc_oracle"] + 1e-9).all()
+
+
+def test_condition_metrics_records_where_its_threshold_came_from():
+    """A number whose provenance is not recorded cannot be audited later."""
+    df = _scores(n=40, seed=5)
+    default = condition_metrics(df, seed=0, n_boot=_NB)
+    supplied = condition_metrics(df, clean_threshold=0.25, seed=0, n_boot=_NB)
+    assert (default["clean_threshold_source"] == "fitted_on_the_scored_clean_rows").all()
+    assert (supplied["clean_threshold_source"] == "supplied").all()
+    assert (supplied["clean_threshold"] == 0.25).all()
+
+
+def test_the_validation_threshold_ignores_benchmark_and_degraded_rows():
+    """Kills two mutants: one that fits on every clean row, one that fits on
+    every `val_internal` row whatever the condition.
+
+    Both need rows that INTERLEAVE with the decision region to be detectable --
+    a block shifted far above every candidate threshold is misclassified at a
+    constant rate and moves no optimum, which is how a lenient fixture can hide
+    both mutants. So the benchmark authentics sit ON the generated cluster (the
+    "benchmark reals look fake" confound this threshold must not be tuned to),
+    and the degraded condition is barely separated at all.
+    """
+    from aigcdet.eval.report import _best_threshold, clean_validation_threshold
+
+    n = 20
+    rng = np.random.default_rng(3)
+    splits = np.array(["val_internal"] * (2 * n) + ["benchmark"] * (6 * n))
+    labels = np.array([0] * n + [1] * n + [0] * (6 * n))
+    rows = []
+    for cond, mu_fake, sd in (("clean", 3.0, 0.3), ("jpeg_q30", 0.5, 1.0)):
+        mu = np.where(labels == 1, mu_fake, 0.0).astype(float)
+        if cond == "clean":
+            mu = mu + (splits == "benchmark") * 3.0
+        rows.append(pd.DataFrame({"condition": cond,
+                                  "image_idx": np.arange(len(labels)),
+                                  "label": labels, "generator": "g",
+                                  "source": "src", "score": rng.normal(mu, sd)}))
+    scores = pd.concat(rows, ignore_index=True)
+    row_split = splits[scores["image_idx"].to_numpy()]
+
+    got = clean_validation_threshold(scores, splits)
+    val_clean = scores[(row_split == "val_internal") & (scores["condition"] == "clean")]
+    assert got == pytest.approx(_best_threshold(val_clean["label"].to_numpy(),
+                                                val_clean["score"].to_numpy()))
+    all_clean = scores[scores["condition"] == "clean"]
+    assert got != pytest.approx(_best_threshold(all_clean["label"].to_numpy(),
+                                                all_clean["score"].to_numpy()))
+    all_val = scores[row_split == "val_internal"]
+    assert got != pytest.approx(_best_threshold(all_val["label"].to_numpy(),
+                                                all_val["score"].to_numpy()))
+
+
+def test_the_validation_threshold_refuses_a_benchmark_only_frame():
+    """A benchmark-only bank must not quietly supply the deployment threshold."""
+    from aigcdet.eval.report import clean_validation_threshold
+
+    scores, splits = _split_scores(3.5, 0.0, seed=8, conditions=["clean"])
+    benchmark_only = np.full(len(splits), "benchmark")
+    with pytest.raises(ValueError, match="val_internal"):
+        clean_validation_threshold(scores, benchmark_only)
+
+
+def test_a_threshold_reaches_the_table_and_is_recorded_there():
+    from aigcdet.eval.report import clean_validation_threshold
+
+    per_rung, splits = _disagreeing_rungs()
+    thresholds = {r: clean_validation_threshold(df, splits)
+                  for r, df in per_rung.items()}
+    t = robustness_table(per_rung, tier="ablation", metric="acc_fixed",
+                         n_boot=_NB, banks=_NOBANK, clean_threshold=thresholds)
+    for rung, thr in thresholds.items():
+        assert float(t.loc[rung, "clean_threshold"]) == pytest.approx(thr)
+        expected = condition_metrics(per_rung[rung], clean_threshold=thr,
+                                     n_boot=_NB).set_index("condition")
+        assert float(t.loc[rung, "clean"]) == pytest.approx(
+            float(expected.loc["clean", "acc_fixed"]))
+    with pytest.raises(ValueError, match="clean_threshold covers rungs"):
+        robustness_table(per_rung, tier="ablation", metric="acc_fixed",
+                         n_boot=_NB, banks=_NOBANK, clean_threshold={"a3": 0.0})
+
+
+# --- I3: the tier line describes THIS table, not the plan ------------------
+
+def test_the_tier_line_reports_what_the_table_actually_covers(tmp_path):
+    """Kills the mutant that writes `TIER_DESCRIPTIONS[tier]` alone.
+
+    That sentence asserted "the complete benchmark over the 15 core conditions"
+    verbatim above a 40-image table, in the file a report writer quotes from.
+    """
+    from aigcdet.eval.report import describe_tier
+
+    small = robustness_table(
+        {"a0": _scores(n=40, seed=1, conditions=list(CORE_CONDITIONS))},
+        tier="final_report", n_boot=_NB, banks=_NOBANK)
+    line = describe_tier("final_report", small)
+    assert "1 rung(s) x 15 condition(s) over 40 image(s)" in line
+    # The plan is still quoted -- explicitly AS the plan, not as this table.
+    assert "Planned budget" in line and "13.8k" in line
+    assert line.index("Planned budget") < line.index("THIS TABLE")
+
+    p = tmp_path / "obs.md"
+    to_markdown(small, tier="final_report", path=str(p))
+    assert "over 40 image(s)" in p.read_text()
+
+
+def test_the_tier_line_moves_with_the_table_it_describes():
+    """Two tables at one tier must not get the same composition sentence."""
+    from aigcdet.eval.report import describe_tier
+
+    a = robustness_table({"a0": _scores(n=40, seed=1)}, tier="ablation",
+                         n_boot=_NB, banks=_NOBANK)
+    b = robustness_table({"a0": _scores(n=120, seed=1), "a3": _scores(n=120, seed=2)},
+                         tier="ablation", n_boot=_NB, banks=_NOBANK)
+    assert "1 rung(s)" in describe_tier("ablation", a)
+    assert "40 image(s)" in describe_tier("ablation", a)
+    assert "2 rung(s)" in describe_tier("ablation", b)
+    assert "120 image(s)" in describe_tier("ablation", b)
+    assert describe_tier("ablation", a) != describe_tier("ablation", b)
