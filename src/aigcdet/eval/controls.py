@@ -31,6 +31,17 @@ but the *number* moves with the verdict -- `auc_ignoring_branch_confound`,
 clean once it is copied into a table. Nothing is hidden; nothing quotable is
 left without its caveat attached to its name.
 
+The same defence covers the case where provenance was never supplied at all.
+A quality column whose branches nobody recorded is in exactly the same
+position as one whose branches predict the label -- the number cannot be
+vouched for -- so it gets the same treatment rather than a caveat demoted to a
+string somebody has to read: `quality_branches` is REQUIRED, a caller with no
+provenance passes `BRANCH_PROVENANCE_NOT_VERIFIED`, and the result comes back
+as `auc_unverified_branch_provenance`. A caller whose features have no quality
+column at all (thumbnails, geometry) passes `NO_QUALITY_COLUMN` and keeps the
+plain `auc`, because there is nothing there to caveat -- and a false caveat on
+the thumbnail control would be its own harm.
+
 The confound runs the other way too. Matching the file formats makes the
 branch split vanish and the control go quiet -- but with every image now on
 the *pixel* branch, column 3 is no longer file metadata at all: it is a
@@ -77,6 +88,39 @@ BRANCH_ESTIMATED = "estimated"
 # broken/suspect verdict to be an estimator artefact, and the verdict is
 # withheld rather than reported.
 BRANCH_CONFOUND_THRESHOLD = 0.55
+
+#: The two explicit opt-outs for `content_blind_auc`'s REQUIRED
+#: `quality_branches` argument, on the model of `report.BANKS_NOT_VERIFIED`.
+#: There is no default, because a default of "no provenance supplied" made the
+#: number this function cannot vouch for the path of least resistance.
+#:
+#: They are two sentinels and not one because the caller knows something this
+#: function cannot: whether `features` contains the estimated-quality column at
+#: all. `content_blind_auc` is handed a bare `(N, d)` float array with no
+#: column names -- a thumbnail matrix and a metadata matrix have the same type
+#: -- so inferring "has a quality column" from its shape would be a guess, and
+#: a guess here fails towards reassurance on exactly the input that needs the
+#: caveat. The caller declares which case it is in; nothing is inferred.
+#:
+#: `NO_QUALITY_COLUMN`: these features carry no quality estimate at all
+#: (thumbnails, the geometry-only columns). There is no branch to check and
+#: the plain `auc` is fully vouched for. It must NOT be renamed: a false
+#: caveat on the thumbnail control -- the §4.2 headline -- is its own harm.
+NO_QUALITY_COLUMN = "no-quality-column"
+
+#: `BRANCH_PROVENANCE_NOT_VERIFIED`: these features DO carry the quality column
+#: and the caller cannot say which branch produced each row. Nothing is hidden
+#: -- the AUC, its CI and the verdict are all returned -- but under
+#: `..._unverified_branch_provenance` names, so `result["auc"]` raises
+#: `KeyError` rather than yielding a bare figure. That is the same defence the
+#: confounded path already gets, for the same failure: a number copied into a
+#: results table without the caveat that qualifies it.
+BRANCH_PROVENANCE_NOT_VERIFIED = "branch-provenance-not-verified"
+
+#: Sentinel default marking `quality_branches` as required while still allowing
+#: an error that names the two opt-outs, rather than a bare TypeError that
+#: mentions neither.
+_REQUIRED = object()
 
 
 def thumbnail_features(paths: list[str], size: int = 16) -> np.ndarray:
@@ -239,7 +283,7 @@ def _branch_check(branches: np.ndarray, labels: np.ndarray) -> dict:
 
 def content_blind_auc(features: np.ndarray, labels: np.ndarray,
                       seed: int = 20260827, n_splits: int = 5,
-                      quality_branches: np.ndarray | None = None) -> dict:
+                      quality_branches: np.ndarray | str = _REQUIRED) -> dict:
     """Cross-validated AUC of a classifier restricted to `features`.
 
     Returns `auc`, `auc_ci`, `verdict` (`broken` / `suspect` / `clean` per
@@ -253,23 +297,62 @@ def content_blind_auc(features: np.ndarray, labels: np.ndarray,
     broken": the leak's failure mode is a false alarm. Do not preprocess
     `features` in this function; put the step in the pipeline.
 
-    Pass `quality_branches` whenever the features include an
-    estimated-JPEG-quality column -- `metadata_control` does this for you and
-    is the cheap path, since it reads each file once for both the features and
-    their provenance. If the branch assignment predicts the label
-    (`BRANCH_CONFOUND_THRESHOLD`), the whole result is renamed out of the way:
-    `verdict` becomes `"confounded"` and `auc`, `auc_ci` and the plain verdict
-    move to `auc_ignoring_branch_confound`,
-    `auc_ci_ignoring_branch_confound` and `verdict_ignoring_branch_confound`.
-    The keys are long and self-incriminating on purpose: a confounded number
-    cannot be lifted into a results table without its caveat coming along, and
-    code that reads `result["auc"]` raises `KeyError` rather than quoting one.
+    `quality_branches` is REQUIRED and has three legitimate values. Pass the
+    real branch labels (`quality_estimator_branches(paths)`) whenever the
+    features include an estimated-JPEG-quality column -- `metadata_control`
+    does this for you and is the cheap path, since it reads each file once for
+    both the features and their provenance. Pass `NO_QUALITY_COLUMN` when the
+    features carry no quality estimate at all (thumbnails, geometry only), and
+    `BRANCH_PROVENANCE_NOT_VERIFIED` when they do carry one and you cannot say
+    which branch produced each row.
 
-    **Without `quality_branches` this function returns a plain `auc` it has no
-    way to vouch for.** `quality_branch_check` says so, and `metadata_features`
-    warns on the mixed input that makes it dangerous, but those are markers,
-    not a guarantee: the number is still there. Use `metadata_control`.
+    Two of those three make the number un-quotable-bare, and by the same
+    mechanism. If the branch assignment predicts the label
+    (`BRANCH_CONFOUND_THRESHOLD`), `verdict` becomes `"confounded"` and `auc`,
+    `auc_ci` and the plain verdict move to `auc_ignoring_branch_confound`,
+    `auc_ci_ignoring_branch_confound` and `verdict_ignoring_branch_confound`.
+    If provenance was never supplied for a quality column, `verdict` becomes
+    `"unverified_branch_provenance"` and the three move to
+    `auc_unverified_branch_provenance`,
+    `auc_ci_unverified_branch_provenance` and
+    `verdict_unverified_branch_provenance`. The keys are long and
+    self-incriminating on purpose: neither number can be lifted into a results
+    table without its caveat coming along, and code that reads `result["auc"]`
+    raises `KeyError` rather than quoting one. The failure mode being defended
+    is identical in the two cases, which is why the defence is.
+
+    Only `NO_QUALITY_COLUMN` -- and a real branch array that comes back
+    unconfounded -- leaves a plain `auc` in the result, because only there is
+    there something to vouch for it.
     """
+    if quality_branches is _REQUIRED:
+        raise ValueError(
+            "content_blind_auc requires `quality_branches`: pass "
+            "quality_estimator_branches(paths) so the estimator-branch "
+            "confound is checked against the labels, or declare the "
+            "alternative -- quality_branches=NO_QUALITY_COLUMN if these "
+            "features carry no quality estimate at all (thumbnails, geometry "
+            "only), or quality_branches=BRANCH_PROVENANCE_NOT_VERIFIED if they "
+            "do and you cannot say which branch produced each row. The last is "
+            "not a way to silence the check: it renames the AUC to "
+            "auc_unverified_branch_provenance so it cannot be quoted bare. "
+            "metadata_control() supplies the real thing and is the cheap path.")
+    if quality_branches is None:
+        raise ValueError(
+            "quality_branches=None does not say which case you are in. Pass "
+            "NO_QUALITY_COLUMN if these features carry no quality column, or "
+            "BRANCH_PROVENANCE_NOT_VERIFIED if they do and its provenance is "
+            "unknown; the two produce different results and only you know "
+            "which is true of `features`.")
+    if isinstance(quality_branches, str) and quality_branches not in (
+            NO_QUALITY_COLUMN, BRANCH_PROVENANCE_NOT_VERIFIED):
+        # Checked BEFORE the cross-validated fit and the 500-resample
+        # bootstrap, so a typo costs a millisecond rather than a full run.
+        raise ValueError(
+            f"quality_branches must be one branch label per row, or the exact "
+            f"sentinel NO_QUALITY_COLUMN or BRANCH_PROVENANCE_NOT_VERIFIED, "
+            f"got {quality_branches!r}")
+
     labels = np.asarray(labels)
     clf = make_pipeline(StandardScaler(),
                         LogisticRegression(max_iter=2000, random_state=seed))
@@ -280,8 +363,17 @@ def content_blind_auc(features: np.ndarray, labels: np.ndarray,
     verdict = _verdict(auc)
 
     result = {"auc": auc, "auc_ci": ci, "verdict": verdict, "n_splits": n_splits}
-    if quality_branches is None:
+    if isinstance(quality_branches, str):
+        # Validated above, so this is one of the two sentinels.
+        if quality_branches == NO_QUALITY_COLUMN:
+            result["quality_branch_check"] = (
+                "not applicable: caller declared no quality column")
+            return result
         result["quality_branch_check"] = "not performed: no branch provenance supplied"
+        result["auc_unverified_branch_provenance"] = result.pop("auc")
+        result["auc_ci_unverified_branch_provenance"] = result.pop("auc_ci")
+        result["verdict_unverified_branch_provenance"] = result.pop("verdict")
+        result["verdict"] = "unverified_branch_provenance"
         return result
 
     check = _branch_check(quality_branches, labels)
@@ -316,7 +408,10 @@ def metadata_control(paths: list[str], labels: np.ndarray,
 
     result = content_blind_auc(features, labels, seed=seed, n_splits=n_splits,
                                quality_branches=branches)
-    geometry = content_blind_auc(features[:, :3], labels, seed=seed, n_splits=n_splits)
+    geometry = content_blind_auc(features[:, :3], labels, seed=seed,
+                                 n_splits=n_splits,
+                                 quality_branches=NO_QUALITY_COLUMN)
+    # Refines the generic declaration with the reason it is true here.
     geometry["quality_branch_check"] = "not applicable: geometry columns only"
     check = result["quality_branch_check"]
 
