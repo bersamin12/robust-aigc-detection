@@ -11,9 +11,10 @@ whether the probability is worth listening to at all: below `eqi_threshold` the
 image goes to a human whatever `p` says, because the evidence the probability
 was computed from has been degraded away.
 
-Fitted on internal validation only (`split="val_internal"`, see the package
-docstring). A policy whose thresholds were chosen on the rows it is later
-scored on reports the fit, not the reviewer load.
+Fitted on internal validation rows only -- `fit_policy` requires a per-row
+`split=` column and checks it (see the package docstring). A policy whose
+thresholds were chosen on the rows it is later scored on reports the fit, not
+the reviewer load.
 """
 from __future__ import annotations
 
@@ -21,7 +22,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from aigcdet.calibrate import INTERNAL_VAL_SPLIT, check_fit_split
+from aigcdet.calibrate import check_fit_split
 from aigcdet.eval.metrics import threshold_at_fpr
 
 #: Wide enough for the longest decision, "review". A narrower dtype would
@@ -80,8 +81,11 @@ def _check_labels(y: np.ndarray, n: int) -> np.ndarray:
 
 def fit_policy(p: np.ndarray, y: np.ndarray, eqi: np.ndarray,
                target_fpr: float = 0.01, target_coverage: float = 0.85,
-               *, split: str = INTERNAL_VAL_SPLIT) -> Policy:
+               *, split) -> Policy:
     """Choose the three thresholds on internal validation rows.
+
+    `split` is required and holds one split label per row; every row must be
+    the internal validation split (spec §6.7).
 
     `target_fpr` is spent symmetrically: at most that share of authentic images
     may be flagged, and at most that share of AI-generated images may be
@@ -99,12 +103,12 @@ def fit_policy(p: np.ndarray, y: np.ndarray, eqi: np.ndarray,
     a stricter threshold than the exact optimum, never a looser one -- so the
     realised rates land at or under the target on both sides.
     """
-    check_fit_split(split)
     if not 0.0 <= target_fpr <= 1.0:
         raise ValueError(f"target_fpr must be in [0, 1], got {target_fpr!r}")
     if not 0.0 <= target_coverage <= 1.0:
         raise ValueError(f"target_coverage must be in [0, 1], got {target_coverage!r}")
     pr, ev = _check_scores(p, eqi)
+    check_fit_split(split, pr.size)
     yt = _check_labels(y, pr.size)
 
     flag = threshold_at_fpr(yt, pr, target_fpr)

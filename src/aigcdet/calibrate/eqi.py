@@ -5,21 +5,17 @@ given the degradation evidence, estimated on validation data. That makes it
 interpretable ("this image retains ~40% usable evidence") and directly usable
 for abstention, rather than a hand-tuned severity score.
 
-Fitted on internal validation only (`split="val_internal"`, see the package
-docstring). Fitting EQI on the rows it is later scored on would make the
-abstention curve report the training fit rather than the evidence.
+Fitted on internal validation rows only -- `fit` requires a per-row `split=`
+column and checks it (see the package docstring). Fitting EQI on the rows it is
+later scored on would make the abstention curve report the training fit rather
+than the evidence.
 """
 from __future__ import annotations
 
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 
-from aigcdet.calibrate import (
-    INTERNAL_VAL_SPLIT,
-    CalibrationError,
-    check_fit_split,
-    fit_standardiser,
-)
+from aigcdet.calibrate import CalibrationError, check_fit_split, fit_standardiser
 
 
 class EQI:
@@ -30,9 +26,11 @@ class EQI:
     frozen detector got that row right.
     """
 
-    def __init__(self, seed: int = 20260827) -> None:
+    def __init__(self, seed: int = 20260827, max_iter: int = 2000) -> None:
+        if max_iter < 1:
+            raise ValueError(f"max_iter must be >= 1, got {max_iter}")
         self.seed = seed
-        self.model = LogisticRegression(max_iter=2000, random_state=seed)
+        self.model = LogisticRegression(max_iter=max_iter, random_state=seed)
         self.constant_columns: tuple[int, ...] = ()
         self._mu: np.ndarray | None = None
         self._sd: np.ndarray | None = None
@@ -56,11 +54,20 @@ class EQI:
         # contribute nothing instead of exploding through a near-zero scale.
         return (cond - self._mu) / self._sd
 
-    def fit(self, cond: np.ndarray, correct: np.ndarray, *,
-            split: str = INTERNAL_VAL_SPLIT) -> "EQI":
-        """Fit on internal validation rows: `cond` evidence, `correct` 0/1."""
-        check_fit_split(split)
+    def fit(self, cond: np.ndarray, correct: np.ndarray, *, split) -> "EQI":
+        """Fit on internal validation rows: `cond` evidence, `correct` 0/1.
+
+        `split` is required and holds one split label per row; every row must
+        be the internal validation split (spec §6.7).
+        """
+        # Drop any previous fit before validating, so a refit at a different
+        # conditioning width is not rejected by the stale one it replaces.
+        self._fitted = False
+        self._mu = None
+        self._sd = None
+        self.constant_columns = ()
         c = self._check_cond(cond)
+        check_fit_split(split, c.shape[0])
         yc = np.asarray(correct)
         if yc.shape != (c.shape[0],):
             raise ValueError(
