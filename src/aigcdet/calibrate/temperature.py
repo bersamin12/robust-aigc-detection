@@ -5,8 +5,8 @@ lets the temperature depend on the estimated degradation, which is the point:
 a detector that stays accurate but becomes wildly overconfident at JPEG-30 is
 dangerous in a moderation pipeline, and one scalar cannot fix both regimes.
 
-Fitted on internal validation only (`split="val_internal"`, see the package
-docstring), with the classifier frozen.
+Fitted on internal validation rows only -- `fit` requires a per-row `split=`
+column and checks it (see the package docstring) -- with the classifier frozen.
 
 Both fits are optimised with L-BFGS and both check that they actually
 converged: the final gradient must be at the tolerance and the resulting
@@ -15,6 +15,9 @@ validation set the frozen classifier separates perfectly drives T towards 0,
 and one it gets backwards drives T towards infinity; in both cases the
 optimiser converges happily and returns a temperature that would destroy every
 probability it is later applied to.
+
+Inference is guarded separately, because the fit-time range check says nothing
+about a `cond` outside the validation range: see `ConditionalTemperature`.
 """
 from __future__ import annotations
 
@@ -23,9 +26,9 @@ import math
 import numpy as np
 import torch
 import torch.nn as nn
+from scipy.special import expit
 
 from aigcdet.calibrate import (
-    INTERNAL_VAL_SPLIT,
     CalibrationError,
     check_fit_split,
     fit_standardiser,
@@ -41,9 +44,18 @@ T_MAX = 1e2
 #: a strong-Wolfe line search, which reaches ~1e-5 on the fits here.
 GRAD_TOL = 1e-4
 
+#: Initial trial step handed to L-BFGS. The strong-Wolfe line search chooses
+#: the step it actually takes, so this is not a learning rate and sweeping it
+#: over six orders of magnitude moves the fitted temperature in the fourth
+#: decimal. It is not exposed as a parameter for exactly that reason.
+_LBFGS_INIT_STEP = 1.0
+
 
 def _sigmoid(x: np.ndarray) -> np.ndarray:
-    return 1.0 / (1.0 + np.exp(-x))
+    # scipy's expit, not 1/(1+exp(-x)): the naive form overflows on a
+    # saturating logit (a small T multiplying a large logit is precisely what
+    # this module produces) and emits a RuntimeWarning on the way.
+    return expit(x)
 
 
 def _check_logits(logits: np.ndarray) -> np.ndarray:
@@ -95,30 +107,33 @@ def _check_converged(grad_norm: float, loss: float, temperatures: np.ndarray,
 class GlobalTemperature:
     """p = sigmoid(z / T) with one scalar T, the standard baseline.
 
-    Fit on internal validation only, with the classifier frozen.
+    Fit on internal validation rows only, with the classifier frozen.
     """
 
     def __init__(self) -> None:
         self.temperature = 1.0
         self._fitted = False
 
-    def fit(self, logits: np.ndarray, y: np.ndarray, *,
-            max_iter: int = 100, split: str = INTERNAL_VAL_SPLIT) -> "GlobalTemperature":
-        """Fit T on `logits`/`y`, which must be internal validation rows.
+    def fit(self, logits: np.ndarray, y: np.ndarray, *, split,
+            max_iter: int = 100) -> "GlobalTemperature":
+        """Fit T on `logits`/`y`.
+
+        `split` is required and holds one split label per row; every row must
+        be the internal validation split (spec §6.7).
 
         Raises CalibrationError if the optimiser does not converge or lands on
         a degenerate temperature.
         """
-        check_fit_split(split)
         if max_iter < 1:
             raise ValueError(f"max_iter must be >= 1, got {max_iter}")
         lg_np = _check_logits(logits)
+        check_fit_split(split, lg_np.size)
         y_np = _check_labels(y, lg_np.size)
 
         lg = torch.from_numpy(lg_np)
         yt = torch.from_numpy(y_np)
         log_t = torch.zeros(1, dtype=torch.float64, requires_grad=True)
-        opt = torch.optim.LBFGS([log_t], lr=0.1, max_iter=max_iter,
+        opt = torch.optim.LBFGS([log_t], lr=_LBFGS_INIT_STEP, max_iter=max_iter,
                                 line_search_fn="strong_wolfe")
 
         def closure() -> torch.Tensor:
@@ -143,6 +158,9 @@ class GlobalTemperature:
         if not self._fitted:
             raise RuntimeError("GlobalTemperature is not fitted; call fit() first")
         p = _sigmoid(_check_logits(logits) / self.temperature)
+        # Tripwire, not a live safeguard: expit cannot leave [0, 1] and the
+        # logits are checked finite, so nothing here can currently trip it. It
+        # exists to catch a future change to the link function.
         if not ((p >= 0.0) & (p <= 1.0)).all():
             raise CalibrationError("calibrated probabilities left [0, 1]")
         return p
@@ -153,13 +171,25 @@ class ConditionalTemperature:
 
     `cond` is the degradation evidence -- the degradation head's estimate and
     the handcrafted proxies (spec §3.7, `T(d, h)`). Fit on internal validation
-    only, with the classifier frozen.
+    rows only, with the classifier frozen.
 
     Conditioning columns are standardised on the fit rows, and a column that is
-    constant there is neutralised: it is centred to exactly zero and its weight
-    is initialised at zero, so it never receives gradient and can never move the
-    temperature, whatever value it takes at inference. That is the honest
-    reading of a degradation family validation happened never to exercise.
+    constant there (relative to its own scale) is neutralised: it is centred to
+    exactly zero and its weight is initialised at zero, so it never receives
+    gradient and can never move the temperature, whatever value it takes at
+    inference. That is the honest reading of a degradation family validation
+    happened never to exercise.
+
+    **Temperatures are clamped at inference to the range the fit produced.**
+    A linear model extrapolates without limit, and downwards extrapolation here
+    is not a small error: `T = eps = 0.01` MULTIPLIES the logit by 100. On a
+    real two-regime fit (w = +1.55, b = +2.39) a cond just below the validation
+    range gives T ~ 0.4, two units below it gives T = 0.0145, and p goes to
+    1.000000 on an image the model has *less* reason to be sure about than the
+    ones it was fitted on. Since `eps` equals `T_MIN`, the fit-time range check
+    cannot see that path either. Clamping to the observed fit range is the
+    honest statement: outside the validation range there is no evidence for a
+    more extreme temperature than validation ever justified.
     """
 
     def __init__(self, cond_dim: int, eps: float = 1e-2) -> None:
@@ -182,6 +212,8 @@ class ConditionalTemperature:
         self.constant_columns: tuple[int, ...] = ()
         self._mu: np.ndarray | None = None
         self._sd: np.ndarray | None = None
+        self._t_lo = 0.0
+        self._t_hi = 0.0
         self._fitted = False
 
     def _check_cond(self, cond: np.ndarray) -> np.ndarray:
@@ -200,19 +232,19 @@ class ConditionalTemperature:
         return (cond - self._mu) / self._sd
 
     def fit(self, logits: np.ndarray, y: np.ndarray, cond: np.ndarray,
-            epochs: int = 300, lr: float = 0.05, *,
-            split: str = INTERNAL_VAL_SPLIT) -> "ConditionalTemperature":
+            epochs: int = 300, *, split) -> "ConditionalTemperature":
         """Fit T(cond) on internal validation rows.
 
-        `epochs` is the L-BFGS iteration budget and `lr` its step size. Raises
-        CalibrationError if the fit does not converge inside that budget or
-        lands on a degenerate temperature.
+        `split` is required and holds one split label per row; every row must
+        be the internal validation split (spec §6.7). `epochs` is the L-BFGS
+        iteration budget. Raises CalibrationError if the fit does not converge
+        inside that budget or lands on a degenerate temperature.
         """
-        check_fit_split(split)
         if epochs < 1:
             raise ValueError(f"epochs must be >= 1, got {epochs}")
         lg_np = _check_logits(logits)
         n = lg_np.size
+        check_fit_split(split, n)
         y_np = _check_labels(y, n)
         c_np = self._check_cond(cond)
         if c_np.shape[0] != n:
@@ -226,13 +258,14 @@ class ConditionalTemperature:
                 f"need at least {min_rows} validation rows to fit "
                 f"cond_dim={self.cond_dim} (got {n})")
 
+        self._fitted = False
         self._mu, self._sd, self.constant_columns = fit_standardiser(c_np)
 
         lg = torch.from_numpy(lg_np)
         yt = torch.from_numpy(y_np)
         c = torch.from_numpy(self._z(c_np))
-        opt = torch.optim.LBFGS(self.net.parameters(), lr=lr, max_iter=epochs,
-                                line_search_fn="strong_wolfe")
+        opt = torch.optim.LBFGS(self.net.parameters(), lr=_LBFGS_INIT_STEP,
+                                max_iter=epochs, line_search_fn="strong_wolfe")
 
         def closure() -> torch.Tensor:
             opt.zero_grad()
@@ -244,22 +277,31 @@ class ConditionalTemperature:
         opt.step(closure)
         loss = float(closure().item())
         grad_norm = max(float(p.grad.abs().max().item()) for p in self.net.parameters())
-        _check_converged(grad_norm, loss, self._temperatures(c_np),
-                         "conditional temperature", epochs)
+        fitted = self._raw_temperatures(c_np)
+        _check_converged(grad_norm, loss, fitted, "conditional temperature", epochs)
+        self._t_lo = float(fitted.min())
+        self._t_hi = float(fitted.max())
         self._fitted = True
         return self
 
-    def _temperatures(self, cond: np.ndarray) -> np.ndarray:
+    def _raw_temperatures(self, cond: np.ndarray) -> np.ndarray:
+        """T before clamping. Only the fit itself may see these."""
         with torch.no_grad():
             t = nn.functional.softplus(
                 self.net(torch.from_numpy(self._z(cond)))).squeeze(-1)
         return t.numpy() + self.eps
 
     def temperatures(self, cond: np.ndarray) -> np.ndarray:
-        """T for each row of `cond`. Strictly positive by construction."""
+        """T for each row of `cond`, clamped to the range the fit produced.
+
+        Strictly positive by construction, and never more extreme in either
+        direction than validation itself justified -- see the class docstring
+        for why extrapolating downwards is the dangerous direction.
+        """
         if not self._fitted:
             raise RuntimeError("ConditionalTemperature is not fitted; call fit() first")
-        return self._temperatures(self._check_cond(cond))
+        raw = self._raw_temperatures(self._check_cond(cond))
+        return np.clip(raw, self._t_lo, self._t_hi)
 
     def transform(self, logits: np.ndarray, cond: np.ndarray) -> np.ndarray:
         if not self._fitted:
@@ -269,6 +311,7 @@ class ConditionalTemperature:
         if t.shape != lg.shape:
             raise ValueError(f"cond has {t.size} rows but logits has {lg.size}")
         p = _sigmoid(lg / t)
+        # Tripwire, not a live safeguard -- see GlobalTemperature.transform.
         if not ((p >= 0.0) & (p <= 1.0)).all():
             raise CalibrationError("calibrated probabilities left [0, 1]")
         return p
