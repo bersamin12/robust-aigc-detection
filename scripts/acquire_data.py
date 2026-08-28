@@ -7,7 +7,7 @@ Records each dataset's licence, which the manifest and README require (§4.5).
 Usage:
     python scripts/acquire_data.py --dataset sid_set --limit 30000 --out data/raw
     python scripts/acquire_data.py --dataset wildfake --limit 30000 --out data/raw \
-        --generators mjv5,adm,styleGAN,real_ffhq
+        --generators adm,styleGAN,real_ffhq,personalizedSD_finetune
     python scripts/acquire_data.py --dataset coco_val2017 --out data/raw
 
     # The organisers' demo benchmark. A DIFFERENT VERB and a DIFFERENT
@@ -288,18 +288,29 @@ def _extract_wanted(archive: str, wanted: dict[str, tuple[str, str]],
 
 def _run_extraction(wanted: dict[str, tuple[str, str]],
                     archives: list[tuple[str, set[str]]],
-                    cache: str, fetch, list_files, guard) -> collections.Counter:
+                    cache: str, fetch, list_files, guard,
+                    already: set[str]) -> collections.Counter:
     """Download, extract, and DELETE one archive at a time.
 
     Disk is the binding constraint (268 GB free against archives of up to
     53 GB), so at most one archive exists on disk at any moment and it is
     removed before the next is fetched — including when extraction raises,
     since a half-downloaded archive must be re-fetched rather than reused.
+
+    Stops dead if the FIRST archive fetched for a subset yields none of that
+    subset's images. `Advanced`/`Typical` is a version axis, so a subset lives
+    in exactly one tree; pointing it at the other matches nothing across
+    every part of a ~372 GB glob. Warning about a shortfall at the end would
+    mean paying for all seven parts to learn the registry is wrong. A subset
+    that has already produced images (this run or a previous one) is exempt:
+    a later part of a multi-part tree holding none of the capped selection is
+    ordinary, not a misdeclaration.
     """
     got: collections.Counter = collections.Counter()
     for pattern, subsets in archives:
         for member in _expand_archives(pattern, list_files):
-            if not any(name in subsets for name, _ in wanted.values()):
+            pending = {name for name, _ in wanted.values() if name in subsets}
+            if not pending:
                 break  # every subset this archive serves is complete
             archive = fetch(member, cache)
             try:
@@ -307,6 +318,19 @@ def _run_extraction(wanted: dict[str, tuple[str, str]],
             finally:
                 if os.path.exists(archive):
                     os.remove(archive)
+            barren = sorted(n for n in pending
+                            if got[n] == 0 and n not in already)
+            if barren:
+                subset = wf.SUBSETS[barren[0]]
+                gb = wf.subset_gb(subset)
+                raise SystemExit(
+                    f"{member} held none of the images {barren[0]}.csv lists "
+                    f"(declared prefix {subset.prefix!r}). The registry points "
+                    f"that subset at the wrong tree — `Advanced` and `Typical` "
+                    "are a version axis, so a subset lives in exactly one of "
+                    "them. Stopping after the first archive"
+                    + (f" rather than downloading the remaining ~{gb:.0f} GB "
+                       "to find out." if gb is not None else "."))
     return got
 
 
@@ -405,6 +429,7 @@ def _archive_order(subsets) -> list[tuple[str, set[str]]]:
 
 def acquire_wildfake(out: str, limit: int, generators: list[str], *,
                      seed: int = DEFAULT_SEED, cache_dir: str | None = None,
+                     allow_large: bool = False,
                      fetch=None, list_files=None) -> dict[str, int]:
     """Acquire WildFake generator subsets into the TRAINING tree `out`.
 
@@ -428,6 +453,8 @@ def acquire_wildfake(out: str, limit: int, generators: list[str], *,
             "--generators is required for wildfake: the repository is ~1.2 TB "
             "and is acquired one subset at a time. Known subsets are "
             f"{sorted(wf.SUBSETS)}.")
+    wf.check_download_budget(subsets, allow_large=allow_large)
+    _report_download_volume(subsets)
     cache = cache_dir or os.path.join(out, WILDFAKE_CACHE)
     os.makedirs(cache, exist_ok=True)
     fetch = fetch or _hub_download
@@ -436,22 +463,29 @@ def acquire_wildfake(out: str, limit: int, generators: list[str], *,
     plan = _TrainingPlan(out)
     wanted, resumed = _plan(subsets, plan, cache, fetch, limit, seed)
     got = _run_extraction(wanted, _archive_order(subsets), cache, fetch,
-                          list_files, plan.guard)
+                          list_files, plan.guard, set(resumed))
 
     totals = {s.name: got[s.name] + resumed[s.name] for s in subsets}
-    for subset in subsets:
-        if totals[subset.name] == 0:
-            raise SystemExit(
-                f"extracted 0 images for WildFake subset {subset.name!r} from "
-                f"{list(subset.zips)}. The archive declared for it in "
-                "aigcdet.data.wildfake.SUBSETS does not hold the images its "
-                "CSV lists — fix the registry rather than the CSV.")
     missing = collections.Counter(name for name, _ in wanted.values())
     if missing:
         print(f"warning: {dict(missing)} listed images were not found in the "
               "declared archives; the registry may be incomplete")
     print(f"wildfake: {totals} (resumed {dict(resumed)})")
     return totals
+
+
+def _report_download_volume(subsets) -> None:
+    """Say what this run will transfer before it starts. Archives are shared,
+    so the total is over DISTINCT archives, not summed per subset."""
+    archives = {z for s in subsets for z in s.zips}
+    known = [wf.ARCHIVE_GB[a] for a in archives if a in wf.ARCHIVE_GB]
+    unknown = sorted(a for a in archives if a not in wf.ARCHIVE_GB)
+    note = f"~{sum(known):.0f} GB across {len(archives)} archive(s)"
+    if unknown:
+        # Unrecorded is not "small": say which, so nobody reads a low total as
+        # the whole cost.
+        note += f"; size unrecorded for {unknown}"
+    print(f"wildfake: will download {note}")
 
 
 def acquire_wildfake_benchmark(benchmark_dir: str, *, halves=None,
@@ -487,7 +521,7 @@ def acquire_wildfake_benchmark(benchmark_dir: str, *, halves=None,
     plan = _BenchmarkPlan(benchmark_dir, halves)
     wanted, resumed = _plan(subsets, plan, cache, fetch, 0, DEFAULT_SEED)
     got = _run_extraction(wanted, _archive_order(subsets), cache, fetch,
-                          list_files, plan.guard)
+                          list_files, plan.guard, set(resumed))
 
     totals = {h.source: got[h.subset] + resumed[h.subset] for h in halves}
     for half in halves:
@@ -573,6 +607,10 @@ def main() -> None:
                          "so an interrupted run resumes onto the same set")
     ap.add_argument("--generators", default="",
                     help=f"comma-separated WildFake subsets: {sorted(wf.SUBSETS)}")
+    ap.add_argument("--allow-large-archives", action="store_true",
+                    help="acquire a subset whose archives exceed "
+                         f"{wf.DOWNLOAD_BUDGET_GB:.0f} GB (sdxl ~322, mjv5 "
+                         "~372, mjv4 ~196, originsd ~119)")
     a = ap.parse_args()
 
     if a.dataset == BENCHMARK_DATASET:
@@ -593,7 +631,8 @@ def main() -> None:
         acquire_sid_set(a.out, a.limit)
     elif a.dataset == "wildfake":
         acquire_wildfake(a.out, a.limit,
-                         [g for g in a.generators.split(",") if g], seed=a.seed)
+                         [g for g in a.generators.split(",") if g], seed=a.seed,
+                         allow_large=a.allow_large_archives)
     elif a.dataset == "coco_val2017":
         acquire_coco_val2017(a.out)
     else:
