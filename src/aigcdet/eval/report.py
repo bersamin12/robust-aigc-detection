@@ -513,7 +513,14 @@ def robustness_table(per_rung: Mapping[str, pd.DataFrame], tier: str,
 # --- rendering -------------------------------------------------------------
 
 def _tier_of(table: pd.DataFrame) -> str:
-    """The tier a table carries, from its column, falling back to its attrs."""
+    """The tier a table carries, from its column, falling back to its attrs.
+
+    Reports the label; does not validate it. `_check_renderable` runs
+    `_check_tier` on every rendering path, so validating here as well was
+    duplication that no mutant could reach -- the mutation run is what
+    established that, and dead defensive code is worse than none because it
+    reads as a guarantee.
+    """
     if "tier" in table.columns:
         values = sorted(set(map(str, table["tier"].tolist())))
         if len(values) != 1:
@@ -521,7 +528,6 @@ def _tier_of(table: pd.DataFrame) -> str:
                 f"the table mixes evaluation tiers {values}; rungs from "
                 "different tiers were never evaluated on the same thing and "
                 "must not share a table")
-        _check_tier(values[0])
         return values[0]
     attr = table.attrs.get("tier")
     if attr is None:
@@ -529,7 +535,6 @@ def _tier_of(table: pd.DataFrame) -> str:
             "the table states no evaluation tier: it has neither a 'tier' "
             "column nor a 'tier' entry in attrs. Build it with "
             "robustness_table(..., tier=...) rather than labelling it by hand.")
-    _check_tier(str(attr))
     return str(attr)
 
 
