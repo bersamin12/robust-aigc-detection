@@ -4,6 +4,11 @@ container (spec §4.2).
 
 Short side 512 because model input is 384: every expert must see a downscale,
 never an upscale (spec §4.4).
+
+This module also owns the project's policy for HOW an image reaches disk as a
+PNG (`save_png`), because `scripts/acquire_data.py` has to write PNGs too when
+a source streams decoded images rather than files, and a second, differently
+opinionated copy of that policy is how classes start differing by container.
 """
 from __future__ import annotations
 
@@ -14,8 +19,77 @@ from PIL import Image, ImageOps
 
 SHORT_SIDE: int = 512
 
+#: Modes PNG stores without altering a single sample. Verified by a test that
+#: actually round-trips each one through the encoder rather than trusting this
+#: list -- Pillow's own table is private and has changed between releases.
+#: Bare "I" is deliberately absent: it still encodes today but Pillow 12
+#: deprecates it, so it is remapped below instead.
+PNG_NATIVE_MODES: frozenset[str] = frozenset({"1", "L", "LA", "I;16", "P", "RGB", "RGBA"})
+
+#: Non-native modes with a lossless PNG-native target. 32-bit integer
+#: greyscale is remapped rather than converted to RGB, which would throw away
+#: bit depth as well as the deprecation.
+PNG_MODE_OVERRIDES: dict[str, str] = {"I": "I;16"}
+
 #: One entry per input pair that could not be normalised: (src, reason).
 Failure = tuple[str, str]
+
+
+def png_target_mode(mode: str, bands: tuple[str, ...]) -> str:
+    """The mode `save_png` will write an image of `mode` in.
+
+    The rule, and why each branch is what it is:
+
+    - A PNG-native mode is written UNCHANGED. Acquisition is not the place to
+      normalise pixels; `normalize_image` does that later, deliberately, to
+      both classes at once. Converting here would apply an extra, invisible
+      transform to whichever sources happen to arrive in an unusual mode --
+      i.e. to one class -- inside a project whose premise is that pixel-level
+      forensic cues survive or die at exactly these steps.
+    - A non-native mode WITH an alpha band converts to RGBA, never to RGB.
+      `convert("RGB")` composites alpha against black, which changes every
+      transparent pixel to a colour that was never in the image. RGBA is
+      PNG-native, so the alpha is simply kept and nothing is invented.
+    - A non-native mode WITHOUT alpha converts to RGB. This is the CMYK case
+      that crashed a real SID_Set run ("cannot write mode CMYK as PNG"), and
+      it is the one branch that is genuinely lossy: PIL's CMYK->RGB is a naive
+      per-channel inversion with no ICC transform, so the colours shift. There
+      is no better option without the embedded profile, and CMYK cannot carry
+      alpha, so nothing is flattened.
+
+    Alpha is detected from the BANDS rather than from the mode string, so an
+    unusual premultiplied mode ("RGBa", "La") is handled by the same rule
+    instead of falling through a mode-name check to RGB.
+    """
+    if mode in PNG_NATIVE_MODES:
+        return mode
+    if mode in PNG_MODE_OVERRIDES:
+        return PNG_MODE_OVERRIDES[mode]
+    return "RGBA" if any(b in ("A", "a") for b in bands) else "RGB"
+
+
+def save_png(im: Image.Image, dst: str) -> str:
+    """Write `im` to `dst` as a PNG, converting only if PNG cannot hold its
+    mode, and return the mode actually written.
+
+    Writes through `dst + ".part"` and renames, so an interrupted run never
+    leaves a truncated file at `dst` -- which matters because the acquisition
+    scripts resume by testing `os.path.exists(dst)`, and a half-written image
+    that resume treats as done is worse than no image at all.
+    """
+    target = png_target_mode(im.mode, im.getbands())
+    if target != im.mode:
+        im = im.convert(target)
+    os.makedirs(os.path.dirname(os.path.abspath(dst)) or ".", exist_ok=True)
+    tmp = dst + ".part"
+    try:
+        im.save(tmp, format="PNG", optimize=False)
+        os.replace(tmp, dst)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
+    return target
 
 
 def normalize_image(src: str, dst: str, short_side: int = SHORT_SIDE) -> tuple[int, int]:

@@ -7,6 +7,13 @@ figure that motivates the whole normalisation step.
 path passed in, so a real JPEG's quantisation table is read exactly. Only
 non-JPEG inputs fall back to the pixel-based estimate; see that function's
 docstring for the fallback's known miscalibration.
+
+`mode_top` profiles the colour mode alongside the container format, because
+"encoding history" in spec §4.2 is not only the file format: a CMYK JPEG and
+an RGB JPEG carry different quantisation and different chroma handling, and a
+class that is entirely RGB facing one that is part greyscale is a confound of
+the same kind as a resolution gap. It is reported and not flagged: a mode mix
+is common and benign, and this table's flags exist to be read, not skimmed.
 """
 from __future__ import annotations
 
@@ -27,8 +34,8 @@ _JPEG_Q_DIFF_THRESHOLD = 10.0
 
 
 def audit_table(paths: list[str], labels: list[int], sources: list[str]) -> pd.DataFrame:
-    """One row per (source, label): n, dominant format, median width/height,
-    median estimated JPEG quality."""
+    """One row per (source, label): n, dominant format, dominant colour mode,
+    median width/height, median estimated JPEG quality."""
     rows = []
     # ~20 minutes at 100k images, entirely serial. `disable=None` shows the
     # bar on a TTY and stays silent in tests and logs, so an operator can
@@ -36,14 +43,15 @@ def audit_table(paths: list[str], labels: list[int], sources: list[str]) -> pd.D
     for p, lab, src in tqdm(zip(paths, labels, sources), total=len(paths),
                             desc="audit", unit="img", disable=None):
         with Image.open(p) as im:
-            fmt, (w, h) = im.format, im.size
+            fmt, (w, h), mode = im.format, im.size, im.mode
             q = estimate_jpeg_quality(np.asarray(im.convert("RGB")), p)
-        rows.append({"source": src, "label": lab, "fmt": fmt,
+        rows.append({"source": src, "label": lab, "fmt": fmt, "mode": mode,
                      "width": w, "height": h, "jpeg_q": q})
     df = pd.DataFrame(rows)
     return (df.groupby(["source", "label"], as_index=False)
               .agg(n=("fmt", "size"),
                    fmt_top=("fmt", lambda s: s.mode().iloc[0]),
+                   mode_top=("mode", lambda s: s.mode().iloc[0]),
                    width_median=("width", "median"),
                    height_median=("height", "median"),
                    jpeg_q_median=("jpeg_q", "median")))
