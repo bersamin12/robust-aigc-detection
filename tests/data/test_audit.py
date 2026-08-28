@@ -26,6 +26,27 @@ def test_audit_table_reports_per_class_shape(tmp_path):
     assert fake["width_median"] > real["width_median"]
 
 
+def test_audit_table_reports_the_dominant_colour_mode(tmp_path):
+    """Spec §4.2's "encoding history" is not only the container: a class that
+    is part greyscale facing one that is entirely RGB is exploitable without
+    looking at content. Sources that keep their original files (WildFake,
+    COCO) are profiled on mode here; SID_Set, which is decoded before it ever
+    reaches disk, records it in its acquisition ingest report instead."""
+    paths, labels, sources = [], [], []
+    for i in range(3):
+        p = tmp_path / f"g{i}.png"
+        Image.fromarray(
+            np.random.default_rng(i).integers(0, 256, (32, 32), dtype=np.uint8)
+        ).save(p, format="PNG")
+        paths.append(str(p)); labels.append(0); sources.append("grey")
+    for i in range(3):
+        paths.append(_write(tmp_path / f"c{i}.png", (32, 32), "PNG"))
+        labels.append(1); sources.append("colour")
+    df = audit_table(paths, labels, sources)
+    assert set(df["mode_top"]) == {"L", "RGB"}
+    assert df[df["source"] == "grey"].iloc[0]["mode_top"] == "L"
+
+
 def test_audit_flags_detects_the_confound(tmp_path):
     paths, labels, sources = [], [], []
     for i in range(4):

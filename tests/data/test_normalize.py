@@ -2,7 +2,12 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from aigcdet.data.normalize import SHORT_SIDE, normalize_image, normalize_many
+import os
+
+from aigcdet.data.normalize import (
+    PNG_MODE_OVERRIDES, PNG_NATIVE_MODES, SHORT_SIDE, normalize_image,
+    normalize_many, png_target_mode, save_png,
+)
 
 
 def _src(tmp_path, name, size, fmt="JPEG"):
@@ -122,3 +127,81 @@ def test_upright_image_is_unaffected_by_exif_handling(tmp_path):
     src = _jpeg_with_orientation(tmp_path / "up.jpg", (800, 600), 1)
     w, h = normalize_image(src, str(tmp_path / "up.png"))
     assert (w, h) == (683, 512)
+
+
+# ---------------------------------------------------------------------------
+# save_png: the raw-tree writer's mode policy
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("mode", sorted(PNG_NATIVE_MODES))
+def test_every_declared_native_mode_really_survives_the_png_encoder(tmp_path, mode):
+    """PNG_NATIVE_MODES is a claim about Pillow, whose own table is private
+    and has changed between releases. This makes the claim, not the list, the
+    thing under test: each mode must encode AND come back with its samples
+    intact, or `save_png` would be quietly corrupting a class of image."""
+    im = Image.new(mode, (4, 4))
+    dst = str(tmp_path / f"{mode.replace(';', '_')}.png")
+    assert save_png(im, dst) == mode
+    with Image.open(dst) as back:
+        assert back.mode == mode
+        assert back.tobytes() == im.tobytes()
+
+
+@pytest.mark.parametrize(("mode", "expected"), [
+    ("RGB", "RGB"), ("RGBA", "RGBA"), ("L", "L"), ("P", "P"), ("LA", "LA"),
+    ("CMYK", "RGB"),      # PNG cannot hold CMYK; no alpha to lose
+    ("YCbCr", "RGB"),
+    ("F", "RGB"),
+    ("RGBa", "RGBA"),     # premultiplied alpha: still alpha
+    ("La", "RGBA"),
+    ("I", PNG_MODE_OVERRIDES["I"]),
+])
+def test_png_target_mode_converts_only_what_png_cannot_hold(mode, expected):
+    assert png_target_mode(mode, Image.new(mode, (2, 2)).getbands()) == expected
+
+
+def test_a_cmyk_image_saves_as_rgb_instead_of_raising(tmp_path):
+    """`OSError: cannot write mode CMYK as PNG` ended a real SID_Set run."""
+    dst = str(tmp_path / "cmyk.png")
+    assert save_png(Image.new("CMYK", (4, 4), (0, 0, 0, 0)), dst) == "RGB"
+    with Image.open(dst) as back:
+        assert back.mode == "RGB"
+
+
+def test_alpha_is_never_flattened_against_black(tmp_path):
+    """The deliberate choice: a non-native mode WITH alpha goes to RGBA, not
+    RGB. `convert("RGB")` composites against black, inventing a colour for
+    every transparent pixel."""
+    im = Image.new("RGBa", (4, 4), (10, 20, 30, 0))
+    dst = str(tmp_path / "a.png")
+    assert save_png(im, dst) == "RGBA"
+    with Image.open(dst) as back:
+        assert back.mode == "RGBA"
+        assert back.getpixel((0, 0))[3] == 0
+
+
+def test_save_png_leaves_no_partial_file_when_the_encoder_fails(tmp_path):
+    """Resume tests `os.path.exists(dst)`, so a truncated file left at `dst`
+    by an interrupted write is worse than no file at all."""
+    class Exploding:
+        mode = "RGB"
+
+        def getbands(self):
+            return ("R", "G", "B")
+
+        def save(self, path, **kw):
+            with open(path, "wb") as f:
+                f.write(b"partial")
+            raise OSError("disk full")
+
+    dst = str(tmp_path / "boom.png")
+    with pytest.raises(OSError, match="disk full"):
+        save_png(Exploding(), dst)
+    assert not os.path.exists(dst)
+    assert not os.path.exists(dst + ".part")
+
+
+def test_save_png_creates_the_destination_directory(tmp_path):
+    dst = str(tmp_path / "a" / "b" / "x.png")
+    assert save_png(Image.new("RGB", (2, 2)), dst) == "RGB"
+    assert os.path.exists(dst)
