@@ -21,11 +21,16 @@ and additionally requires a manifest fingerprint. Differing view coverage
 between compared rungs measures augmentation budgets rather than models.
 
 **The headline is chosen by the §6.4 rule and by nothing else.** The selection
-metric is `eval.errors.heldout_robust_tpr` -- mean TPR@1%FPR over the degraded
-conditions, on internal-validation authentic images against held-out-generator
-fakes. `val_auc` from `train_rung` is the CLEAN VIEW ONLY and is recorded here
-under a name that says so, so it cannot be mistaken for the selection metric.
-The population is written into `selection.json` next to the choice.
+metric is `eval.errors.heldout_robust_tpr` -- mean TPR at the project operating
+point over the degraded conditions, on internal-validation authentic images
+against held-out-generator fakes. `val_auc` from `train_rung` is the CLEAN VIEW
+ONLY and is recorded here under a name that says so, so it cannot be mistaken
+for the selection metric. The population is written into `selection.json` next
+to the choice -- and the metric itself is written into the ROBUSTNESS TABLE, as
+its own column, because `--metric` tabulates a §6.1 reporting metric over every
+scored row and that column ranks the rungs differently. A table whose best
+`robust_tpr_at_1pct` and a `selection.json` whose headline name different rungs
+is the failure the extra column exists to prevent.
 
 **A5 and A6 are not training configs, and are wired in accordingly.** `--fuse-bank
 BANK --fuse-eval-bank EVALBANK` trains a second A3 head on an independently
@@ -68,11 +73,13 @@ from aigcdet.eval.fusion import (
 )
 from aigcdet.eval.grid import score_grid
 from aigcdet.eval.report import (
-    DEFAULT_BOOT_SEED, DEFAULT_N_BOOT, TIER_CONDITIONS, robustness_table,
-    save_heatmap, to_markdown,
+    DEFAULT_BOOT_SEED, DEFAULT_N_BOOT, METRIC_COLUMNS, PROBABILITY_METRICS,
+    THRESHOLD_METRICS, TIER_CONDITIONS, clean_validation_threshold,
+    robustness_table, save_heatmap, to_markdown,
 )
 from aigcdet.eval.tta import TTA_VIEWS
 from aigcdet.features.bank import FeatureBank
+from aigcdet.operating_point import fpr_label
 from aigcdet.train.train_head import RungConfig, load_detector, train_rung
 
 CHECKPOINT_NAME = "checkpoint.pt"
@@ -276,9 +283,18 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--out-dir", default="outputs/rungs",
                     help="where each rung's checkpoint lives (and is resumed from)")
     ap.add_argument("--device", default="cuda")
+    # `ece` is excluded at PARSE time, not left to fail after the ladder has
+    # trained: this script produces scores, never calibrated probabilities, so
+    # the run could only end in an all-NaN table -- hours later.
     ap.add_argument("--metric", default="auc",
-                    help="metric tabulated per condition; note that the HEADLINE "
-                         "is always selected on " + SELECTION_METRIC)
+                    choices=sorted(set(METRIC_COLUMNS) - PROBABILITY_METRICS),
+                    help="§6.1 metric tabulated per condition, over EVERY "
+                         "scored row; the HEADLINE is selected on "
+                         + SELECTION_METRIC + ", which this script computes "
+                         "separately and writes into the table as its own "
+                         "column. `ece` needs calibrated probabilities and is "
+                         "refused here: this script produces scores, not "
+                         "probabilities.")
     ap.add_argument("--boot-seed", type=int, default=DEFAULT_BOOT_SEED)
     ap.add_argument("--boot-n", type=int, default=DEFAULT_N_BOOT)
     ap.add_argument("--manifest", default=None,
@@ -355,7 +371,12 @@ def main(argv=None) -> dict:
         # -- NOT the backbone, which is what rung A5 varies on purpose.
         assert_fusion_parents([eval_bank, fuse_eval_bank])
 
-    per_rung, summary, banks = {}, {}, {}
+    # `rung_splits` is the split column each rung's scores were built against
+    # -- this run's eval bank for the trained rungs, the column the two parents
+    # SHARE for the fused A5 row. It is what both §6.4's population and the
+    # frozen `acc_fixed` threshold are built from, so it is recorded per rung
+    # beside the scores rather than assumed to be the same list for all of them.
+    per_rung, summary, banks, rung_splits = {}, {}, {}, {}
     for config_path in a.rungs:
         cfg = load_rung_config(config_path, a.bank, a.out_dir, a.device, a.manifest)
         result, resumed = train_or_resume(cfg, force=a.force_retrain)
@@ -373,6 +394,7 @@ def main(argv=None) -> dict:
         # `per_rung` would map it to this bank instead -- a false statement
         # that makes assert_banks_comparable pass on a row it never covered.
         banks[cfg.name] = eval_bank
+        rung_splits[cfg.name] = splits
         summary[cfg.name] = _selection_summary(scores, splits) | {
             # NOT the selection metric, and named so nobody can read it as one:
             # `val_auc` from train_rung is view 0, the clean view, alone.
@@ -420,8 +442,9 @@ def main(argv=None) -> dict:
         # And the splits are the ones the two parents SHARE. A fused frame has
         # no single owning bank, so `fused_splits` refuses to answer at all
         # unless the parents agree on the manifest, the rows and the splits.
+        rung_splits[FUSION_RUNG] = fused_splits([eval_bank, fuse_eval_bank])
         summary[FUSION_RUNG] = _selection_summary(
-            per_rung[FUSION_RUNG], fused_splits([eval_bank, fuse_eval_bank])
+            per_rung[FUSION_RUNG], rung_splits[FUSION_RUNG]
         ) | {
             "fused_from": [base_key, FUSION_PARTNER_NAME],
             "partner_bank": a.fuse_bank,
@@ -467,8 +490,25 @@ def main(argv=None) -> dict:
     # fingerprint. Each entry was filled beside the scores it describes -- in
     # the loop for the trained rungs, in the A5 block for the fused one -- so
     # it stays true now that a rung IS scored on another bank.
+    # `acc_fixed` is the only tabulated metric that needs a threshold, and it
+    # must come from clean VALIDATION rows -- not from the clean rows of the
+    # frame being scored, which at the final-report tier is the benchmark.
+    # Computed only when it is actually tabulated, so a bank with no
+    # val_internal generated rows can still produce an AUC table.
+    thresholds = None
+    if a.metric in THRESHOLD_METRICS:
+        thresholds = {rung: clean_validation_threshold(scores, rung_splits[rung])
+                      for rung, scores in per_rung.items()}
+
+    # The §6.4 number travels IN the table, under the rule's own name. The
+    # per-condition columns are §6.1 reporting metrics over every scored row
+    # and rank the rungs differently; without this column a reader picks the
+    # headline off `robust_<metric>` and contradicts `selection.json`.
     table = robustness_table(per_rung, tier=a.tier, metric=a.metric,
-                             seed=a.boot_seed, n_boot=a.boot_n, banks=banks)
+                             seed=a.boot_seed, n_boot=a.boot_n, banks=banks,
+                             selection={rung: summary[rung][SELECTION_METRIC]
+                                        for rung in per_rung},
+                             clean_threshold=thresholds)
 
     _ensure_parent(a.out)
     to_markdown(table, tier=a.tier, path=a.out)
@@ -493,8 +533,8 @@ def main(argv=None) -> dict:
         json.dump(report, f, indent=2)
 
     print(f"headline model: {report['headline']} "
-          f"(rule: {SELECTION_METRIC} @ {SELECTION_TARGET_FPR:.0%} FPR over "
-          f"{SELECTION_POPULATION})")
+          f"(rule: {SELECTION_METRIC} @ {fpr_label(SELECTION_TARGET_FPR)} FPR "
+          f"over {SELECTION_POPULATION})")
     # On stdout, beside the headline. The IneligibleRungWarning goes to stderr
     # and is easy to lose in a multi-hour log; the exclusion belongs where the
     # choice it constrains is read.
