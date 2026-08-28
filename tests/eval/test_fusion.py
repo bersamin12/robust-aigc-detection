@@ -131,9 +131,9 @@ def test_zscore_leaves_the_other_columns_and_the_input_alone():
 def test_fusion_is_invariant_to_one_backbones_logit_scale():
     """Without z-scoring, a backbone with 50x larger logits would dominate."""
     a, b = _df(0, scale=1.0), _df(1, scale=50.0)
-    fused = fuse_scores([a, b])
+    fused = fuse_scores([a, b], fit_splits=ALL_ROWS)
     a2, b2 = _df(0, scale=1.0), _df(1, scale=1.0)
-    fused2 = fuse_scores([a2, b2])
+    fused2 = fuse_scores([a2, b2], fit_splits=ALL_ROWS)
     clean = fused[fused["condition"] == "clean"]
     clean2 = fused2[fused2["condition"] == "clean"]
     assert abs(roc_auc(clean["label"], clean["score"])
@@ -171,7 +171,7 @@ def test_fusion_of_two_noisy_views_beats_the_BETTER_of_the_two():
     margin the noise cannot account for.
     """
     a, b = _df(0, 1.0), _df(7, 1.0)
-    fused = fuse_scores([a, b])
+    fused = fuse_scores([a, b], fit_splits=ALL_ROWS)
     sel = lambda d: d[d["condition"] == "clean"]           # noqa: E731
     auc_a = roc_auc(sel(a)["label"], sel(a)["score"])
     auc_b = roc_auc(sel(b)["label"], sel(b)["score"])
@@ -182,7 +182,7 @@ def test_fusion_of_two_noisy_views_beats_the_BETTER_of_the_two():
 
 def test_fusion_preserves_row_count_and_keys():
     a, b = _df(0, 1.0), _df(1, 1.0)
-    fused = fuse_scores([a, b])
+    fused = fuse_scores([a, b], fit_splits=ALL_ROWS)
     assert len(fused) == len(a)
     assert set(fused.columns) >= {"condition", "image_idx", "label", "score"}
 
@@ -203,7 +203,7 @@ def test_fusion_preserves_the_condition_order_of_the_first_frame():
     assert sorted(conditions) != list(conditions), \
         "fixture cannot tell a preserved order from a sorted one"
     a, b = _df(0, 1.0, conditions=conditions), _df(1, 1.0, conditions=conditions)
-    fused = fuse_scores([a, b])
+    fused = fuse_scores([a, b], fit_splits=ALL_ROWS)
     order = lambda d: list(dict.fromkeys(d["condition"].tolist()))   # noqa: E731
     assert order(fused) == order(a) == list(conditions)
     np.testing.assert_array_equal(fused["image_idx"].to_numpy(),
@@ -219,7 +219,7 @@ def test_fusion_is_not_just_the_first_frame():
     score is compared against both parents directly.
     """
     a, b = _df(0, 1.0), _df(7, 1.0)
-    fused = fuse_scores([a, b])
+    fused = fuse_scores([a, b], fit_splits=ALL_ROWS)
     for parent in (a, b):
         assert not np.allclose(fused["score"].to_numpy(),
                                parent["score"].to_numpy())
@@ -230,7 +230,7 @@ def test_fusion_is_not_just_the_first_frame():
 
 def test_weights_are_honoured():
     a, b = _df(0, 1.0), _df(1, 1.0)
-    only_a = fuse_scores([a, b], weights=[1.0, 0.0])
+    only_a = fuse_scores([a, b], weights=[1.0, 0.0], fit_splits=ALL_ROWS)
     za = zscore_by_condition(a).sort_values(["condition", "image_idx"])
     of = only_a.sort_values(["condition", "image_idx"])
     np.testing.assert_allclose(of["score"].to_numpy(), za["score"].to_numpy(),
@@ -239,26 +239,27 @@ def test_weights_are_honoured():
 
 def test_weights_are_normalised_not_taken_literally():
     a, b = _df(0, 1.0), _df(7, 1.0)
-    np.testing.assert_allclose(fuse_scores([a, b], weights=[2.0, 2.0])["score"],
-                               fuse_scores([a, b])["score"], atol=1e-12)
+    np.testing.assert_allclose(
+        fuse_scores([a, b], weights=[2.0, 2.0], fit_splits=ALL_ROWS)["score"],
+        fuse_scores([a, b], fit_splits=ALL_ROWS)["score"], atol=1e-12)
 
 
 def test_a_wrong_length_weight_vector_is_rejected():
     a, b = _df(0, 1.0), _df(1, 1.0)
     with pytest.raises(ValueError, match="weights must match"):
-        fuse_scores([a, b], weights=[1.0])
+        fuse_scores([a, b], weights=[1.0], fit_splits=ALL_ROWS)
 
 
 def test_fusing_nothing_is_rejected():
     with pytest.raises(ValueError, match="nothing to fuse"):
-        fuse_scores([])
+        fuse_scores([], fit_splits=ALL_ROWS)
 
 
 def test_mismatched_frames_are_rejected():
     a = _df(0, 1.0)
     b = _df(1, 1.0).iloc[:10]
     with pytest.raises(ValueError, match="same rows"):
-        fuse_scores([a, b])
+        fuse_scores([a, b], fit_splits=ALL_ROWS)
 
 
 def test_frames_that_disagree_on_a_rows_label_are_rejected():
@@ -269,7 +270,7 @@ def test_frames_that_disagree_on_a_rows_label_are_rejected():
     a, b = _df(0, 1.0), _df(1, 1.0)
     b.loc[0, "label"] = 1 - int(b.loc[0, "label"])
     with pytest.raises(ValueError, match="disagree on the label"):
-        fuse_scores([a, b])
+        fuse_scores([a, b], fit_splits=ALL_ROWS)
 
 
 # --- C2: which rows set the fusion weights ---------------------------------
@@ -350,12 +351,15 @@ def test_without_a_declared_population_the_benchmark_rows_move_the_selection_met
     """
     from aigcdet.eval.errors import heldout_robust_tpr
     split, _ = _selection_splits()
-    baseline = fuse_scores([_tiered_df(0, 1.0), _tiered_df(7, 1.0)])
+    baseline = fuse_scores([_tiered_df(0, 1.0), _tiered_df(7, 1.0)],
+                           fit_splits=ALL_ROWS)
     moved = [heldout_robust_tpr(
-        fuse_scores([_tiered_df(0, s), _tiered_df(7, 1.0)]), split)
+        fuse_scores([_tiered_df(0, s), _tiered_df(7, 1.0)],
+                    fit_splits=ALL_ROWS), split)
         for s in (3.0, 6.0, 10.0, 25.0)]
     assert any(m != heldout_robust_tpr(baseline, split) for m in moved), moved
-    scaled = fuse_scores([_tiered_df(0, 25.0), _tiered_df(7, 1.0)])
+    scaled = fuse_scores([_tiered_df(0, 25.0), _tiered_df(7, 1.0)],
+                         fit_splits=ALL_ROWS)
     assert np.abs(_on_selection_rows(scaled, split)
                   - _on_selection_rows(baseline, split)).max() > 0.1
 
@@ -388,7 +392,7 @@ def test_the_zscore_population_is_recorded_on_the_output():
         {"split=heldout_generator+val_internal"}
     assert declared.attrs[POPULATION_COLUMN] == \
         "split=heldout_generator+val_internal"
-    undeclared = fuse_scores([a, b])
+    undeclared = fuse_scores([a, b], fit_splits=ALL_ROWS)
     assert set(undeclared[POPULATION_COLUMN]) == {ALL_ROWS}
     assert undeclared.attrs[POPULATION_COLUMN] == ALL_ROWS
     assert ALL_ROWS != "split=heldout_generator+val_internal"
@@ -406,11 +410,58 @@ def test_the_fit_population_for_selection_is_the_selection_population():
     assert "benchmark" not in FIT_SPLITS_FOR_SELECTION
 
 
+def test_fuse_scores_will_not_fuse_without_a_decision_about_the_population():
+    """Kills the mutant that restores a default for `fit_splits`.
+
+    The ratio of the two parents' sigmas IS the ratio of their contributions,
+    so which rows set those sigmas is a decision, and a default is what ships.
+    The error has to name both ways out, or the first thing a caller reaches
+    for is whatever makes it stop complaining.
+    """
+    split, _ = _selection_splits()
+    a, b = _tiered_df(0, 1.0), _tiered_df(7, 1.0)
+    with pytest.raises(ValueError, match="requires `fit_splits`") as exc:
+        fuse_scores([a, b])
+    assert "ALL_ROWS" in str(exc.value)
+    assert "FIT_SPLITS_FOR_SELECTION" in str(exc.value)
+    # A bank's split column on its own is not a decision either.
+    with pytest.raises(ValueError, match="requires `fit_splits`"):
+        fuse_scores([a, b], splits=split)
+
+
+def test_the_whole_frame_fit_stays_expressible_but_must_be_asked_for():
+    """ALL_ROWS is an opt-out, not a silence: it produces the old numbers and
+    says so in the column, the way `report.BANKS_NOT_VERIFIED` does."""
+    split, _ = _selection_splits()
+    a, b = _tiered_df(0, 25.0), _tiered_df(7, 1.0)
+    fused = fuse_scores([a, b], fit_splits=ALL_ROWS)
+    assert set(fused[POPULATION_COLUMN]) == {ALL_ROWS}
+    expected = (zscore_by_condition(a)["score"].to_numpy()
+                + zscore_by_condition(b)["score"].to_numpy()) / 2.0
+    np.testing.assert_allclose(fused["score"].to_numpy(), expected, atol=1e-12)
+
+
+def test_all_rows_together_with_a_split_column_is_ambiguous():
+    """Which of the two was meant is not recoverable, and the column would
+    record a population the fit did not use."""
+    split, _ = _selection_splits()
+    a, b = _tiered_df(0, 1.0), _tiered_df(7, 1.0)
+    with pytest.raises(ValueError, match="does not say which was meant"):
+        fuse_scores([a, b], splits=split, fit_splits=ALL_ROWS)
+
+
+def test_a_bare_split_name_is_not_a_population():
+    """`fit_splits="val_internal"` would be read one character at a time, match
+    no row, and fail somewhere less obvious than here."""
+    split, _ = _selection_splits()
+    a, b = _tiered_df(0, 1.0), _tiered_df(7, 1.0)
+    with pytest.raises(ValueError, match="read one character at a time"):
+        fuse_scores([a, b], splits=split, fit_splits="val_internal")
+
+
 def test_splits_and_fit_splits_must_be_given_together():
     split, _ = _selection_splits()
     a, b = _tiered_df(0, 1.0), _tiered_df(7, 1.0)
-    with pytest.raises(ValueError, match="go together"):
-        fuse_scores([a, b], splits=split)
     with pytest.raises(ValueError, match="go together"):
         fuse_scores([a, b], fit_splits=_FIT)
     with pytest.raises(ValueError, match="fit_splits is empty"):

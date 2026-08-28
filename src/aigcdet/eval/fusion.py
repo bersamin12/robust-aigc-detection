@@ -35,9 +35,15 @@ The fused frame still covers the whole bank; only the fit is restricted.
 Because the fused score is not otherwise a fixed function of the two heads,
 the population is RECORDED on the output: a `zscore_population` column, not a
 `DataFrame.attrs` entry, since pandas drops attrs through most reshapes and a
-provenance marking that vanishes on a reshape is no marking. A caller that
-declares nothing gets the whole-frame fit and a column that says `all_rows`,
-so a contaminated fit is at least visible in what it produced.
+provenance marking that vanishes on a reshape is no marking.
+
+`fit_splits` is REQUIRED. A caller who genuinely wants the whole-frame fit
+passes `fit_splits=ALL_ROWS` and gets a column that says so. Defaulting to it
+would have made the contaminated fit the path of least resistance, and a
+default is what ships: this branch's history is guards that could be forgotten
+being forgotten, and `report.BANKS_NOT_VERIFIED` exists for the same reason
+after `banks=None` let a bank skip verification. The whole-frame fit stays
+expressible; it stops being inheritable by silence.
 `FIT_SPLITS_FOR_SELECTION` is the population `scripts/run_ablation.py` uses --
 the §6.4 selection population itself, so the rows that set the weights are the
 rows the selection metric is read on, and no benchmark row is in either.
@@ -99,9 +105,21 @@ _PARENT_KEYS = ("n_views", "conditions", "manifest_sha256")
 #: The column `fuse_scores` records its z-score population in.
 POPULATION_COLUMN = "zscore_population"
 
-#: What `POPULATION_COLUMN` says when no population was declared: mean and
-#: sigma were fitted over every row of each frame, benchmark rows included.
+#: The explicit opt-out for `fuse_scores`'s required `fit_splits` argument, and
+#: the value recorded in `POPULATION_COLUMN` when it is used: mean and sigma
+#: were fitted over every row of each frame, benchmark rows included.
+#:
+#: It does not silence the concern, it records it. A whole-frame fit is a real
+#: choice -- there are frames with no split column to speak of -- but it is the
+#: choice that lets the organisers' demo set set A5's fusion weights, so it has
+#: to appear in a diff and in `selection.json` rather than being inherited by
+#: silence. This is the same shape as `report.BANKS_NOT_VERIFIED`.
 ALL_ROWS = "all_rows"
+
+#: Sentinel default marking `fit_splits` as required while still allowing an
+#: error that names both ways out, rather than a bare TypeError that never
+#: mentions ALL_ROWS.
+_REQUIRED = object()
 
 #: The population to fit A5's z-score parameters on, for the §6.4 selection
 #: run. It is the selection population itself (`errors.SELECTION_SPLITS`), so
@@ -198,9 +216,35 @@ def _fit_mask(df: pd.DataFrame, splits: np.ndarray,
 
 def _resolve_population(splits, fit_splits) -> tuple[np.ndarray | None, tuple[str, ...], str]:
     """Validate the declared population and name it for the output column."""
-    if splits is None and fit_splits is None:
+    if fit_splits is _REQUIRED:
+        raise ValueError(
+            "fuse_scores requires `fit_splits`, because the ratio of the two "
+            "parents' sigmas IS the ratio of their contributions to the fused "
+            "score, and which rows set those sigmas is therefore a decision. "
+            "Pass the bank's `splits` column (what `fused_splits` returns) "
+            "together with the split names to fit on -- for the §6.4 selection "
+            f"run that is fit_splits=FIT_SPLITS_FOR_SELECTION, i.e. "
+            f"{list(FIT_SPLITS_FOR_SELECTION)} -- or fit_splits=ALL_ROWS to fit "
+            "over every row. There is no default: on the ablation tier a "
+            "whole-frame fit lets the organisers' benchmark subsample set half "
+            "of each parent's sigma, and A5's selection number then moves with "
+            "the demo set. ALL_ROWS is not a way to silence that; it is "
+            "recorded in the output's zscore_population column.")
+    if isinstance(fit_splits, str):
+        if fit_splits != ALL_ROWS:
+            raise ValueError(
+                f"fit_splits={fit_splits!r} is a single string, which would be "
+                "read one character at a time. Pass a sequence of split names "
+                f"(e.g. {list(FIT_SPLITS_FOR_SELECTION)}) or the exact sentinel "
+                "ALL_ROWS.")
+        if splits is not None:
+            raise ValueError(
+                "fit_splits=ALL_ROWS fits over every row, so the `splits` "
+                "column would not be used; passing both does not say which was "
+                "meant. Pass ALL_ROWS alone, or `splits` with the split names "
+                "to fit on.")
         return None, (), ALL_ROWS
-    if splits is None or fit_splits is None:
+    if splits is None:
         raise ValueError(
             "`splits` and `fit_splits` go together: `splits` is the bank's "
             "split column (what `fused_splits` returns) and `fit_splits` names "
@@ -260,23 +304,25 @@ def _aligned(df: pd.DataFrame, base: pd.DataFrame, position: int,
 
 
 def fuse_scores(dfs: Sequence[pd.DataFrame],
-                weights: Sequence[float] | None = None,
+                weights: Sequence[float] | None = None, *,
                 splits: Sequence[str] | np.ndarray | None = None,
-                fit_splits: Sequence[str] | None = None) -> pd.DataFrame:
+                fit_splits: Sequence[str] | str = _REQUIRED) -> pd.DataFrame:
     """Weighted mean of z-scored `score_grid` frames, on frame 0's rows.
 
     Rows are matched on `(condition, image_idx)`, not on position, and the
     output keeps frame 0's row order so the fused rung stays comparable with
     the rungs it is tabulated beside.
 
-    `splits` and `fit_splits` declare which rows the per-condition mean and
-    sigma are fitted on; they are applied to every row either way. Passing
-    neither fits on the whole frame, which on the ablation tier means the
-    organisers' benchmark subsample sets half of each parent's spread and
-    therefore half of how much each backbone votes -- see the module docstring.
-    Whichever is chosen is recorded on the returned frame, in the
-    `zscore_population` column, because the fused score is not a fixed function
-    of the two parents' scores without it.
+    `fit_splits` is REQUIRED, and declares which rows the per-condition mean
+    and sigma are fitted on; they are applied to every row either way. Pass it
+    with the bank's `splits` column, or pass `fit_splits=ALL_ROWS` for the
+    whole-frame fit. There is no default, because on the ablation tier a
+    whole-frame fit lets the organisers' benchmark subsample set half of each
+    parent's spread and therefore half of how much each backbone votes -- see
+    the module docstring -- and a default is what actually ships. Whichever is
+    chosen is recorded on the returned frame, in the `zscore_population`
+    column, because the fused score is not a fixed function of the two parents'
+    scores without it.
     """
     if len(dfs) == 0:
         raise ValueError("nothing to fuse: fuse_scores was given no frames")
