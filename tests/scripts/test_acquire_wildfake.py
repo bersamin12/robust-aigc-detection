@@ -648,10 +648,15 @@ def test_a_resumed_subset_is_exempt_from_the_barren_check(tmp_path):
 
 def test_the_volume_report_names_archives_of_unrecorded_size(capsys):
     """Archives are shared, so the total is over DISTINCT archives — asking
-    for four GAN families is one 47.3 GB download, not four. And the eight
+    for three GAN families is one 47.3 GB download, not three. And the eight
     `Images/Real/*.zip` sizes were never published: unrecorded must be SAID,
-    because a total that silently omits them reads as the whole cost."""
-    gan = [wf.SUBSETS[n] for n in ("BigGAN", "styleGAN", "VQGAN")]
+    because a total that silently omits them reads as the whole cost.
+
+    The three names here must all genuinely live in GAN_based.zip. VQGAN sat
+    in this list until it was corrected to Other_based.zip, at which point the
+    case stopped exercising archive SHARING (2 archives, 61 GB) while still
+    reading like it did — the assertion is what caught the change."""
+    gan = [wf.SUBSETS[n] for n in ("BigGAN", "styleGAN", "starGAN")]
     ad._report_download_volume(gan)
     out = capsys.readouterr().out
     assert "~47 GB across 1 archive(s)" in out
