@@ -24,9 +24,12 @@ about the dataset. So every row's branch is recorded (`quality_estimator_branche
 `metadata_features` warns when a call spans both branches, and
 `content_blind_auc` returns `verdict == "confounded"` -- refusing the
 broken/suspect/clean answer -- when the branch assignment predicts the label
-(`BRANCH_CONFOUND_THRESHOLD`). The raw verdict is still returned alongside,
-under `verdict_ignoring_branch_confound`; nothing is hidden, but the headline
-field cannot be quoted without the confound being visible.
+(`BRANCH_CONFOUND_THRESHOLD`). The raw result is still returned alongside,
+but the *number* moves with the verdict -- `auc_ignoring_branch_confound`,
+`auc_ci_ignoring_branch_confound`, `verdict_ignoring_branch_confound` -- so
+`result["auc"]` raises `KeyError` instead of yielding a figure that reads as
+clean once it is copied into a table. Nothing is hidden; nothing quotable is
+left without its caveat attached to its name.
 
 The confound runs the other way too. Matching the file formats makes the
 branch split vanish and the control go quiet -- but with every image now on
@@ -34,7 +37,7 @@ the *pixel* branch, column 3 is no longer file metadata at all: it is a
 blockiness statistic read off the pixels, whose error (14 to 31 points)
 exceeds most of the differences it would need to resolve. A near-chance
 result from it is therefore weak evidence, not proof of a clean dataset.
-`metadata_control` reports that state as `quality_feature_status ==
+`metadata_control` reports that state as `quality_branch_check["status"] ==
 "pixel_derived"` and says so in `caveats`, and it always reports the
 geometry-only control (width/height/aspect, which no estimator touches)
 beside the combined one.
@@ -91,6 +94,18 @@ def thumbnail_features(paths: list[str], size: int = 16) -> np.ndarray:
     why it invalidates the headline numbers. A near-chance AUC is the useful
     negative result: the classes are not separable by gross appearance, so the
     detector's signal has to come from somewhere finer.
+
+    Two properties are load-bearing and are pinned by tests, because losing
+    either turns this into an average-colour detector that returns near-chance
+    on a dataset whose classes differ in layout -- a false "clean" on exactly
+    the evidence this control exists to provide:
+
+    * The `size * size` grid is kept, not collapsed. Composition is half of
+      what is being measured.
+    * The resampler averages over the pixels it discards. A point-sampling
+      filter (`Image.NEAREST`) would *alias* the fine structure into the
+      thumbnail instead of destroying it, so the result would no longer be
+      blind to the high-frequency band the detector actually uses.
     """
     out = []
     for p in paths:
@@ -178,8 +193,25 @@ def _verdict(auc: float) -> str:
 
 
 def _branch_check(branches: np.ndarray, labels: np.ndarray) -> dict:
-    """How strongly the estimator branch alone predicts the label."""
-    exact = (np.asarray(branches) == BRANCH_EXACT).astype(float)
+    """How strongly the estimator branch alone predicts the label.
+
+    Unknown branch labels are rejected rather than coerced. `== BRANCH_EXACT`
+    maps anything it does not recognise -- a typo, a third branch added to
+    `estimate_jpeg_quality` later -- to "not exact", which reads out as
+    `pixel_derived`, `confounded: False` and a "no file carried a quantisation
+    table" caveat: three false statements and no error. A defence layer must
+    not fail towards reassurance.
+    """
+    branches = np.asarray(branches)
+    unknown = sorted(set(branches.tolist()) - {BRANCH_EXACT, BRANCH_ESTIMATED})
+    if unknown:
+        raise ValueError(
+            f"unknown estimator branch label(s) {unknown}; expected only "
+            f"{BRANCH_EXACT!r} and {BRANCH_ESTIMATED!r}. Silently treating an "
+            "unrecognised label as 'not exact' would report a confound-free "
+            "dataset that has not been checked."
+        )
+    exact = (branches == BRANCH_EXACT).astype(float)
     classes = np.unique(labels)
     fractions = {int(c): float(exact[labels == c].mean()) for c in classes}
     if exact.min() == exact.max() or len(classes) < 2:
@@ -213,17 +245,30 @@ def content_blind_auc(features: np.ndarray, labels: np.ndarray,
     Returns `auc`, `auc_ci`, `verdict` (`broken` / `suspect` / `clean` per
     `VERDICT_THRESHOLDS`), `n_splits`, and `quality_branch_check`.
 
-    Every step -- scaling included -- is fitted inside the fold via a
-    `Pipeline`, so no test fold informs its own prediction. Standardising on
-    the full array first would inflate the AUC, and an inflated AUC here reads
-    as "your dataset is broken": the leak's failure mode is a false alarm.
+    Every step -- scaling included -- is fitted inside the fold: the whole
+    classifier is a `Pipeline` and `features` is handed to `cross_val_predict`
+    untouched, so no test fold informs its own prediction. Fitting *anything*
+    on the full array first -- a scaler, an imputer, a feature selector --
+    inflates the AUC, and an inflated AUC here reads as "your dataset is
+    broken": the leak's failure mode is a false alarm. Do not preprocess
+    `features` in this function; put the step in the pipeline.
 
-    Pass `quality_branches` (from `quality_estimator_branches`) whenever the
-    features include an estimated-JPEG-quality column. If the branch
-    assignment predicts the label, `verdict` becomes `"confounded"` and the
-    unqualified verdict moves to `verdict_ignoring_branch_confound`. Without
-    it, `quality_branch_check` records that no check was performed rather than
-    leaving the result looking checked.
+    Pass `quality_branches` whenever the features include an
+    estimated-JPEG-quality column -- `metadata_control` does this for you and
+    is the cheap path, since it reads each file once for both the features and
+    their provenance. If the branch assignment predicts the label
+    (`BRANCH_CONFOUND_THRESHOLD`), the whole result is renamed out of the way:
+    `verdict` becomes `"confounded"` and `auc`, `auc_ci` and the plain verdict
+    move to `auc_ignoring_branch_confound`,
+    `auc_ci_ignoring_branch_confound` and `verdict_ignoring_branch_confound`.
+    The keys are long and self-incriminating on purpose: a confounded number
+    cannot be lifted into a results table without its caveat coming along, and
+    code that reads `result["auc"]` raises `KeyError` rather than quoting one.
+
+    **Without `quality_branches` this function returns a plain `auc` it has no
+    way to vouch for.** `quality_branch_check` says so, and `metadata_features`
+    warns on the mixed input that makes it dangerous, but those are markers,
+    not a guarantee: the number is still there. Use `metadata_control`.
     """
     labels = np.asarray(labels)
     clf = make_pipeline(StandardScaler(),
@@ -239,11 +284,13 @@ def content_blind_auc(features: np.ndarray, labels: np.ndarray,
         result["quality_branch_check"] = "not performed: no branch provenance supplied"
         return result
 
-    check = _branch_check(np.asarray(quality_branches), labels)
+    check = _branch_check(quality_branches, labels)
     result["quality_branch_check"] = check
     if check["confounded"]:
+        result["auc_ignoring_branch_confound"] = result.pop("auc")
+        result["auc_ci_ignoring_branch_confound"] = result.pop("auc_ci")
+        result["verdict_ignoring_branch_confound"] = result.pop("verdict")
         result["verdict"] = "confounded"
-        result["verdict_ignoring_branch_confound"] = verdict
     return result
 
 
@@ -257,9 +304,11 @@ def metadata_control(paths: list[str], labels: np.ndarray,
 
     Beyond `content_blind_auc`'s keys it returns `geometry` (the same control
     on width/height/aspect alone -- the columns no estimator touches, so its
-    verdict is trustworthy whatever the formats are), `quality_feature_status`,
-    `quality_branch_counts`, and `caveats`: an empty list only when the quality
-    column is a real quantisation-table read for every file.
+    verdict is trustworthy whatever the formats are) and `caveats`: an empty
+    list only when the quality column is a real quantisation-table read for
+    every file. The branch status and per-branch counts are not repeated at the
+    top level; they live in `quality_branch_check["status"]` and
+    `quality_branch_check["counts"]`, one place so the two cannot disagree.
     """
     labels = np.asarray(labels)
     features, branches = _metadata_rows(paths)
@@ -296,7 +345,5 @@ def metadata_control(paths: list[str], labels: np.ndarray,
         )
 
     result["geometry"] = geometry
-    result["quality_feature_status"] = check["status"]
-    result["quality_branch_counts"] = check["counts"]
     result["caveats"] = caveats
     return result

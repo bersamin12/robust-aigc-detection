@@ -67,6 +67,69 @@ def test_thumbnail_features_are_scaled_to_unit_range_and_track_brightness(tmp_pa
     assert f[1].mean() == pytest.approx(240 / 255, abs=1e-3)
 
 
+def _half_and_half(path, left_first, rng):
+    """64x64: one half near-white, the other near-black, plus faint noise.
+
+    The two orientations have the SAME per-channel mean by construction, so
+    only something that keeps the spatial grid can tell them apart.
+    """
+    arr = np.zeros((64, 64, 3), np.uint8)
+    arr[:, :32] = 235 if left_first else 20
+    arr[:, 32:] = 20 if left_first else 235
+    jitter = rng.integers(-8, 9, (64, 64, 3))
+    Image.fromarray(np.clip(arr + jitter, 0, 255).astype(np.uint8)).save(path)
+    return str(path)
+
+
+def test_thumbnail_features_keep_spatial_layout_not_just_average_colour(tmp_path):
+    """Left-white/right-black versus its mirror: identical per-channel means.
+
+    Both classes have the same mean colour to within the jitter, so a
+    thumbnail that collapsed to a per-channel average -- or resized to 1x1 and
+    tiled back up -- would score near chance here while still satisfying every
+    other test in this file. That failure matters in one direction only: it
+    would report "content-blind control: clean" on a dataset whose classes
+    differ in composition, which is the false reassurance this whole module
+    exists to prevent.
+    """
+    rng = np.random.default_rng(11)
+    paths, labels = [], []
+    for i in range(20):
+        paths.append(_half_and_half(tmp_path / f"L{i}.png", True, rng)); labels.append(0)
+    for i in range(20):
+        paths.append(_half_and_half(tmp_path / f"R{i}.png", False, rng)); labels.append(1)
+
+    features = thumbnail_features(paths, size=16)
+    per_class_mean = [features[:20].mean(), features[20:].mean()]
+    assert per_class_mean[0] == pytest.approx(per_class_mean[1], abs=0.01), (
+        "fixture is broken: the classes differ in mean colour, so this test "
+        "would pass without any spatial information being kept"
+    )
+
+    res = content_blind_auc(features, np.array(labels))
+    assert res["auc"] > VERDICT_THRESHOLDS["broken"]
+
+
+def test_thumbnail_resampler_averages_rather_than_point_samples(tmp_path):
+    """One-pixel alternating columns, downscaled 4x.
+
+    An averaging filter blends them to mid-grey (~0.5); `Image.NEAREST` samples
+    every other column and returns pure white (1.0), aliasing the fine detail
+    into the thumbnail instead of destroying it. The whole content-blindness
+    argument is that this band does not survive the downscale, so a
+    point-sampling resampler would quietly invalidate the docstring's claim
+    and move every number the control reports.
+    """
+    arr = np.zeros((64, 64, 3), np.uint8)
+    arr[:, ::2] = 255
+    path = str(tmp_path / "stripes.png")
+    Image.fromarray(arr).save(path)
+
+    f = thumbnail_features([path], size=16)
+    assert f.mean() == pytest.approx(0.5, abs=0.05)
+    assert f.max() < 0.9, "fine detail was point-sampled into the thumbnail"
+
+
 def test_metadata_features_capture_size_and_quality(tmp_path):
     """The brief's original assertion, with the branch confound removed.
 
@@ -236,14 +299,22 @@ def test_verdict_thresholds_are_ordered_and_are_the_documented_values():
 # cross-validation hygiene: a leak here is a false "your dataset is broken"
 # --------------------------------------------------------------------------
 
-def test_preprocessing_is_fitted_inside_each_fold_not_on_the_full_array(monkeypatch):
+@pytest.mark.parametrize("n_splits, n_per_class", [(5, 50), (3, 45)])
+def test_preprocessing_is_fitted_inside_each_fold_not_on_the_full_array(
+    monkeypatch, n_splits, n_per_class
+):
     """Any scaler fitted on the whole array before splitting leaks the test
     fold's distribution into training and inflates the AUC.
 
-    Fitting is invisible in the returned number for a scaler (standardising is
-    nearly harmless to logistic regression), so this checks the mechanism: the
-    scaler must be fitted once per fold on a fold-sized slice and never on all
-    `n` rows.
+    Fitting is invisible in the returned number for a scaler -- standardising
+    is so nearly harmless to logistic regression that the leak moves the AUC by
+    0.0000 -- so this checks the mechanism: the scaler must be fitted once per
+    fold, on a fold-sized slice, and never on all `n` rows.
+
+    Parametrised over `n_splits` because that argument is otherwise unpinned:
+    it is documented, echoed in the result, and every other test leaves it at
+    its default, so hard-coding `cv=5` would go unnoticed while the returned
+    dict advertised 3.
     """
     seen: list[int] = []
 
@@ -253,13 +324,40 @@ def test_preprocessing_is_fitted_inside_each_fold_not_on_the_full_array(monkeypa
             return super().fit(X, y, sample_weight)
 
     monkeypatch.setattr(controls, "StandardScaler", RecordingScaler)
-    features, labels = _graded_features(1.0, n_per_class=50)   # n = 100
-    content_blind_auc(features, labels, n_splits=5)
+    features, labels = _graded_features(1.0, n_per_class=n_per_class)
+    n = 2 * n_per_class
+    res = content_blind_auc(features, labels, n_splits=n_splits)
 
+    assert res["n_splits"] == n_splits
     assert seen, "the scaler was never fitted -- is it still in the pipeline?"
-    assert len(features) not in seen, f"scaler saw all {len(features)} rows: leak"
-    assert len(seen) == 5
-    assert set(seen) == {80}
+    assert n not in seen, f"scaler saw all {n} rows: leak"
+    assert len(seen) == n_splits
+    assert set(seen) == {n - n // n_splits}
+
+
+def test_the_classifier_receives_the_callers_array_untouched(monkeypatch):
+    """The general form of the leak guard: nothing may be fitted on the full
+    array, not just the scaler this module happens to use today.
+
+    A `SelectKBest(f_classif).fit_transform(features, labels)` inserted before
+    `cross_val_predict` sees every label while choosing columns and inflates
+    the AUC by enough to turn `clean` into `suspect` -- a false "your dataset
+    is broken". Any such step necessarily replaces the array that reaches
+    `cross_val_predict`, so identity is the thing to assert.
+    """
+    seen: dict = {}
+    real = controls.cross_val_predict
+
+    def spy(estimator, X, y, **kwargs):
+        seen["X"], seen["y"] = X, y
+        return real(estimator, X, y, **kwargs)
+
+    monkeypatch.setattr(controls, "cross_val_predict", spy)
+    features, labels = _graded_features(1.0, n_per_class=50)
+    content_blind_auc(features, labels)
+
+    assert seen["X"] is features, "features were preprocessed before the split"
+    assert seen["y"] is labels
 
 
 def test_a_classifier_scored_on_its_own_training_data_would_be_caught(tmp_path):
@@ -274,11 +372,23 @@ def test_a_classifier_scored_on_its_own_training_data_would_be_caught(tmp_path):
     assert res["verdict"] == "clean"
 
 
-def test_the_result_is_reproducible_for_a_fixed_seed():
+def test_the_seed_is_reproducible_and_actually_reaches_the_bootstrap():
+    """Same seed -> identical result; different seed -> same AUC, different CI.
+
+    The first half alone would pass with the seed dropped at both call sites,
+    since the cross-validated AUC does not vary with it at all (the folds are
+    deterministic and lbfgs is deterministic on this data). The CI is the only
+    place the seed has an observable effect, so it is the only place that can
+    prove the seed was threaded through rather than ignored.
+    """
     features, labels = _graded_features(1.0)
     a = content_blind_auc(features, labels, seed=1234)
     b = content_blind_auc(features, labels, seed=1234)
+    c = content_blind_auc(features, labels, seed=999)
+
     assert a["auc"] == b["auc"] and a["auc_ci"] == b["auc_ci"]
+    assert c["auc"] == a["auc"]
+    assert c["auc_ci"] != a["auc_ci"], "the seed never reached bootstrap_ci"
 
 
 # --------------------------------------------------------------------------
@@ -289,12 +399,7 @@ def test_a_verdict_is_withheld_when_the_estimator_branch_tracks_the_label():
     """Reals JPEG (exact branch), fakes PNG (pixel branch) -- exactly the
     organisers' benchmark. Column 3 is then partly a format label, so the
     headline verdict must not be reported as if it measured the images."""
-    labels = np.array([0] * 20 + [1] * 20)
-    features = np.column_stack([
-        np.full(40, 512.0), np.full(40, 512.0), np.ones(40),
-        np.concatenate([np.full(20, 40.0), np.full(20, 92.0)]),
-    ])
-    branches = np.array(["exact"] * 20 + ["estimated"] * 20)
+    features, labels, branches = _confound_case(20, 0)
     res = content_blind_auc(features, labels, quality_branches=branches)
 
     assert res["verdict"] == "confounded"
@@ -307,12 +412,7 @@ def test_a_verdict_is_withheld_when_the_estimator_branch_tracks_the_label():
 
 
 def test_a_verdict_survives_when_the_branch_split_is_balanced_across_classes():
-    labels = np.array([0] * 20 + [1] * 20)
-    features = np.column_stack([
-        np.full(40, 512.0), np.full(40, 512.0), np.ones(40),
-        np.concatenate([np.full(20, 40.0), np.full(20, 92.0)]),
-    ])
-    branches = np.array((["exact"] * 10 + ["estimated"] * 10) * 2)
+    features, labels, branches = _confound_case(10, 10)
     res = content_blind_auc(features, labels, quality_branches=branches)
 
     assert res["verdict"] == "broken"          # a real, non-format separation
@@ -325,20 +425,12 @@ def test_the_confound_threshold_is_a_boundary_not_a_decoration():
     in exact-branch share between the classes). 8/20 vs 12/20 is a 0.20 gap
     (branch AUC 0.60) and must confound; 9/20 vs 10/20 is a 0.05 gap (0.525)
     and must not."""
-    labels = np.array([0] * 20 + [1] * 20)
-    features = np.column_stack([
-        np.full(40, 512.0), np.full(40, 512.0), np.ones(40),
-        np.concatenate([np.full(20, 40.0), np.full(20, 92.0)]),
-    ])
+    def run(n_exact_real, n_exact_fake):
+        features, labels, branches = _confound_case(n_exact_real, n_exact_fake)
+        return content_blind_auc(features, labels, quality_branches=branches)
 
-    def branches(n_exact_real, n_exact_fake):
-        return np.array(
-            ["exact"] * n_exact_real + ["estimated"] * (20 - n_exact_real)
-            + ["exact"] * n_exact_fake + ["estimated"] * (20 - n_exact_fake)
-        )
-
-    over = content_blind_auc(features, labels, quality_branches=branches(12, 8))
-    under = content_blind_auc(features, labels, quality_branches=branches(10, 9))
+    over = run(12, 8)
+    under = run(10, 9)
     assert over["quality_branch_check"]["branch_label_auc"] == pytest.approx(0.60)
     assert under["quality_branch_check"]["branch_label_auc"] == pytest.approx(0.525)
     assert over["verdict"] == "confounded"
@@ -367,8 +459,8 @@ def test_metadata_control_flags_the_organisers_benchmark_shape(tmp_path):
         res = metadata_control(paths, np.array(labels))
 
     assert res["verdict"] == "confounded"
-    assert res["quality_feature_status"] == "mixed"
-    assert res["quality_branch_counts"] == {"exact": 20, "estimated": 20}
+    assert res["quality_branch_check"]["status"] == "mixed"
+    assert res["quality_branch_check"]["counts"] == {"exact": 20, "estimated": 20}
     assert res["geometry"]["verdict"] == "broken"      # resolution alone separates them
     assert res["geometry"]["auc"] > VERDICT_THRESHOLDS["broken"]
     assert any("branch" in c for c in res["caveats"])
@@ -385,8 +477,8 @@ def test_metadata_control_still_caveats_a_clean_verdict_on_all_png_input(tmp_pat
     res = metadata_control(paths, np.array(labels))
 
     assert res["verdict"] == "clean"
-    assert res["quality_feature_status"] == "pixel_derived"
-    assert res["quality_branch_counts"] == {"exact": 0, "estimated": 40}
+    assert res["quality_branch_check"]["status"] == "pixel_derived"
+    assert res["quality_branch_check"]["counts"] == {"exact": 0, "estimated": 40}
     assert any("pixel" in c for c in res["caveats"]), res["caveats"]
 
 
@@ -397,7 +489,7 @@ def test_metadata_control_has_no_caveats_when_every_file_is_a_real_jpeg(tmp_path
         labels.append(i % 2)
     res = metadata_control(paths, np.array(labels))
 
-    assert res["quality_feature_status"] == "file_metadata"
+    assert res["quality_branch_check"]["status"] == "file_metadata"
     assert res["caveats"] == []
     assert res["verdict"] in {"clean", "suspect", "broken"}
 
@@ -422,3 +514,92 @@ def test_geometry_control_excludes_the_estimator_derived_column(tmp_path):
     assert res["geometry"]["verdict"] == "clean"
     assert res["geometry"]["auc"] < VERDICT_THRESHOLDS["suspect"]
     assert res["geometry"]["quality_branch_check"] == "not applicable: geometry columns only"
+
+
+def _confound_case(n_exact_real, n_exact_fake):
+    """40 rows whose quality column separates the classes perfectly, with the
+    estimator branch split as asked. Returns (features, labels, branches)."""
+    labels = np.array([0] * 20 + [1] * 20)
+    features = np.column_stack([
+        np.full(40, 512.0), np.full(40, 512.0), np.ones(40),
+        np.concatenate([np.full(20, 40.0), np.full(20, 92.0)]),
+    ])
+    branches = np.array(
+        ["exact"] * n_exact_real + ["estimated"] * (20 - n_exact_real)
+        + ["exact"] * n_exact_fake + ["estimated"] * (20 - n_exact_fake)
+    )
+    return features, labels, branches
+
+
+def test_a_confounded_result_withholds_the_number_not_just_the_verdict():
+    """`verdict: "confounded"` beside a plain `auc: 1.0` is not a withheld
+    result: the number is what gets lifted into a results table under time
+    pressure, and it carries no trace of the caveat. It must move to a name
+    that cannot be quoted without incriminating itself, exactly as the verdict
+    does, and `result["auc"]` must fail loudly rather than answer.
+    """
+    features, labels, branches = _confound_case(20, 0)
+    res = content_blind_auc(features, labels, quality_branches=branches)
+
+    assert "auc" not in res and "auc_ci" not in res
+    with pytest.raises(KeyError):
+        res["auc"]
+    assert res["auc_ignoring_branch_confound"] == pytest.approx(1.0)
+    lo, hi = res["auc_ci_ignoring_branch_confound"]
+    assert lo <= res["auc_ignoring_branch_confound"] <= hi
+
+
+def test_an_unconfounded_result_still_reports_auc_under_its_plain_name():
+    features, labels, branches = _confound_case(10, 10)
+    res = content_blind_auc(features, labels, quality_branches=branches)
+    assert res["verdict"] == "broken"
+    assert res["auc"] == pytest.approx(1.0)
+    assert "auc_ignoring_branch_confound" not in res
+
+
+def test_the_confound_threshold_includes_its_boundary_value():
+    """The docstring says "at or above" 0.55. 10/20 exact against 12/20 is a
+    0.10 difference in exact-branch share, i.e. a branch AUC of exactly 0.55
+    (exactly representable, verified), so `>=` and `>` disagree here and
+    nowhere else."""
+    features, labels, branches = _confound_case(10, 12)
+    res = content_blind_auc(features, labels, quality_branches=branches)
+    assert res["quality_branch_check"]["branch_label_auc"] == 0.55
+    assert res["verdict"] == "confounded"
+
+
+@pytest.mark.parametrize("bad", [["Exact"] * 20 + ["estimated"] * 20,
+                                 ["exact"] * 20 + ["fallback"] * 20])
+def test_unknown_branch_labels_are_rejected_rather_than_read_as_pixel_derived(bad):
+    """`== BRANCH_EXACT` maps anything unrecognised to "not exact", which reads
+    out as pixel_derived / confounded: False / "no file carried a quantisation
+    table" -- three false statements and no error, on the reassuring side."""
+    features, labels, _ = _confound_case(20, 0)
+    with pytest.raises(ValueError, match="unknown estimator branch label"):
+        content_blind_auc(features, labels, quality_branches=np.array(bad))
+
+
+def test_metadata_control_caveats_a_mixed_column_even_when_it_is_not_confounded(tmp_path):
+    """Both formats present in both classes: the branch split does not follow
+    the label, so no verdict is withheld -- but column 3 still spans two
+    scales, which is not a like-for-like comparison. This is the state a team
+    lands in after half-fixing the formats, so the caveat has to be there.
+    """
+    paths, labels = [], []
+    for i in range(20):
+        fmt = ("JPEG", "jpg") if i % 2 else ("PNG", "png")
+        paths.append(_photo(tmp_path / f"r{i}.{fmt[1]}", (256, 256), fmt[0],
+                            80 if fmt[0] == "JPEG" else None, seed=i))
+        labels.append(0)
+    for i in range(20):
+        fmt = ("JPEG", "jpg") if i % 2 else ("PNG", "png")
+        paths.append(_photo(tmp_path / f"f{i}.{fmt[1]}", (256, 256), fmt[0],
+                            80 if fmt[0] == "JPEG" else None, seed=100 + i))
+        labels.append(1)
+    with pytest.warns(UserWarning, match="two different branches"):
+        res = metadata_control(paths, np.array(labels))
+
+    check = res["quality_branch_check"]
+    assert check["status"] == "mixed" and check["confounded"] is False
+    assert res["verdict"] != "confounded"
+    assert any("two scales" in c for c in res["caveats"]), res["caveats"]
