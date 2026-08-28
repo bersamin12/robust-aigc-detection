@@ -1,7 +1,9 @@
 """On-disk feature bank: contract #2 from spec §7.1.
 
 Layout:
-    bank/config.json     backbone, dim, n_views, n_images, seed, manifest_sha256
+    bank/config.json     backbone, dim, n_views, n_images, seed, manifest_sha256,
+                         plus any writer-supplied extras (the eval bank records
+                         its ordered `conditions` list here)
     bank/meta.parquet    N rows, image-level:
                          image_idx,row_id,path,label,generator,source,split
     bank/views.parquet   N*V rows: image_idx,view_idx,recipe_json
@@ -87,12 +89,14 @@ class BankWriter:
     rows are read back from `meta.parquet`, and `completed` names their
     `image_idx` so the caller can skip them. The config recorded on disk must
     match the one asked for -- a resume against a different backbone, seed,
-    view count, row count or manifest is a different bank, not a continuation.
+    view count, row count, manifest or `extra_config` is a different bank, not
+    a continuation.
     """
 
     def __init__(self, out_dir: str, n_images: int, n_views: int, dim: int,
                  backbone: str, seed: int, manifest_sha256: str | None = None,
-                 resume: bool = False, checkpoint_every: int = CHECKPOINT_EVERY):
+                 resume: bool = False, checkpoint_every: int = CHECKPOINT_EVERY,
+                 extra_config: dict | None = None):
         os.makedirs(out_dir, exist_ok=True)
         self.path = out_dir
         self.n_views = n_views
@@ -100,6 +104,20 @@ class BankWriter:
         self._config = {"backbone": backbone, "dim": dim,
                          "n_views": n_views, "n_images": n_images, "seed": seed,
                          "manifest_sha256": manifest_sha256}
+        # `extra_config` is merged into `_config` -- NOT written separately
+        # after close() -- precisely so it takes part in the resume equality
+        # check below. `aigcdet.eval.grid` uses it to record the eval bank's
+        # ordered condition list, and a resume against a DIFFERENT condition
+        # list must be refused: the view axis would mean two different things
+        # in one bank. Anything written outside `_config` would be silently
+        # accepted as a continuation.
+        if extra_config:
+            clashing = sorted(set(extra_config) & set(self._config))
+            if clashing:
+                raise ValueError(
+                    f"extra_config may not shadow the reserved bank config keys "
+                    f"{clashing}; pass them through the named parameters instead")
+            self._config.update(extra_config)
 
         cfg_path = os.path.join(out_dir, "config.json")
         resuming = resume and os.path.exists(cfg_path)
@@ -334,7 +352,21 @@ class FeatureBank:
 #: Config keys every shard of one logical bank must agree on. `n_images` and
 #: `manifest_sha256` are deliberately absent: shards cover different rows, so
 #: those two are expected to differ and are recomputed for the merged bank.
+#: Any key NOT in this tuple and not in `_MERGE_PER_SHARD` came from a
+#: writer's `extra_config` and is treated the same way as the entries here --
+#: it must agree across shards, and it is carried into the merged bank.
 _MERGE_MUST_MATCH = ("backbone", "dim", "n_views", "seed")
+#: Config keys that legitimately differ between shards of one bank.
+_MERGE_PER_SHARD = ("n_images", "manifest_sha256")
+
+
+def _extra_config(config: dict) -> dict:
+    """The keys a `BankWriter` was given as `extra_config`, recovered from a
+    written bank so `merge_banks` can carry them into the merged one. Without
+    this, merging eval shards would drop `config["conditions"]` and the merged
+    bank would no longer know what its view axis means."""
+    known = set(_MERGE_MUST_MATCH) | set(_MERGE_PER_SHARD)
+    return {k: v for k, v in config.items() if k not in known}
 
 
 def merge_banks(bank_dirs: list[str], out_dir: str) -> str:
@@ -359,9 +391,14 @@ def merge_banks(bank_dirs: list[str], out_dir: str) -> str:
 
     banks = [FeatureBank.open(d) for d in bank_dirs]
     ref = banks[0]
+    ref_extra = _extra_config(ref.config)
     for d, b in zip(bank_dirs[1:], banks[1:]):
         differing = {k: (ref.config[k], b.config[k]) for k in _MERGE_MUST_MATCH
                      if ref.config[k] != b.config[k]}
+        b_extra = _extra_config(b.config)
+        differing.update({k: (ref_extra.get(k), b_extra.get(k))
+                          for k in sorted(set(ref_extra) | set(b_extra))
+                          if ref_extra.get(k) != b_extra.get(k)})
         if differing:
             raise ValueError(
                 f"shard {d} is not part of the same bank as {bank_dirs[0]}: "
@@ -389,7 +426,8 @@ def merge_banks(bank_dirs: list[str], out_dir: str) -> str:
     writer = BankWriter(out_dir, n_total, ref.config["n_views"], ref.config["dim"],
                         ref.config["backbone"], ref.config["seed"],
                         manifest_sha256=manifest_fingerprint(merged_paths),
-                        checkpoint_every=max(1, n_total))
+                        checkpoint_every=max(1, n_total),
+                        extra_config=ref_extra)
 
     out_idx = 0
     for b in banks:
