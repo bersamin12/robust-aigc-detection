@@ -479,6 +479,15 @@ def _check_banks(banks: Mapping[str, "FeatureBank"], per_rung: Mapping[str, pd.D
     sameness, and banks index the manifest POSITIONALLY, so a re-split between
     two extractions misaligns labels without changing any shape. This caller is
     therefore stricter: a fingerprint must be present, not merely equal.
+
+    The same reasoning applies to `n_images`, and for the same reason it is
+    applied the same way. That key is what stops a 5k selection-tier bank from
+    sitting beside a 13.8k final-report score frame, and a config that omits it
+    used to SKIP the check rather than fail it -- so any bank type whose config
+    did not carry the key was exempt from the one comparison that catches a
+    tier mismatch, and would render with `banks_verified = True` and no banner.
+    A bank that will not say how many images it holds is not a bank that agrees
+    with the scores; it is one that will not say.
     """
     if set(banks) != set(per_rung):
         raise ValueError(
@@ -521,7 +530,17 @@ def _check_banks(banks: Mapping[str, "FeatureBank"], per_rung: Mapping[str, pd.D
         n_scored = (int(scores["image_idx"].nunique())
                     if "image_idx" in scores.columns else None)
         n_bank = config.get("n_images")
-        if n_scored is not None and n_bank is not None and int(n_bank) != n_scored:
+        if n_bank is None:
+            raise ValueError(
+                f"the bank for rung {rung!r} at {getattr(bank, 'path', '?')} "
+                "records no n_images, so it cannot be shown to hold the rows "
+                "its scores cover. Skipping the check for such a bank makes "
+                "every bank type whose config omits the key -- a fused A5 row, "
+                "for one -- the only row in the table exempt from the check "
+                "that separates a 5k selection-tier bank from a 13.8k "
+                "final-report score frame, and the table would still report "
+                "banks_verified = True.")
+        if n_scored is not None and int(n_bank) != n_scored:
             raise ValueError(
                 f"the bank for rung {rung!r} holds {int(n_bank)} images but its "
                 f"scores cover {n_scored} distinct image_idx; the banks passed "
