@@ -19,8 +19,8 @@ import yaml
 
 from aigcdet.augment.scenarios import EVAL_GRID
 from aigcdet.eval.errors import (
-    SELECTION_METRIC, SELECTION_POPULATION, SELECTION_TARGET_FPR,
-    IneligibleRungWarning,
+    SELECTION_METRIC, SELECTION_POPULATION, SELECTION_SPLITS,
+    SELECTION_TARGET_FPR, IneligibleRungWarning,
 )
 from aigcdet.features.bank import N_FAMILIES, N_VIEWS, BankWriter
 
@@ -40,11 +40,15 @@ ra = _load_script("run_ablation")
 DIM = 6
 
 
-def _train_bank(tmp_path, n=48) -> str:
-    """A learnable training bank: fakes sit at +1.5, reals at -1.5."""
-    out = str(tmp_path / "train_bank")
+def _train_bank(tmp_path, n=48, name="train_bank", seed=0) -> str:
+    """A learnable training bank: fakes sit at +1.5, reals at -1.5.
+
+    `name` and `seed` exist for the fusion tests, which need a SECOND,
+    independently extracted bank whose head is a different model.
+    """
+    out = str(tmp_path / name)
     w = BankWriter(out, n, N_VIEWS, DIM, "fake", 0, manifest_sha256="tb")
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(seed)
     for i in range(n):
         label = i % 2
         clean = rng.normal(1.5 if label else -1.5, 0.4, DIM)
@@ -64,7 +68,8 @@ def _train_bank(tmp_path, n=48) -> str:
     return out
 
 
-def _eval_bank(tmp_path, name="eval_bank", fingerprint="eb", n_per_block=60) -> str:
+def _eval_bank(tmp_path, name="eval_bank", fingerprint="eb", n_per_block=60,
+               backbone="fake", seed=1) -> str:
     """An eval bank over the full 20-condition grid.
 
     Rows come in four blocks so the §6.4 population and the contamination it
@@ -88,10 +93,10 @@ def _eval_bank(tmp_path, name="eval_bank", fingerprint="eb", n_per_block=60) -> 
     blocks = [("val_internal", 0, ""), ("val_internal", 1, "g_seen"),
               ("heldout_generator", 1, "g_held"), ("benchmark", 0, "")]
     n = n_per_block * len(blocks)
-    w = BankWriter(out, n, len(conditions), DIM, "fake", 0,
+    w = BankWriter(out, n, len(conditions), DIM, backbone, 0,
                    manifest_sha256=fingerprint,
                    extra_config={"conditions": conditions})
-    rng = np.random.default_rng(1)
+    rng = np.random.default_rng(seed)
     i = 0
     for split, label, generator in blocks:
         for _ in range(n_per_block):
@@ -540,3 +545,245 @@ def test_the_table_carries_the_baseline_footnote_when_a_baseline_row_is_present(
         ra.main(argv)
     written = (tmp_path / "out" / "robustness_table.md").read_text()
     assert "NPR-style neighbouring-pixel summary + linear probe" in written
+
+
+# --- rung A5: fusion -------------------------------------------------------
+
+def _fusion_argv(tmp_path, rungs=("a3",), fingerprint="eb", backbone="fake",
+                 extra=(), **overrides) -> list[str]:
+    """`_argv` plus a second, independently extracted training/eval bank pair.
+
+    The partner bank draws different features, so the head trained on it is a
+    genuinely different model and the fused row is not a copy of A3's.
+    """
+    argv = _argv(tmp_path, rungs=rungs, **overrides)
+    fuse = ["--fuse-bank", _train_bank(tmp_path, name="fuse_train_bank", seed=5),
+            "--fuse-eval-bank", _eval_bank(tmp_path, "fuse_eval_bank",
+                                           fingerprint=fingerprint,
+                                           backbone=backbone, seed=9)]
+    at = argv.index("--rungs")
+    return argv[:at] + fuse + list(extra) + argv[at:]
+
+
+def test_fuse_produces_an_a5_row_from_two_independently_trained_banks(tmp_path):
+    argv = _fusion_argv(tmp_path)
+    with _quiet_control_warning():
+        report = ra.main(argv)
+
+    assert set(report["summary"]) == {"a3", "a5"}
+    assert report["candidates"]["a5"] == report["summary"]["a5"][SELECTION_METRIC]
+    assert report["fusion"]["run"] is True
+    assert report["fusion"]["partner_bank"] == argv[argv.index("--fuse-bank") + 1]
+    assert (tmp_path / "rungs" / ra.FUSION_PARTNER_NAME / "checkpoint.pt").exists()
+    written = (tmp_path / "out" / "robustness_table.md").read_text(encoding="utf-8")
+    assert "| a5 |" in written
+
+
+def test_the_a5_row_is_registered_with_a_bank_covering_both_parents(tmp_path):
+    """Carry from Task 7, made non-equivalent here.
+
+    `banks[rung]` is what `robustness_table` routes through
+    `assert_banks_comparable`. Until A5 existed there was one bank and any
+    mapping was the same mapping; now the A5 row is scored on a second eval
+    bank as well, and the registration has to say so.
+    """
+    captured = {}
+    original = ra.robustness_table
+
+    def spy(per_rung, **kwargs):
+        captured["banks"] = kwargs["banks"]
+        return original(per_rung, **kwargs)
+
+    argv = _fusion_argv(tmp_path)
+    ra.robustness_table = spy
+    try:
+        with _quiet_control_warning():
+            ra.main(argv)
+    finally:
+        ra.robustness_table = original
+
+    banks = captured["banks"]
+    assert set(banks) == {"a3", "a5"}
+    assert banks["a5"] is not banks["a3"]
+    assert banks["a5"].config["fused_from"] == [
+        argv[argv.index("--eval-bank") + 1],
+        argv[argv.index("--fuse-eval-bank") + 1]]
+
+
+def test_mapping_a5_to_a3s_bank_would_pass_a_check_it_never_covered(tmp_path):
+    """THE kill for `banks[FUSION_RUNG] = eval_bank`.
+
+    The partner eval bank here is over the same manifest and the same condition
+    axis but a DIFFERENT backbone -- the one thing rung A5 varies by design and
+    the one thing `assert_banks_comparable` refuses to let share a table. With
+    the fused bank registered, the run is refused and says why. With A5 mapped
+    to A3's bank, the R24 check compares A3's bank against itself, sees nothing
+    wrong, and the two-backbone row is tabulated beside the single-backbone
+    rungs unremarked -- so this test fails if that mutation is made.
+    """
+    argv = _fusion_argv(tmp_path, backbone="other_backbone")
+    with pytest.raises(ValueError, match="not comparable") as exc:
+        ra.main(argv)
+    assert "backbone" in str(exc.value)
+    assert "other_backbone" in str(exc.value)
+
+
+def test_a_partner_eval_bank_from_another_manifest_is_refused_before_training(
+        tmp_path):
+    """Fail fast: the manifest fingerprints are knowable before any GPU."""
+    argv = _fusion_argv(tmp_path, fingerprint="a_different_manifest")
+    with pytest.raises(ValueError, match="different frozen manifests"):
+        ra.main(argv)
+    assert not (tmp_path / "rungs" / "a3" / "checkpoint.pt").exists()
+    assert not (tmp_path / "rungs" / ra.FUSION_PARTNER_NAME).exists()
+
+
+def test_a_partner_eval_bank_whose_splits_disagree_is_refused(tmp_path):
+    """Which parent's `split` column applies to a fused row is only defined
+    when the two agree; the manifest fingerprint covers the path column, so a
+    re-split that kept the paths passes it and this check is what catches it."""
+    argv = _fusion_argv(tmp_path)
+    bank = pathlib.Path(argv[argv.index("--fuse-eval-bank") + 1])
+    meta = pd.read_parquet(bank / "meta.parquet")
+    meta.loc[0, "split"] = "benchmark"
+    meta.to_parquet(bank / "meta.parquet", index=False)
+
+    with pytest.raises(ValueError, match="disagree on the split"):
+        ra.main(argv)
+    assert not (tmp_path / "rungs" / "a3" / "checkpoint.pt").exists()
+
+
+def test_fusion_without_an_a3_rung_in_the_ladder_is_refused(tmp_path):
+    """A5 is "A3 + a second backbone": there is no A5 without an A3 to fuse."""
+    argv = _fusion_argv(tmp_path, rungs=("a0",))
+    with pytest.raises(ValueError, match="is named 'a3'"):
+        ra.main(argv)
+    assert not (tmp_path / "rungs" / "a0" / "checkpoint.pt").exists()
+
+
+def test_one_fusion_flag_without_the_other_is_refused(tmp_path):
+    argv = _argv(tmp_path, rungs=("a3",))
+    at = argv.index("--rungs")
+    argv = argv[:at] + ["--fuse-bank", str(tmp_path / "nowhere")] + argv[at:]
+    with pytest.raises(ValueError, match="go together"):
+        ra.main(argv)
+
+
+def test_the_a5_metric_is_computed_on_the_split_column_the_parents_share(
+        tmp_path):
+    """Independent recomputation of the fused row's §6.4 number.
+
+    Kills the A5 row that records A3's metric (a fusion that forgot to fuse),
+    and the one computed against a split column that is not the parents'
+    shared one. The fixture is checked to be able to tell A3 and A5 apart
+    before either assertion is trusted.
+    """
+    from aigcdet.eval.errors import heldout_robust_tpr
+    from aigcdet.eval.fusion import fuse_scores, fused_splits
+    from aigcdet.eval.grid import score_grid
+    from aigcdet.features.bank import FeatureBank
+    from aigcdet.train.train_head import load_detector
+
+    argv = _fusion_argv(tmp_path)
+    with _quiet_control_warning():
+        report = ra.main(argv)
+
+    banks = [FeatureBank.open(argv[argv.index(flag) + 1])
+             for flag in ("--eval-bank", "--fuse-eval-bank")]
+    names = ("a3", ra.FUSION_PARTNER_NAME)
+    frames = []
+    for name, bank in zip(names, banks):
+        model, _ = load_detector(str(tmp_path / "rungs" / name / "checkpoint.pt"),
+                                 device="cpu")
+        frames.append(score_grid(model, bank, device="cpu"))
+
+    splits = fused_splits(banks)
+    expected = heldout_robust_tpr(fuse_scores(frames), splits)
+    a3_alone = heldout_robust_tpr(frames[0], splits)
+
+    assert expected != pytest.approx(a3_alone), \
+        "fixture cannot tell the fused row from the a3 row it was built on"
+    assert report["summary"]["a5"][SELECTION_METRIC] == pytest.approx(expected)
+    assert report["summary"]["a3"][SELECTION_METRIC] == pytest.approx(a3_alone)
+
+
+def test_the_a5_row_declares_the_population_it_was_selected_on(tmp_path):
+    """`select_headline` can only refuse a contaminated result that says where
+    it came from, so the fused row must declare the same block as a trained
+    one rather than arriving as a bare float."""
+    with _quiet_control_warning():
+        report = ra.main(_fusion_argv(tmp_path))
+    row = report["summary"]["a5"]
+    assert row["population"] == SELECTION_POPULATION
+    assert row["target_fpr"] == SELECTION_TARGET_FPR
+    assert row["splits"] == list(SELECTION_SPLITS)
+    assert row["fused_from"] == ["a3", ra.FUSION_PARTNER_NAME]
+
+
+def test_a5_is_a_real_candidate_for_the_headline(tmp_path):
+    """§6.4's eligible range is a3-a6; before this task it could only ever
+    resolve to a3 or a4. Forced metrics put a5 top and it must be chosen."""
+    forced = [0.10, 0.90]          # a3 first, then the fused a5 row
+
+    def fake_metric(scores, splits, target_fpr=0.01):
+        return forced.pop(0)
+
+    original = ra.heldout_robust_tpr
+    ra.heldout_robust_tpr = fake_metric
+    try:
+        report = ra.main(_fusion_argv(tmp_path))
+    finally:
+        ra.heldout_robust_tpr = original
+    assert report["headline"] == "a5"
+    assert report["candidates"] == {"a3": 0.10, "a5": 0.90}
+
+
+def test_the_partner_head_is_resumed_rather_than_retrained(tmp_path, capsys):
+    argv = _fusion_argv(tmp_path)
+    with _quiet_control_warning():
+        ra.main(argv)
+    checkpoint = tmp_path / "rungs" / ra.FUSION_PARTNER_NAME / "checkpoint.pt"
+    first = checkpoint.read_bytes()
+    capsys.readouterr()
+    with _quiet_control_warning():
+        report = ra.main(argv)
+    assert f"SKIP {ra.FUSION_PARTNER_NAME}" in capsys.readouterr().out
+    assert checkpoint.read_bytes() == first
+    assert report["summary"]["a5"]["resumed_from_checkpoint"] is True
+
+
+# --- rung A6: test-time augmentation ---------------------------------------
+
+def test_selection_json_records_a5_and_a6_as_not_run_rather_than_omitting_them(
+        tmp_path):
+    """Plan 3's completion criterion: a rung skipped for time is recorded as
+    skipped, so an absent A5/A6 row is never read as an A5/A6 that lost."""
+    with _quiet_control_warning():
+        report = ra.main(_argv(tmp_path, rungs=("a3",)))
+    assert "a5" not in report["summary"] and "a6" not in report["summary"]
+    assert report["fusion"]["run"] is False
+    assert "--fuse-bank" in report["fusion"]["reason"]
+    assert report["tta"]["requested"] is False
+    assert report["tta"]["scored_here"] is False
+
+
+def test_tta_records_its_cost_multiplier_and_the_tier_it_applies_to(
+        tmp_path, capsys):
+    """No silent caps: the multiplier and the tier are in the record and on
+    stdout, and the multiplier is the real view count, not a literal."""
+    from aigcdet.eval.tta import TTA_VIEWS
+
+    argv = _argv(tmp_path, rungs=("a3",))
+    at = argv.index("--rungs")
+    with _quiet_control_warning():
+        report = ra.main(argv[:at] + ["--tta"] + argv[at:])
+
+    assert report["tta"]["requested"] is True
+    assert report["tta"]["scored_here"] is False
+    assert report["tta"]["cost_multiplier"] == len(TTA_VIEWS) == 8
+    assert report["tta"]["views"] == list(TTA_VIEWS)
+    assert report["tta"]["tier"] == "ablation"
+    printed = capsys.readouterr().out
+    assert f"{len(TTA_VIEWS)}x" in printed and "ablation" in printed
+    record = json.loads((tmp_path / "out" / "selection.json").read_text())
+    assert record["tta"] == report["tta"]
