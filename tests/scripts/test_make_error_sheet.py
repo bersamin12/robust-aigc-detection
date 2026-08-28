@@ -36,7 +36,7 @@ DIM = 4
 def _bank_with_images(tmp_path) -> str:
     """Half authentic (source `coco`), half generated (source `dalle`)."""
     images = tmp_path / "images"
-    images.mkdir()
+    images.mkdir(exist_ok=True)
     out = str(tmp_path / "eval_bank")
     w = BankWriter(out, N, len(CONDITIONS), DIM, "fake", 0, manifest_sha256="eb",
                    extra_config={"conditions": CONDITIONS})
@@ -129,19 +129,101 @@ def test_an_explicit_threshold_is_used_and_recorded(tmp_path):
     assert "supplied on the command line" in text
 
 
-def test_the_sheet_shows_the_most_confident_mistakes_of_the_chosen_condition(
-        tmp_path):
-    """The rendered rows come from `top_errors` over one condition only.
+def test_only_the_chosen_conditions_rows_reach_the_sheets_and_the_table(tmp_path):
+    """Kills the mutant that drops the `--condition` filter in `main`.
 
-    Kills a mutant that forgets the condition filter: with two identical
-    conditions in the frame, the unfiltered version renders each image twice
-    and the four tiles cover only two distinct images.
+    The previous version of this test filtered the frame ITSELF and called
+    `top_errors` directly, so it could not see the filter in `main` at all and
+    the mutant survived it. What the mutant actually does is put both
+    conditions' rows through: every image then appears twice on the contact
+    sheet, `n_images` in `fp_by_source.md` doubles, and the file still says
+    `**Condition:** clean`. The row counts are asserted here, on `main`'s own
+    output.
     """
+    mes.main(_argv(tmp_path))
+    text = (tmp_path / "errors" / "fp_by_source.md").read_text(encoding="utf-8")
+    assert "**Condition:** `clean`" in text
+    rows = {line.split("|")[1].strip(): line.split("|")[2].strip()
+            for line in text.splitlines() if line.startswith("| coco |")
+            or line.startswith("| dalle |")}
+    # N // 2 per source for ONE condition; both conditions would give N.
+    assert rows == {"coco": str(N // 2), "dalle": str(N // 2)}
+
+
+def test_top_errors_over_one_condition_picks_the_planted_mistakes(tmp_path):
+    """The fixture's planted errors, so the sheet's contents are pinned too."""
     from aigcdet.eval.errors import top_errors
     scores = pd.read_parquet(_scores_parquet(tmp_path))
     clean = scores[scores["condition"] == "clean"]
     assert top_errors(clean, k=4, kind="fp")["image_idx"].tolist() == [0, 1, 5, 4]
     assert top_errors(clean, k=4, kind="fn")["image_idx"].tolist() == [11, 10, 6, 7]
+
+
+def test_the_target_fpr_flag_moves_the_threshold_and_is_recorded(tmp_path):
+    """`--target-fpr` was unpinned: nothing asserted that it reached
+    `threshold_at_fpr`, so a mutant ignoring it and hardcoding 0.01 survived."""
+    mes.main(_argv(tmp_path, **{"--target-fpr": "0.5"}))
+    loose = (tmp_path / "errors" / "fp_by_source.md").read_text(encoding="utf-8")
+    assert "50.0%" in loose
+
+    mes.main(_argv(tmp_path, **{"--target-fpr": "0.01"}))
+    tight = (tmp_path / "errors" / "fp_by_source.md").read_text(encoding="utf-8")
+    assert "1.0%" in tight
+
+    def threshold_of(text):
+        line = [x for x in text.splitlines()
+                if x.startswith("**Diagnostic threshold:**")][0]
+        return float(line.split("**Diagnostic threshold:**")[1].split("--")[0])
+
+    # A looser FPR budget buys a lower threshold, hence more false positives.
+    assert threshold_of(loose) < threshold_of(tight)
+
+
+def test_the_table_says_its_threshold_was_fitted_on_the_rows_it_reports(tmp_path):
+    """The aggregate rate is `--target-fpr` by construction; only the relative
+    concentration across sources carries information, and the file must say so
+    rather than leave a reader to infer it."""
+    mes.main(_argv(tmp_path))
+    text = (tmp_path / "errors" / "fp_by_source.md").read_text(encoding="utf-8")
+    assert "fitted on the very rows tabulated below" in text
+    assert "by construction" in text
+    assert "RELATIVE concentration" in text
+
+
+def test_the_table_is_written_as_utf8_under_a_c_locale(tmp_path):
+    """Kills the mutant that drops `encoding="utf-8"`.
+
+    The body contains `spec §6.6`, and a source name may be non-ASCII too. A
+    bare `open(path, "w")` encodes through the locale codec; under LC_ALL=C
+    that is ANSI_X3.4-1968 and the write dies -- after both contact sheets have
+    already been rendered.
+    """
+    import os
+    import subprocess
+    import sys
+    out = tmp_path / "c_locale.md"
+    probe = tmp_path / "probe.py"
+    probe.write_text(
+        "import locale, sys, importlib.util, pandas as pd\n"
+        "assert locale.getpreferredencoding(False) == 'ANSI_X3.4-1968', "
+        "locale.getpreferredencoding(False)\n"
+        "spec = importlib.util.spec_from_file_location('mes', sys.argv[1])\n"
+        "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\n"
+        "df = pd.DataFrame({'source': ['caf\u00e9'], 'n_images': [1],\n"
+        "                   'n_authentic': [1], 'n_fp': [0], 'fp_rate': [0.0]})\n"
+        "m.write_fp_by_source(sys.argv[2], df, 'clean', 0.5, 'a probe',\n"
+        "                     {'val_internal': 1}, 0.01)\n",
+        encoding="utf-8")
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("LANG", "LC_CTYPE", "LC_ALL")}
+    env.update(LC_ALL="C", PYTHONUTF8="0", PYTHONCOERCECLOCALE="0")
+    done = subprocess.run(
+        [sys.executable, str(probe),
+         str(_ROOT / "scripts" / "make_error_sheet.py"), str(out)],
+        capture_output=True, text=True, env=env, cwd=str(tmp_path))
+    assert done.returncode == 0, done.stderr
+    body = out.read_text(encoding="utf-8")
+    assert "§6.6" in body and "café" in body
 
 
 def test_an_unknown_condition_is_refused_before_anything_is_written(tmp_path):
