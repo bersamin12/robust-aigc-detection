@@ -248,7 +248,7 @@ def test_forbidden_reason_catches_the_dalle3_subtree(path):
 
 
 @pytest.mark.parametrize("path", [
-    "./Real/coco/val2017/000000397133.jpg",
+    "./Real/coco/coco2017/val2017/000000397133.jpg",
     "./Real/coco/train2017/000000000009.jpg",
     "Real/COCO/test2017/x.jpg",
 ])
@@ -355,7 +355,7 @@ def test_benchmark_dest_requires_the_path_to_be_benchmark_data():
     half = {h.subset: h for h in wf.BENCHMARK_HALVES}["real_coco"]
     with pytest.raises(ValueError, match="not part of the coco_val2017"):
         wf.benchmark_dest("/demo", half, "./Real/coco/train2017/1.jpg")
-    dest = wf.benchmark_dest("/demo", half, "./Real/coco/val2017/1.jpg")
+    dest = wf.benchmark_dest("/demo", half, "./Real/coco/coco2017/val2017/1.jpg")
     assert dest.split("/")[2] == "coco_val2017" and dest.split("/")[3] == "val2017"
 
 
@@ -370,7 +370,7 @@ def test_benchmark_dest_of_the_aigc_half_reads_back_as_dalle3():
 
 def test_benchmark_rows_verifies_the_organisers_count():
     half = {h.subset: h for h in wf.BENCHMARK_HALVES}["real_coco"]
-    paths = ([f"Real/coco/val2017/{i}.jpg" for i in range(half.expected)]
+    paths = ([f"Real/coco/coco2017/val2017/{i}.jpg" for i in range(half.expected)]
              + [f"Real/coco/train2017/{i}.jpg" for i in range(10)])
     assert len(wf.benchmark_rows(half, paths)) == half.expected
     with pytest.raises(ValueError, match="organisers' benchmark"):
@@ -486,3 +486,42 @@ def test_read_subset_csv_tolerates_an_unparseable_isfake(tmp_path):
     subset = wf.WildFakeSubset("t", 1, 1, "Real/ffhq/", ("Images/x.zip",))
     p = _csv(tmp_path, "t", [_row("./Real/ffhq/a.png", is_fake="?")])
     assert wf.read_subset_csv(subset, p) == ["Real/ffhq/a.png"]
+
+
+# --------------------------------------------------------------------------
+# The marker table against the REAL upstream layout
+# --------------------------------------------------------------------------
+#: Verbatim `Image_path` values from WildFake's own `label_csv_files/*.csv`,
+#: copied from the published CSVs rather than composed here. Every other test
+#: in this file builds its own paths, and that is exactly how the benchmark
+#: marker shipped wrong: `real_coco`'s marker was ("coco", "val2017") and the
+#: fixtures obligingly wrote "./Real/coco/val2017/...", so the pair agreed
+#: with each other and with nothing upstream. The real tree has a `coco2017`
+#: level in between, the marker matched 0 of 163,846 rows, and the fault
+#: surfaced only when `benchmark_rows` was run against the real CSV.
+REAL_CSV_PATHS = {
+    "real_coco": "./Real/coco/coco2017/val2017/img158957.jpg",
+    "dalle3": ("./Diffusion_based/DALLE/Advanced/DALLE3/dalle3/"
+               "202311011943129901ca391019566e/"
+               "0000bc251bd2e98239266f18c7422f00.jpg"),
+}
+
+
+@pytest.mark.parametrize("subset", sorted(REAL_CSV_PATHS))
+def test_each_benchmark_half_marker_matches_the_real_upstream_path(subset):
+    """A marker that no real CSV row satisfies is the bug this pins.
+
+    Asserted against `is_benchmark_path` rather than against a string, so it
+    fails for a marker that is merely *wrong* as well as one that is missing.
+    """
+    half = {h.subset: h for h in wf.BENCHMARK_HALVES}[subset]
+    assert wf.is_benchmark_path(half, REAL_CSV_PATHS[subset])
+
+
+def test_the_real_benchmark_paths_are_also_refused_by_the_training_gate():
+    """The two rules are one table (`FORBIDDEN_PATH_MARKERS`), so the real
+    paths must be refused for training as surely as they are required for the
+    benchmark. Without this, a marker could be fixed on the benchmark side
+    alone and leave the training gate blind to the real layout."""
+    for subset, path in REAL_CSV_PATHS.items():
+        assert wf.forbidden_reason(path), (subset, path)

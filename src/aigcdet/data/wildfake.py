@@ -184,6 +184,14 @@ _COCO_FORBIDDEN = (
 #: `dalle3`, `DALLE-3`, and `DALLE/Advanced/DALLE3` all reach the same refusal.
 FORBIDDEN_PATH_MARKERS: tuple[tuple[tuple[str, ...], str], ...] = (
     (("DALLE", "Advanced", "DALLE3"), _DALLE3_FORBIDDEN),
+    # Three COCO entries, deliberately overlapping. ("coco2017", "val2017")
+    # is the REAL upstream layout and is what `BENCHMARK_HALVES` matches on;
+    # ("coco", "val2017") is the shorthand a human types by hand and an older
+    # marker that matched 0 of real_coco.csv's 163,846 rows; ("Real", "coco")
+    # catches every COCO-derived real, which is what spec §4.1(2) actually
+    # requires. Refusing is cheap and a missed refusal is a rules violation,
+    # so the training gate is deliberately wider than the benchmark marker.
+    (("coco2017", "val2017"), _COCO_FORBIDDEN),
     (("coco", "val2017"), _COCO_FORBIDDEN),
     (("Real", "coco"), _COCO_FORBIDDEN),
 )
@@ -353,7 +361,7 @@ class BenchmarkHalf:
 
 
 BENCHMARK_HALVES: tuple[BenchmarkHalf, ...] = (
-    BenchmarkHalf("real_coco", "coco_val2017", "", ("coco", "val2017"), 4998),
+    BenchmarkHalf("real_coco", "coco_val2017", "", ("coco2017", "val2017"), 4998),
     BenchmarkHalf("dalle3", "dalle_advanced", "dalle3",
                   ("DALLE", "Advanced", "DALLE3"), 8843),
 )

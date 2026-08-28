@@ -44,3 +44,6 @@ scratch/
 
 # --- Subagent-driven-development scratch (ledger, briefs, review packages) ---
 .superpowers/
+
+# agent worktrees (transient, created by the Agent tool)
+.claude/worktrees/
