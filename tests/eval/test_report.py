@@ -1140,23 +1140,33 @@ def test_publishable_tiers_carry_no_not_for_publication_banner(tmp_path):
 
 # --- the metric is validated before anything is computed ------------------
 
-def test_the_metric_is_rejected_before_a_single_resample_runs():
+def test_the_metric_is_rejected_before_a_single_resample_runs(monkeypatch):
     """Kills the mutant validating `metric` inside the rung loop.
 
-    There it accepted `heldout_severity` -- a bool flag, not a metric -- and
-    spent a full 20 x n_boot resampling pass before rejecting anything else.
+    There it accepted `heldout_severity` -- a bool flag, not a metric, which
+    silently tabulated as 0.0/1.0 -- and spent a full 20 x n_boot resampling
+    pass before rejecting anything else.
+
+    Asserted by counting calls to `condition_metrics` rather than by timing:
+    "nothing was scored" IS the property, and a wall-clock proxy makes the
+    mutant hang for the whole resampling pass instead of failing fast.
     """
-    import time
+    from aigcdet.eval import report as report_mod
+    calls = []
+    real = report_mod.condition_metrics
+    monkeypatch.setattr(report_mod, "condition_metrics",
+                        lambda *a, **k: (calls.append(1), real(*a, **k))[1])
+
     for bad in ("heldout_severity", "n", "boot_seed", "nonsense"):
         with pytest.raises(ValueError, match="unknown metric"):
             robustness_table({"a0": _scores(seed=1)}, tier="ablation",
-                             metric=bad, n_boot=100_000, banks=_NOBANK)
-    started = time.perf_counter()
-    with pytest.raises(ValueError, match="unknown metric"):
-        robustness_table({"a0": _scores(seed=1)}, tier="ablation",
-                         metric="nope", n_boot=1_000_000, banks=_NOBANK)
-    # A million resamples would take minutes; rejection is immediate.
-    assert time.perf_counter() - started < 5.0
+                             metric=bad, n_boot=_NB, banks=_NOBANK)
+    assert calls == [], "a rejected metric must not resample anything first"
+
+    # The positive control: a valid metric does reach the scoring pass.
+    robustness_table({"a0": _scores(seed=1)}, tier="ablation", metric="auc",
+                     n_boot=_NB, banks=_NOBANK)
+    assert calls == [1]
     assert set(METRIC_COLUMNS) == {"auc", "auc_lo", "auc_hi", "tpr_at_1pct",
                                    "acc_oracle", "acc_fixed", "ece"}
 
