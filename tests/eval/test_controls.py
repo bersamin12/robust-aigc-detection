@@ -19,6 +19,8 @@ from sklearn.preprocessing import StandardScaler
 
 from aigcdet.eval import controls
 from aigcdet.eval.controls import (
+    BRANCH_PROVENANCE_NOT_VERIFIED,
+    NO_QUALITY_COLUMN,
     VERDICT_THRESHOLDS,
     content_blind_auc,
     metadata_control,
@@ -106,7 +108,8 @@ def test_thumbnail_features_keep_spatial_layout_not_just_average_colour(tmp_path
         "would pass without any spatial information being kept"
     )
 
-    res = content_blind_auc(features, np.array(labels))
+    res = content_blind_auc(features, np.array(labels),
+                            quality_branches=NO_QUALITY_COLUMN)
     assert res["auc"] > VERDICT_THRESHOLDS["broken"]
 
 
@@ -209,9 +212,14 @@ def test_control_detects_a_deliberately_broken_dataset(tmp_path):
         paths.append(_photo(tmp_path / f"f{i}.png", (512, 512), seed=100 + i)); labels.append(1)
     with pytest.warns(UserWarning, match="two different branches"):
         feats = metadata_features(paths)
-    res = content_blind_auc(feats, np.array(labels))
-    assert res["auc"] > VERDICT_THRESHOLDS["broken"]
-    assert res["verdict"] == "broken"
+    # The provenance is deliberately declined here, so the number comes back
+    # under the name that says so and `res["auc"]` is not there to be quoted.
+    res = content_blind_auc(feats, np.array(labels),
+                            quality_branches=BRANCH_PROVENANCE_NOT_VERIFIED)
+    assert res["auc_unverified_branch_provenance"] > VERDICT_THRESHOLDS["broken"]
+    assert res["verdict_unverified_branch_provenance"] == "broken"
+    assert res["verdict"] == "unverified_branch_provenance"
+    assert "auc" not in res
 
 
 def test_control_reports_clean_when_classes_are_indistinguishable(tmp_path):
@@ -219,7 +227,8 @@ def test_control_reports_clean_when_classes_are_indistinguishable(tmp_path):
     for i in range(40):
         paths.append(_photo(tmp_path / f"x{i}.png", (256, 256), seed=i))
         labels.append(i % 2)          # label uncorrelated with anything visible
-    res = content_blind_auc(metadata_features(paths), np.array(labels))
+    res = content_blind_auc(metadata_features(paths), np.array(labels),
+                            quality_branches=quality_estimator_branches(paths))
     assert res["verdict"] == "clean"
     assert res["auc"] < VERDICT_THRESHOLDS["suspect"]
 
@@ -227,7 +236,8 @@ def test_control_reports_clean_when_classes_are_indistinguishable(tmp_path):
 def test_result_includes_a_confidence_interval(tmp_path):
     paths = [_photo(tmp_path / f"y{i}.png", (256, 256), seed=i) for i in range(40)]
     labels = np.array([i % 2 for i in range(40)])
-    res = content_blind_auc(metadata_features(paths), labels)
+    res = content_blind_auc(metadata_features(paths), labels,
+                            quality_branches=quality_estimator_branches(paths))
     lo, hi = res["auc_ci"]
     assert lo <= res["auc"] <= hi
 
@@ -243,7 +253,8 @@ def test_thumbnails_separate_classes_that_differ_only_in_gross_appearance(tmp_pa
         p = str(tmp_path / f"blue{i}.png")
         arr = np.zeros((64, 64, 3), np.uint8); arr[..., 2] = 200 + i
         Image.fromarray(arr).save(p); paths.append(p); labels.append(1)
-    res = content_blind_auc(thumbnail_features(paths), np.array(labels))
+    res = content_blind_auc(thumbnail_features(paths), np.array(labels),
+                            quality_branches=NO_QUALITY_COLUMN)
     assert res["auc"] > VERDICT_THRESHOLDS["broken"]
 
 
@@ -285,7 +296,7 @@ def test_verdict_changes_where_the_published_thresholds_say_it_does(
     nothing.
     """
     features, labels = _graded_features(separation)
-    res = content_blind_auc(features, labels)
+    res = content_blind_auc(features, labels, quality_branches=NO_QUALITY_COLUMN)
     assert auc_lo < res["auc"] < auc_hi, f"case no longer straddles: auc={res['auc']}"
     assert res["verdict"] == expected
 
@@ -326,7 +337,8 @@ def test_preprocessing_is_fitted_inside_each_fold_not_on_the_full_array(
     monkeypatch.setattr(controls, "StandardScaler", RecordingScaler)
     features, labels = _graded_features(1.0, n_per_class=n_per_class)
     n = 2 * n_per_class
-    res = content_blind_auc(features, labels, n_splits=n_splits)
+    res = content_blind_auc(features, labels, n_splits=n_splits,
+                            quality_branches=NO_QUALITY_COLUMN)
 
     assert res["n_splits"] == n_splits
     assert seen, "the scaler was never fitted -- is it still in the pipeline?"
@@ -354,7 +366,7 @@ def test_the_classifier_receives_the_callers_array_untouched(monkeypatch):
 
     monkeypatch.setattr(controls, "cross_val_predict", spy)
     features, labels = _graded_features(1.0, n_per_class=50)
-    content_blind_auc(features, labels)
+    content_blind_auc(features, labels, quality_branches=NO_QUALITY_COLUMN)
 
     assert seen["X"] is features, "features were preprocessed before the split"
     assert seen["y"] is labels
@@ -367,7 +379,7 @@ def test_a_classifier_scored_on_its_own_training_data_would_be_caught(tmp_path):
     rng = np.random.default_rng(3)
     features = rng.normal(0.0, 1.0, (100, 20))
     labels = np.array([i % 2 for i in range(100)])
-    res = content_blind_auc(features, labels)
+    res = content_blind_auc(features, labels, quality_branches=NO_QUALITY_COLUMN)
     assert res["auc"] < VERDICT_THRESHOLDS["suspect"]
     assert res["verdict"] == "clean"
 
@@ -382,9 +394,10 @@ def test_the_seed_is_reproducible_and_actually_reaches_the_bootstrap():
     prove the seed was threaded through rather than ignored.
     """
     features, labels = _graded_features(1.0)
-    a = content_blind_auc(features, labels, seed=1234)
-    b = content_blind_auc(features, labels, seed=1234)
-    c = content_blind_auc(features, labels, seed=999)
+    kw = {"quality_branches": NO_QUALITY_COLUMN}
+    a = content_blind_auc(features, labels, seed=1234, **kw)
+    b = content_blind_auc(features, labels, seed=1234, **kw)
+    c = content_blind_auc(features, labels, seed=999, **kw)
 
     assert a["auc"] == b["auc"] and a["auc_ci"] == b["auc_ci"]
     assert c["auc"] == a["auc"]
@@ -438,9 +451,87 @@ def test_the_confound_threshold_is_a_boundary_not_a_decoration():
 
 
 def test_an_unchecked_result_says_so_rather_than_looking_checked():
+    """The caveat is in the KEY, not only in a string somebody has to read.
+
+    A quality column whose branches nobody recorded is in the same position as
+    one whose branches predict the label: the AUC cannot be vouched for. So it
+    gets the same defence -- `res["auc"]` raises `KeyError` instead of handing
+    over a figure that reads as checked once it is copied into a table.
+    """
     features, labels = _graded_features(1.4)
-    res = content_blind_auc(features, labels)
+    res = content_blind_auc(features, labels,
+                            quality_branches=BRANCH_PROVENANCE_NOT_VERIFIED)
+
     assert res["quality_branch_check"] == "not performed: no branch provenance supplied"
+    assert res["verdict"] == "unverified_branch_provenance"
+    assert res["verdict_unverified_branch_provenance"] == "broken"
+    assert res["auc_unverified_branch_provenance"] > VERDICT_THRESHOLDS["broken"]
+    lo, hi = res["auc_ci_unverified_branch_provenance"]
+    assert lo <= res["auc_unverified_branch_provenance"] <= hi
+    with pytest.raises(KeyError):
+        res["auc"]
+    with pytest.raises(KeyError):
+        res["auc_ci"]
+
+
+def test_features_with_no_quality_column_keep_their_plain_auc():
+    """`NO_QUALITY_COLUMN` must NOT rename anything.
+
+    The thumbnail control is the §4.2 headline and has no quality column at
+    all; caveating its AUC would be a false statement about a published number,
+    not a conservative one. The two sentinels therefore have to do different
+    things -- collapsing them into one is the failure this pins.
+    """
+    features, labels = _graded_features(1.4)
+    res = content_blind_auc(features, labels, quality_branches=NO_QUALITY_COLUMN)
+
+    assert res["auc"] > VERDICT_THRESHOLDS["broken"]
+    assert res["verdict"] == "broken"
+    assert res["quality_branch_check"] == "not applicable: caller declared no quality column"
+    assert not [k for k in res if k.endswith("_unverified_branch_provenance")]
+
+
+def test_quality_branches_has_no_default_and_the_error_names_both_opt_outs():
+    """The provenance-free path was the path of least resistance while the
+    argument had a default. Removing the default is the whole defence, so the
+    error has to be able to teach the caller which sentinel they want."""
+    features, labels = _graded_features(1.0, n_per_class=30)
+    with pytest.raises(ValueError) as exc:
+        content_blind_auc(features, labels)
+    msg = str(exc.value)
+    assert "NO_QUALITY_COLUMN" in msg
+    assert "BRANCH_PROVENANCE_NOT_VERIFIED" in msg
+    assert "quality_estimator_branches" in msg
+
+
+def test_a_bare_none_is_rejected_rather_than_read_as_no_provenance():
+    """`None` used to mean "skip the check". Silently keeping that reading
+    would restore the default this change removes; guessing which of the two
+    sentinels it meant would be worse."""
+    features, labels = _graded_features(1.0, n_per_class=30)
+    with pytest.raises(ValueError, match="does not say which case"):
+        content_blind_auc(features, labels, quality_branches=None)
+
+
+def test_an_unrecognised_sentinel_string_is_rejected():
+    features, labels = _graded_features(1.0, n_per_class=30)
+    with pytest.raises(ValueError, match="exact sentinel"):
+        content_blind_auc(features, labels, quality_branches="not-verified")
+
+
+def test_the_sentinel_is_checked_before_the_expensive_fit(monkeypatch):
+    """A typo must cost a millisecond, not a five-fold fit and 500 bootstrap
+    resamples -- the same reason `robustness_table` validates `metric` before
+    it scores the first rung."""
+    def explode(*a, **k):
+        raise AssertionError("cross_val_predict ran before the sentinel check")
+
+    monkeypatch.setattr(controls, "cross_val_predict", explode)
+    features, labels = _graded_features(1.0, n_per_class=30)
+    with pytest.raises(ValueError, match="exact sentinel"):
+        content_blind_auc(features, labels, quality_branches="typo")
+    with pytest.raises(ValueError, match="requires `quality_branches`"):
+        content_blind_auc(features, labels)
 
 
 # --------------------------------------------------------------------------
