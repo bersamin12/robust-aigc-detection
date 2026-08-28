@@ -10,29 +10,40 @@ test-time knowledge of the degradation. `acc_fixed` uses one threshold chosen
 on clean validation and frozen, which is the deployment condition. The gap
 between them is score drift under degradation.
 
-Three things this module refuses to do rather than do plausibly:
+Four things this module refuses to do rather than do plausibly:
 
 1. **Compare incomparable rungs.** `robustness_table` checks that every rung
    was scored over the same conditions, in the same order, on the same images,
-   and -- when the caller passes the feature banks -- routes them through
-   `eval.grid.assert_banks_comparable` as well. Differing view coverage turns a
-   rung comparison into a comparison of augmentation budgets, which invalidates
-   the §6.4 model-selection rule.
+   and routes the rungs' banks through `eval.grid.assert_banks_comparable`.
+   Differing view coverage turns a rung comparison into a comparison of
+   augmentation budgets, which invalidates the §6.4 model-selection rule.
+   `banks` is REQUIRED, because the frame-level checks cannot see the backbone
+   and cannot see the manifest either (`image_idx` is a positional index, so
+   two different manifests of equal length produce identical sets). A caller
+   with no banks passes `BANKS_NOT_VERIFIED`, which does not silence the gap
+   but records it: a `banks_verified = False` column and a banner on every
+   rendering.
 2. **Emit an unlabelled or wrongly-labelled tier.** The project runs two
-   evaluation tiers (`TIER_CONDITIONS`) and quoting a selection-tier number as
-   a final-report number is the failure mode. `tier` is required, checked
-   against a closed vocabulary, checked against the table's actual condition
-   coverage, carried as a real column (not only in the lossy `DataFrame.attrs`)
-   and re-checked when the table is written.
+   publishable evaluation tiers plus `smoke` (`TIER_CONDITIONS`), and quoting a
+   selection-tier number as a final-report number is the failure mode. `tier`
+   is required, checked against a closed vocabulary, checked against the
+   table's actual condition coverage, carried as a real column (not only in the
+   lossy `DataFrame.attrs`) and re-checked at render time.
 3. **Drop the unseen-severity distinction.** `HELDOUT_SEVERITY_CONDITIONS` is
    the difference between "robust to what we trained on" and "robust to what we
    did not". It is flagged per condition, aggregated into its own summary
    column, marked in the markdown and the heatmap, and its disappearance from a
    reshaped table is an error rather than a silent omission.
+4. **Let one rendering path be weaker than another.** `to_markdown` and
+   `save_heatmap` run the *same* gate, `_check_renderable`. The figure ships as
+   `docs/robustness_table.png` next to the markdown and is what a reader looks
+   at first, so it must not be the path where a relabelled tier or a dropped
+   column goes unnoticed.
 """
 from __future__ import annotations
 
-from typing import Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -42,13 +53,14 @@ from aigcdet.augment.recipes import FAMILIES, N_FAMILIES
 from aigcdet.augment.scenarios import (
     CORE_CONDITIONS, EVAL_GRID, HELDOUT_SEVERITY_CONDITIONS,
 )
-from aigcdet.eval.grid import assert_banks_comparable
 from aigcdet.eval.metrics import (
     accuracy_at_threshold, bootstrap_ci, expected_calibration_error, roc_auc,
     tpr_at_fpr,
 )
-from aigcdet.features.bank import FeatureBank
 from aigcdet.features.proxies import PROXY_NAMES
+
+if TYPE_CHECKING:  # `features.bank` drags in torch/PIL/cv2; only needed for types
+    from aigcdet.features.bank import FeatureBank
 
 #: The two evaluation tiers and the condition coverage each one is defined
 #: over (plan global constraints). The ablation/selection tier runs the full
@@ -57,10 +69,55 @@ from aigcdet.features.proxies import PROXY_NAMES
 #: ~13.8k benchmark over the fifteen core conditions, once. The mapping is the
 #: mechanism that makes a *wrongly*-labelled table impossible, not merely a
 #: docstring: a twenty-condition table cannot claim `final_report`.
-TIER_CONDITIONS: dict[str, tuple[str, ...]] = {
+#:
+#: `smoke` is the deliberate third entry, and its coverage is `None` meaning
+#: "any subset". Plan 4 needs a three-condition smoke run, and the alternative
+#: to a first-class tier for it is a bypass around the coverage check -- which
+#: is precisely how a three-condition smoke number reaches a results table.
+#: Instead it is a tier that renders with `NOT FOR PUBLICATION` stamped on both
+#: the markdown and the figure.
+TIER_CONDITIONS: dict[str, tuple[str, ...] | None] = {
     "ablation": tuple(EVAL_GRID),
     "final_report": tuple(CORE_CONDITIONS),
+    "smoke": None,
 }
+
+#: Tiers whose output must never be quoted. Rendered with a banner.
+UNPUBLISHABLE_TIERS: frozenset[str] = frozenset({"smoke"})
+
+#: Banner stamped on any rendering of an unpublishable tier.
+NOT_FOR_PUBLICATION = "NOT FOR PUBLICATION"
+
+#: Banner stamped on any rendering built without the bank-level check.
+UNVERIFIED_BANNER = "bank-level comparability NOT verified"
+
+#: The explicit opt-out for `robustness_table`'s required `banks` argument.
+#:
+#: `banks` is required because the frame-level checks cannot cover two of
+#: `eval.grid._COMPARABLE_KEYS`. They cannot see `backbone` -- a score frame
+#: records none -- and they cannot see `manifest_sha256`, because `score_grid`
+#: fills `image_idx` from `bank.meta["image_idx"]`, the POSITIONAL manifest
+#: index: two banks over two DIFFERENT manifests of equal length produce
+#: byte-identical `image_idx` sets, so comparing those sets proves nothing
+#: about which images were scored. A rung pair straddling a manifest re-split
+#: therefore passes every frame-level check with one rung's labels misaligned.
+#:
+#: Callers who genuinely have no banks pass this sentinel. It does not silence
+#: the concern; it records it, as a `banks_verified = False` column and a
+#: banner on every rendering. An unverified comparison must be visibly
+#: unverified rather than indistinguishable from a verified one.
+BANKS_NOT_VERIFIED = "banks-not-verified"
+
+#: Sentinel default marking `banks` as required while still allowing a helpful
+#: error rather than a bare TypeError that never mentions BANKS_NOT_VERIFIED.
+_REQUIRED = object()
+
+#: `condition_metrics` columns that may be tabulated as a robustness metric.
+#: Validated BEFORE any rung is scored: `heldout_severity` is a flag and `n`,
+#: `boot_seed`, `boot_n` are provenance, and none of the four is a metric.
+METRIC_COLUMNS: tuple[str, ...] = (
+    "auc", "auc_lo", "auc_hi", "tpr_at_1pct", "acc_oracle", "acc_fixed", "ece",
+)
 
 #: Bootstrap settings for every reported AUC (spec §6.1: 1000 resamples, 95%
 #: CI). The seed is a parameter and is recorded in the table, because a CI that
@@ -77,7 +134,7 @@ HELDOUT_MARK: str = " (unseen)"
 #: `_condition_columns` can separate the two from the column names alone --
 #: which survives any reshape, unlike `DataFrame.attrs`.
 _SUMMARY_PREFIXES = ("robust_", "heldout_", "seen_")
-_SUMMARY_NAMES = ("tier", "n_images", "boot_seed", "boot_n")
+_SUMMARY_NAMES = ("tier", "n_images", "boot_seed", "boot_n", "banks_verified")
 
 #: Which proxy validates which degradation family, and which WAY the proxy is
 #: expected to move as the learned severity rises (spec §3.4).
@@ -95,6 +152,10 @@ _PROXY_FOR_FAMILY: dict[str, tuple[str, int]] = {
     "blur": ("laplacian_var", -1),
     "noise": ("noise_floor", +1),
 }
+
+#: The families a model-free proxy exists for, exported so callers do not
+#: hardcode the triple and drift from `_PROXY_FOR_FAMILY`.
+PROXIED_FAMILIES: tuple[str, ...] = tuple(_PROXY_FOR_FAMILY)
 
 
 # --- thresholds ------------------------------------------------------------
@@ -223,7 +284,12 @@ def _check_tier(tier: str) -> None:
 def _check_tier_coverage(tier: str, conditions: Sequence[str]) -> None:
     """The tier's claim must match the conditions actually evaluated."""
     _check_tier(tier)
-    expected = set(TIER_CONDITIONS[tier])
+    allowed = TIER_CONDITIONS[tier]
+    if allowed is None:
+        # `smoke` is defined over whatever was run; its renderings carry a
+        # NOT FOR PUBLICATION banner instead of a coverage guarantee.
+        return
+    expected = set(allowed)
     got = set(map(str, conditions))
     if got != expected:
         missing, extra = sorted(expected - got), sorted(got - expected)
@@ -231,8 +297,8 @@ def _check_tier_coverage(tier: str, conditions: Sequence[str]) -> None:
             f"tier {tier!r} is defined over {len(expected)} conditions but the "
             f"table covers {len(got)}: missing {missing}, unexpected {extra}. "
             "The tier label must describe the evaluation that was actually run "
-            f"(the tiers are: "
-            f"{ {t: len(c) for t, c in TIER_CONDITIONS.items()} }).")
+            "(condition counts per tier: "
+            f"{ {t: ('any' if c is None else len(c)) for t, c in TIER_CONDITIONS.items()} }).")
 
 
 def _scored_conditions(scores: pd.DataFrame) -> list[str]:
@@ -279,7 +345,7 @@ def _check_rungs_comparable(per_rung: Mapping[str, pd.DataFrame]) -> list[str]:
     return ref_conditions
 
 
-def _check_banks(banks: Mapping[str, FeatureBank], per_rung: Mapping[str, pd.DataFrame],
+def _check_banks(banks: Mapping[str, "FeatureBank"], per_rung: Mapping[str, pd.DataFrame],
                  conditions: Sequence[str]) -> None:
     """Route the rungs' banks through the R24 guard, then add what it cannot say.
 
@@ -295,6 +361,12 @@ def _check_banks(banks: Mapping[str, FeatureBank], per_rung: Mapping[str, pd.Dat
         raise ValueError(
             f"banks cover rungs {sorted(banks)} but the scores cover "
             f"{sorted(per_rung)}; pass one bank per rung or none at all")
+    # Imported here, not at module scope: `eval.grid` (and `features.bank`,
+    # hence the TYPE_CHECKING import above) pull in torch, PIL, tqdm and cv2,
+    # which a caller that only wants to render an already-computed table
+    # should not have to pay for.
+    from aigcdet.eval.grid import assert_banks_comparable
+
     ordered = [banks[rung] for rung in per_rung]
     assert_banks_comparable(ordered)
     for rung, bank in zip(per_rung, ordered):
@@ -319,12 +391,26 @@ def _check_banks(banks: Mapping[str, FeatureBank], per_rung: Mapping[str, pd.Dat
                 f"{list(bank_conditions)} but its scores cover "
                 f"{list(conditions)}; the banks passed do not belong to these "
                 "scores")
+        # The condition axis matching is not enough: a 5k bank sits happily
+        # beside 13.8k score frames, which is a different evaluation tier
+        # wearing the right condition list.
+        scores = per_rung[rung]
+        n_scored = (int(scores["image_idx"].nunique())
+                    if "image_idx" in scores.columns else None)
+        n_bank = config.get("n_images")
+        if n_scored is not None and n_bank is not None and int(n_bank) != n_scored:
+            raise ValueError(
+                f"the bank for rung {rung!r} holds {int(n_bank)} images but its "
+                f"scores cover {n_scored} distinct image_idx; the banks passed "
+                "do not belong to these scores (a bank from a different "
+                "evaluation tier will match on conditions and not on rows)")
 
 
 def robustness_table(per_rung: Mapping[str, pd.DataFrame], tier: str,
                      metric: str = "auc", seed: int = DEFAULT_BOOT_SEED,
                      n_boot: int = DEFAULT_N_BOOT,
-                     banks: Mapping[str, FeatureBank] | None = None) -> pd.DataFrame:
+                     banks: Mapping[str, "FeatureBank"] | str = _REQUIRED,
+                     ) -> pd.DataFrame:
     """Rungs x conditions for one metric, plus summary and provenance columns.
 
     Summary columns, named after the metric so a TPR mean is never labelled as
@@ -340,11 +426,44 @@ def robustness_table(per_rung: Mapping[str, pd.DataFrame], tier: str,
     survive a reshape or a round trip through CSV, and a table whose tier went
     missing in transit is one whose numbers can be quoted at the wrong tier.
 
-    Pass `banks` (rung -> FeatureBank) whenever the caller holds them: the
-    frame-level checks cannot see the backbone a rung was scored on.
+    `banks` (rung -> FeatureBank) is REQUIRED. The frame-level checks cover
+    the condition axis and therefore `n_views`, but they cannot cover the other
+    two keys `eval.grid.assert_banks_comparable` compares. They cannot see
+    `backbone`, because a score frame records none. And they cannot see
+    `manifest_sha256`, because `score_grid` fills `image_idx` from
+    `bank.meta["image_idx"]` -- the POSITIONAL manifest index -- so two banks
+    built over two DIFFERENT manifests of equal length yield byte-identical
+    `image_idx` sets. A rung pair straddling a manifest re-split therefore
+    passes every frame-level check with one rung's labels misaligned, and the
+    §6.4 headline is then chosen from it. Defaulting `banks` to "skip the
+    check" made that failure the path of least resistance, so there is no
+    default; a caller with no banks passes `BANKS_NOT_VERIFIED`, which records
+    the gap in a `banks_verified` column and banners every rendering.
     """
     if not per_rung:
         raise ValueError("per_rung is empty; there is nothing to compare")
+    if banks is _REQUIRED:
+        raise ValueError(
+            "robustness_table requires `banks`: pass {rung: FeatureBank} so the "
+            "rungs go through eval.grid.assert_banks_comparable, or pass "
+            "banks=BANKS_NOT_VERIFIED to build the table anyway. The frame-level "
+            "checks cannot see the backbone, and cannot see the manifest either "
+            "(image_idx is a positional index, so two different manifests of "
+            "equal length look identical). BANKS_NOT_VERIFIED is not a way to "
+            "silence that -- it stamps the table and every rendering of it as "
+            "unverified.")
+    if isinstance(banks, str):
+        if banks != BANKS_NOT_VERIFIED:
+            raise ValueError(
+                f"banks must be a {{rung: FeatureBank}} mapping or the exact "
+                f"sentinel BANKS_NOT_VERIFIED, got {banks!r}")
+        banks_verified = False
+    elif isinstance(banks, Mapping):
+        banks_verified = True
+    else:
+        raise ValueError(
+            f"banks must be a {{rung: FeatureBank}} mapping or the exact "
+            f"sentinel BANKS_NOT_VERIFIED, got {type(banks).__name__}")
     _check_tier(tier)
     conditions = _check_rungs_comparable(per_rung)
     _check_tier_coverage(tier, conditions)
@@ -354,7 +473,13 @@ def robustness_table(per_rung: Mapping[str, pd.DataFrame], tier: str,
             f"condition name(s) {colliding} collide with the table's reserved "
             f"summary columns (names {list(_SUMMARY_NAMES)}, prefixes "
             f"{list(_SUMMARY_PREFIXES)}); rename the condition")
-    if banks is not None:
+    if metric not in METRIC_COLUMNS:
+        # Checked BEFORE the first rung is scored: validating inside the loop
+        # spends a full 20 x n_boot resampling pass before rejecting the call,
+        # and `heldout_severity` -- a bool flag, not a metric -- passed it.
+        raise ValueError(f"unknown metric {metric!r}; it must be one of "
+                         f"{list(METRIC_COLUMNS)}")
+    if banks_verified:
         _check_banks(banks, per_rung, conditions)
 
     heldout = [c for c in conditions if c in HELDOUT_SEVERITY_CONDITIONS]
@@ -364,9 +489,6 @@ def robustness_table(per_rung: Mapping[str, pd.DataFrame], tier: str,
     rows = {}
     for rung, scores in per_rung.items():
         m = condition_metrics(scores, seed=seed, n_boot=n_boot).set_index("condition")
-        if metric not in m.columns:
-            raise ValueError(f"unknown metric {metric!r}; available: "
-                             f"{[c for c in m.columns if c != 'heldout_severity']}")
         row = {c: float(m.loc[c, metric]) for c in conditions}
         for label, subset in (("robust", degraded), ("heldout", heldout),
                               ("seen", seen)):
@@ -378,6 +500,7 @@ def robustness_table(per_rung: Mapping[str, pd.DataFrame], tier: str,
                               else int(m["n"].max()))
         row["boot_seed"] = seed
         row["boot_n"] = n_boot
+        row["banks_verified"] = banks_verified
         rows[rung] = row
 
     table = pd.DataFrame.from_dict(rows, orient="index")
@@ -398,6 +521,7 @@ def _tier_of(table: pd.DataFrame) -> str:
                 f"the table mixes evaluation tiers {values}; rungs from "
                 "different tiers were never evaluated on the same thing and "
                 "must not share a table")
+        _check_tier(values[0])
         return values[0]
     attr = table.attrs.get("tier")
     if attr is None:
@@ -405,6 +529,7 @@ def _tier_of(table: pd.DataFrame) -> str:
             "the table states no evaluation tier: it has neither a 'tier' "
             "column nor a 'tier' entry in attrs. Build it with "
             "robustness_table(..., tier=...) rather than labelling it by hand.")
+    _check_tier(str(attr))
     return str(attr)
 
 
@@ -442,7 +567,9 @@ def _check_heldout_marking(table: pd.DataFrame, tier: str) -> list[str]:
     rendered output, and the unseen-severity columns are the ones a reader
     would most notice the absence of only if told.
     """
-    expected = sorted(set(TIER_CONDITIONS[tier]) & set(HELDOUT_SEVERITY_CONDITIONS))
+    allowed = TIER_CONDITIONS[tier]
+    expected = ([] if allowed is None
+                else sorted(set(allowed) & set(HELDOUT_SEVERITY_CONDITIONS)))
     present = [c for c in _condition_columns(table)
                if c in HELDOUT_SEVERITY_CONDITIONS]
     dropped = sorted(set(expected) - set(present))
@@ -456,8 +583,63 @@ def _check_heldout_marking(table: pd.DataFrame, tier: str) -> list[str]:
     return [c for c in _condition_columns(table) if c in HELDOUT_SEVERITY_CONDITIONS]
 
 
+def _banks_verified(table: pd.DataFrame) -> bool:
+    """Whether this table went through the bank-level comparability check.
+
+    A table with no `banks_verified` column predates the column or was built by
+    hand, and is treated as unverified: the banner is the safe default, since
+    the cost of an unnecessary one is a line of text and the cost of a missing
+    one is an unverified comparison that reads as a verified one.
+    """
+    if "banks_verified" not in table.columns:
+        return False
+    return bool(table["banks_verified"].astype(bool).all())
+
+
+def _check_renderable(table: pd.DataFrame, tier: str) -> tuple[list[str], list[str]]:
+    """Every check a rendering must pass, for EVERY renderer.
+
+    Factored out because `save_heatmap` used to perform none of them, which
+    made the PNG a complete bypass of the guarantees `to_markdown` enforces --
+    and `docs/robustness_table.png` is a shipped deliverable a reader looks at
+    before the markdown. A relabelled tier or a dropped unseen-severity column
+    was invisible in the figure and caught in the table, which is the wrong way
+    round: the figure is the thing that gets screenshotted.
+
+    Returns the marked unseen-severity conditions and the banner lines the
+    rendering must carry.
+    """
+    _check_tier(tier)
+    carried = _tier_of(table)
+    if carried != tier:
+        raise ValueError(
+            f"asked to render this table as tier {tier!r} but it was built as "
+            f"{carried!r}. The tier is a property of the evaluation that was "
+            "run, not a label chosen at render time; rebuild the table at the "
+            "tier you mean.")
+    marked = _check_heldout_marking(table, tier)
+    _check_tier_coverage(tier, _condition_columns(table))
+    banners = []
+    if tier in UNPUBLISHABLE_TIERS:
+        banners.append(NOT_FOR_PUBLICATION)
+    if not _banks_verified(table):
+        banners.append(UNVERIFIED_BANNER)
+    return marked, banners
+
+
 def _display_label(name: str) -> str:
     return f"{name}{HELDOUT_MARK}" if name in HELDOUT_SEVERITY_CONDITIONS else str(name)
+
+
+def _escape(text: str) -> str:
+    """Escape the cell separator.
+
+    Rung names are caller-supplied dict keys. An unescaped `|` in one produces
+    a row with more cells than the header has columns, which shifts every value
+    one column left of its heading -- a silent, total misattribution of the
+    numbers.
+    """
+    return str(text).replace("|", r"\|")
 
 
 def _format(value) -> str:
@@ -478,11 +660,12 @@ def _markdown_table(table: pd.DataFrame) -> str:
     here, so the pandas route raises ImportError at write time. Writing it out
     also lets the unseen-severity conditions be marked in the header.
     """
-    header = ["rung"] + [_display_label(str(c)) for c in table.columns]
+    header = ["rung"] + [_escape(_display_label(str(c))) for c in table.columns]
     lines = ["| " + " | ".join(header) + " |",
              "| " + " | ".join("---" for _ in header) + " |"]
-    for rung, row in table.iterrows():
-        lines.append("| " + " | ".join([str(rung)] + [_format(v) for v in row]) + " |")
+    for rung in table.index:
+        cells = [_escape(rung)] + [_format(table.loc[rung, c]) for c in table.columns]
+        lines.append("| " + " | ".join(cells) + " |")
     return "\n".join(lines)
 
 
@@ -495,6 +678,9 @@ TIER_DESCRIPTIONS: dict[str, str] = {
     "final_report": ("Final-report tier: the complete benchmark over the 15 "
                      "core conditions, run once. Numbers quoted in the report "
                      "come from here."),
+    "smoke": ("Smoke tier: an arbitrary subset of conditions on an arbitrary "
+              "number of rows, run to prove the pipeline executes. The numbers "
+              "are not an evaluation of anything and must not be quoted."),
 }
 
 
@@ -506,17 +692,7 @@ def to_markdown(table: pd.DataFrame, tier: str, path: str) -> None:
     selection-tier table as a final-report one is precisely the mistake the
     label exists to prevent, and it is invisible once written.
     """
-    _check_tier(tier)
-    carried = _tier_of(table)
-    if carried != tier:
-        raise ValueError(
-            f"asked to write this table as tier {tier!r} but it was built as "
-            f"{carried!r}. The tier is a property of the evaluation that was "
-            "run, not a label chosen at write time; rebuild the table at the "
-            "tier you mean.")
-    marked = _check_heldout_marking(table, tier)
-    conditions = _condition_columns(table)
-    _check_tier_coverage(tier, conditions)
+    marked, banners = _check_renderable(table, tier)
 
     seeds = sorted(set(table["boot_seed"].tolist())) if "boot_seed" in table else []
     boots = sorted(set(table["boot_n"].tolist())) if "boot_n" in table else []
@@ -525,8 +701,15 @@ def to_markdown(table: pd.DataFrame, tier: str, path: str) -> None:
         if len(seeds) == 1 and len(boots) == 1 else
         "**Bootstrap 95% CIs:** provenance not recorded in this table.\n\n")
 
-    with open(path, "w") as f:
+    # `encoding="utf-8"` is not decoration: the body below contains the section
+    # sign, and a bare `open(path, "w")` encodes through the locale codec. Under
+    # LC_ALL=C -- the default in many container and CI images, and Kaggle is in
+    # this project's critical path -- that is ANSI_X3.4-1968 and the write dies
+    # with UnicodeEncodeError. Same crash-at-write-time class as `tabulate`.
+    with open(path, "w", encoding="utf-8") as f:
         f.write("# Robustness table\n\n")
+        for banner in banners:
+            f.write(f"> **{banner.upper()}**\n\n")
         f.write(f"**Evaluation tier:** {tier}\n\n")
         f.write(f"{TIER_DESCRIPTIONS[tier]}\n\n")
         f.write(provenance)
@@ -543,6 +726,11 @@ def save_heatmap(table: pd.DataFrame, path: str) -> None:
     Only condition columns are plotted: the summary and provenance columns are
     on other scales (or are strings) and would either wash out the colour range
     or fail to cast.
+
+    Runs `_check_renderable`, the same gate `to_markdown` runs, and carries the
+    same banners. The figure is a shipped deliverable that a reader looks at
+    before the table, so it must not be the one rendering path where a
+    relabelled tier or a dropped unseen-severity column goes unnoticed.
     """
     import matplotlib
     matplotlib.use("Agg")  # never touch a display; this runs headless in CI
@@ -552,6 +740,7 @@ def save_heatmap(table: pd.DataFrame, path: str) -> None:
     if not cols:
         raise ValueError("the table has no condition columns to plot")
     tier = _tier_of(table)
+    _, banners = _check_renderable(table, tier)
     metric = _metric_of(table)
     vmin, vmax = heatmap_limits(metric)
 
@@ -562,7 +751,10 @@ def save_heatmap(table: pd.DataFrame, path: str) -> None:
     ax.set_xticklabels([_display_label(str(c)) for c in cols], rotation=90, fontsize=7)
     ax.set_yticks(range(len(table)))
     ax.set_yticklabels([str(i) for i in table.index], fontsize=8)
-    ax.set_title(f"{metric} by condition (tier: {tier})")
+    title = f"{metric} by condition (tier: {tier})"
+    if banners:
+        title += "\n" + " | ".join(b.upper() for b in banners)
+    ax.set_title(title, fontsize=9)
     fig.colorbar(im, ax=ax, shrink=0.8)
     fig.tight_layout()
     fig.savefig(path, dpi=150)
