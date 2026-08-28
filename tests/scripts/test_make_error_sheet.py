@@ -180,14 +180,58 @@ def test_the_target_fpr_flag_moves_the_threshold_and_is_recorded(tmp_path):
 
 
 def test_the_table_says_its_threshold_was_fitted_on_the_rows_it_reports(tmp_path):
-    """The aggregate rate is `--target-fpr` by construction; only the relative
-    concentration across sources carries information, and the file must say so
-    rather than leave a reader to infer it."""
+    """The aggregate rate measures the threshold, not the detector; only the
+    relative concentration across sources carries information, and the file
+    must say so rather than leave a reader to infer it."""
     mes.main(_argv(tmp_path))
     text = (tmp_path / "errors" / "fp_by_source.md").read_text(encoding="utf-8")
     assert "fitted on the very rows tabulated below" in text
-    assert "by construction" in text
+    assert "measures the threshold rather than the detector" in text
     assert "RELATIVE concentration" in text
+
+
+def test_the_realised_aggregate_rate_is_printed_rather_than_asserted(tmp_path):
+    """The file used to claim the aggregate `fp_rate` was `--target-fpr` "by
+    construction". It is not, and cannot be: `threshold_at_fpr` returns the
+    lowest threshold whose FPR does not EXCEED the target, so the realised rate
+    is bounded above by it and quantised to 1/n_authentic. On this fixture's 6
+    authentic rows a 1% target can only realise 0%.
+
+    Kills the mutant that restores the "by construction" sentence, and the one
+    that prints the target as if it were the realised rate.
+    """
+    mes.main(_argv(tmp_path))
+    text = (tmp_path / "errors" / "fp_by_source.md").read_text(encoding="utf-8")
+    assert "Realised aggregate FP rate:** 0.00% (0 of 6 authentic rows)" in text
+    assert "against a 1.0% target" in text
+    assert "16.67%" in text          # the finest rate 6 authentic rows express
+    assert "by construction" not in text or "never equal to the target" in text
+
+
+def test_the_realised_rate_is_computed_not_copied_from_the_target(tmp_path):
+    """A looser target really does produce false positives, and the file
+    reports the number it GOT rather than the number it asked for.
+
+    40% is chosen because 6 authentic rows cannot express it: the realised rate
+    lands on 33.33%, two ticks of the 1/6 grid below the target. At 50% the two
+    would coincide and the mutant that prints the target survives.
+    """
+    mes.main(_argv(tmp_path, **{"--target-fpr": "0.4"}))
+    text = (tmp_path / "errors" / "fp_by_source.md").read_text(encoding="utf-8")
+    assert "Realised aggregate FP rate:** 33.33% (2 of 6 authentic rows)" in text
+    assert "against a 40.0% target" in text
+
+
+def test_realised_fp_rate_aggregates_over_every_source():
+    """Kills a mutant that averages the per-source rates instead of pooling the
+    counts: with an empty-denominator source in the frame the mean is NaN, and
+    with unequal sources it is not the aggregate rate at all."""
+    by_source = pd.DataFrame({"source": ["coco", "dalle", "laion"],
+                              "n_images": [10, 10, 90],
+                              "n_authentic": [10, 0, 90],
+                              "n_fp": [1, 0, 9],
+                              "fp_rate": [0.1, float("nan"), 0.1]})
+    assert mes.realised_fp_rate(by_source) == (10, 100, 0.1)
 
 
 def test_the_table_is_written_as_utf8_under_a_c_locale(tmp_path):
