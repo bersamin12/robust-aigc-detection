@@ -14,15 +14,22 @@ Writes, per condition:
   alongside the sheets rather than as an afterthought.
 
 The threshold behind `fp_by_source.md` is a DIAGNOSTIC threshold, stated in
-the file: by default the one giving 1% FPR on the authentic rows of this
-condition. It is not the deployment operating point (that comes from
-`calibrate.policy`, fitted on internal validation) and the file says so, so
-the number is never quoted as a deployed false-positive rate.
+the file, and it is fitted ON THE VERY ROWS the file then reports. Two
+consequences the file spells out rather than leaving to the reader:
+
+- the AGGREGATE false-positive rate across all sources is `--target-fpr` (1% by
+  default) BY CONSTRUCTION. It measures the threshold, not the detector. Only
+  the RELATIVE concentration across sources carries information -- which is
+  what §6.6 asks this sheet for.
+- it is not the deployment operating point. That one comes from
+  `calibrate.policy`, fitted on internal validation and shipped with the
+  model; quoting this number as a deployed false-positive rate would be wrong.
 """
 from __future__ import annotations
 
 import argparse
 import os
+import sys
 
 import numpy as np
 import pandas as pd
@@ -81,6 +88,39 @@ def attach_paths(scores: pd.DataFrame, meta: pd.DataFrame) -> pd.DataFrame:
     return merged
 
 
+def write_fp_by_source(path: str, by_source: pd.DataFrame, condition: str,
+                       threshold: float, provenance: str, splits: dict,
+                       target_fpr: float | None) -> None:
+    """Write `fp_by_source.md`, as UTF-8.
+
+    `encoding="utf-8"` is not decoration: a source name, a generator name or a
+    path in this project may be non-ASCII, and a bare `open(path, "w")` encodes
+    through the locale codec -- under LC_ALL=C that is ANSI_X3.4-1968 and the
+    write dies with UnicodeEncodeError after both contact sheets have already
+    been rendered.
+    """
+    fitted = ("" if target_fpr is None else
+              f"It was fitted on the very rows tabulated below, so the "
+              f"AGGREGATE `fp_rate` across all sources is {target_fpr:.1%} by "
+              "construction and measures the threshold rather than the "
+              "detector. Only the RELATIVE concentration across sources carries "
+              "information. ")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("# False-positive rate by source\n\n")
+        f.write(f"**Condition:** `{condition}`  \n")
+        f.write(f"**Rows by split:** {splits or 'not recorded in this bank'}\n\n")
+        f.write("Concentration in one source indicates a confound in that "
+                "dataset, not a detector weakness (spec §6.6).\n\n")
+        f.write(f"**Diagnostic threshold:** {threshold:.6f} -- {provenance}. "
+                + fitted +
+                "This is NOT the deployment operating point; that one is fitted "
+                "on internal validation by `calibrate.policy` and reported "
+                "there.\n\n")
+        f.write("`fp_rate` is blank for a source that contributed no authentic "
+                "image: an empty denominator is not a rate of zero.\n\n")
+        f.write(markdown_table(by_source) + "\n")
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -97,8 +137,26 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
+def _make_stdout_encoding_safe() -> None:
+    """Never let a log line kill a run that has already done the work.
+
+    Several messages below quote spec sections (`§`), and error strings from
+    `eval.errors` do too. Python encodes stdout with the LOCALE codec and
+    `errors="strict"`; under LC_ALL=C -- the default in many container and CI
+    images -- that is ASCII, and a single `print` raises UnicodeEncodeError
+    after the artefacts are already on disk. stderr already defaults to
+    `backslashreplace` for exactly this reason; this gives stdout the same
+    treatment rather than making the messages illegible to avoid the codec.
+    """
+    try:
+        sys.stdout.reconfigure(errors="backslashreplace")
+    except (AttributeError, OSError):      # not a reconfigurable stream
+        pass
+
+
 def main(argv=None) -> str:
     a = build_parser().parse_args(argv)
+    _make_stdout_encoding_safe()
     os.makedirs(a.out, exist_ok=True)
 
     scores = pd.read_parquet(a.scores)
@@ -138,19 +196,8 @@ def main(argv=None) -> str:
     splits = (scores.groupby("split").size().to_dict()
               if "split" in scores.columns else {})
     out_md = os.path.join(a.out, "fp_by_source.md")
-    with open(out_md, "w") as f:
-        f.write("# False-positive rate by source\n\n")
-        f.write(f"**Condition:** `{a.condition}`  \n")
-        f.write(f"**Rows by split:** {splits or 'not recorded in this bank'}\n\n")
-        f.write("Concentration in one source indicates a confound in that "
-                "dataset, not a detector weakness.\n\n")
-        f.write(f"**Diagnostic threshold:** {threshold:.6f} -- {provenance}. "
-                "This is NOT the deployment operating point; that one is fitted "
-                "on internal validation by `calibrate.policy` and reported "
-                "there.\n\n")
-        f.write("`fp_rate` is blank for a source that contributed no authentic "
-                "image: an empty denominator is not a rate of zero.\n\n")
-        f.write(markdown_table(by_source) + "\n")
+    write_fp_by_source(out_md, by_source, a.condition, threshold, provenance,
+                       splits, None if a.threshold is not None else a.target_fpr)
     print(by_source.to_string(index=False))
     print(f"wrote {out_md}")
     return out_md

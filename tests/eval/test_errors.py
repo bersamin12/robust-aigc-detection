@@ -11,8 +11,9 @@ import pytest
 from PIL import Image
 
 from aigcdet.eval.errors import (
-    ELIGIBLE_RUNGS, SELECTION_METRIC, SELECTION_POPULATION, SELECTION_SPLITS,
-    IneligibleRungWarning, contact_sheet, fp_rate_by_source,
+    ELIGIBLE_RUNGS, SELECTION_METRIC, SELECTION_POPULATION, SELECTION_RULE,
+    SELECTION_SPLITS, SELECTION_TARGET_FPR, IneligibleRungWarning,
+    check_selection_population, contact_sheet, fp_rate_by_source,
     heldout_robust_tpr, select_headline, selection_report, top_errors,
 )
 
@@ -209,6 +210,29 @@ def test_select_headline_accepts_the_population_run_ablation_declares():
     assert select_headline(results) == "a3"
 
 
+def test_select_headline_refuses_a_declared_target_fpr_that_is_not_one_percent():
+    """The operating point is the one part of the rule a caller can move
+    without changing anything visible: the metric key still says `_at_1pct`,
+    the value is still in [0, 1], and `selection.json` still quotes
+    SELECTION_RULE. A declared mismatch is therefore refused."""
+    results = {"a3": {SELECTION_METRIC: 0.9, "target_fpr": 0.05},
+               "a4": {SELECTION_METRIC: 0.6, "target_fpr": 0.05}}
+    with pytest.raises(ValueError, match="declares target_fpr"):
+        select_headline(results)
+    ok = {"a3": {SELECTION_METRIC: 0.9, "target_fpr": SELECTION_TARGET_FPR}}
+    assert select_headline(ok) == "a3"
+
+
+def test_the_recorded_rule_is_rendered_from_the_constant_it_describes():
+    """`SELECTION_RULE` is what `selection.json` quotes as the rule that was
+    used. Kills a hardcoded "1% FPR" string that would keep saying 1% after the
+    constant moved -- the artefact whose purpose is to record the rule stating
+    a rule that was not used."""
+    assert f"{SELECTION_TARGET_FPR:.0%} FPR" in SELECTION_RULE
+    assert selection_report({"a3": {SELECTION_METRIC: 0.5}})["target_fpr"] == \
+        SELECTION_TARGET_FPR
+
+
 def test_select_headline_refuses_a_nan_metric():
     """NaN loses every `>` comparison, so a rung whose metric failed to compute
     would be silently ranked last rather than reported as uncomputed."""
@@ -393,6 +417,30 @@ def test_heldout_robust_tpr_refuses_an_authentic_row_in_the_heldout_split():
         heldout_robust_tpr(bad, splits)
 
 
+def test_check_selection_population_accepts_a_bank_holding_both_splits():
+    _, splits = _grid_scores()
+    check_selection_population(splits)          # must not raise
+
+
+@pytest.mark.parametrize("absent", ["val_internal", "heldout_generator"])
+def test_check_selection_population_names_the_split_that_is_missing(absent):
+    """The gate exists so an operator is told in the first millisecond rather
+    than after a rung has trained, so its message has to name what is missing
+    and what the bank does hold."""
+    _, splits = _grid_scores()
+    splits = np.where(splits == absent, "benchmark", splits)
+    with pytest.raises(ValueError) as exc:
+        check_selection_population(splits)
+    assert absent in str(exc.value)
+    assert "benchmark" in str(exc.value)
+
+
+def test_check_selection_population_rejects_a_benchmark_only_bank():
+    _, splits = _grid_scores()
+    with pytest.raises(ValueError, match="demo set"):
+        check_selection_population(np.full(len(splits), "benchmark"))
+
+
 def test_heldout_robust_tpr_refuses_splits_that_do_not_cover_the_frame():
     scores, splits = _grid_scores()
     with pytest.raises(ValueError, match="must be the eval bank's own"):
@@ -418,10 +466,43 @@ def test_contact_sheet_writes_a_readable_png(tmp_path):
         assert im.size[0] > 0 and im.size[1] > 0
 
 
-def test_contact_sheet_accepts_annotations_one_per_row(tmp_path):
-    out = tmp_path / "annotated.png"
-    contact_sheet(_image_rows(tmp_path), str(out), ["a", "b", "c"])
-    assert out.exists()
+def test_contact_sheet_renders_the_annotations_it_is_given(tmp_path):
+    """`out.exists()` is not evidence that `annotations` was used for anything.
+
+    Kills the mutant whose `set_title` always formats `row.score` and discards
+    the argument -- under it the FN sheet silently loses the generator name
+    that makes it readable. Rendering is asserted deterministic FIRST, so the
+    inequality that follows can only come from the text.
+    """
+    rows = _image_rows(tmp_path)
+    a, again, other, unlabelled = (tmp_path / f"{n}.png"
+                                   for n in ("a", "again", "other", "plain"))
+    contact_sheet(rows, str(a), ["alpha", "beta", "gamma"])
+    contact_sheet(rows, str(again), ["alpha", "beta", "gamma"])
+    contact_sheet(rows, str(other), ["zulu", "yankee", "xray"])
+    contact_sheet(rows, str(unlabelled))
+
+    assert a.read_bytes() == again.read_bytes(), "rendering is not deterministic"
+    assert a.read_bytes() != other.read_bytes(), "annotations were not rendered"
+    assert a.read_bytes() != unlabelled.read_bytes(), \
+        "annotations were ignored in favour of the score fallback"
+
+
+def test_contact_sheet_forces_the_agg_backend(tmp_path):
+    """Headless by construction, whatever the environment asked for.
+
+    Kills the mutant that drops `matplotlib.use("Agg")`: with MPLBACKEND
+    pointing at an interactive backend, matplotlib's own auto-fallback hides
+    the omission on a machine with no display, but a machine that CAN open one
+    would have the ablation try to.
+    """
+    import matplotlib
+    matplotlib.use("pdf", force=True)
+    try:
+        contact_sheet(_image_rows(tmp_path), str(tmp_path / "backend.png"))
+        assert matplotlib.get_backend().lower() == "agg"
+    finally:
+        matplotlib.use("Agg", force=True)
 
 
 def test_contact_sheet_refuses_a_mismatched_annotation_list(tmp_path):

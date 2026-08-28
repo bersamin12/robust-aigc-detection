@@ -26,14 +26,27 @@ caller's discipline:
    and refuses a result dict that does not carry it instead of falling back to
    whatever AUC-shaped key happens to be present.
 
-3. **The population is internal validation, held-out generators.** If the
-   scores come from the external benchmark, the selection is contaminated and
-   `val_internal` is no longer clean for calibration afterwards.
-   `heldout_robust_tpr` builds that population itself, from the bank's own
-   split column, so a caller cannot pass benchmark rows in by mistake; and
-   `select_headline` refuses any result that DECLARES a different population.
-   A caller that declares nothing cannot be checked -- the docstrings state
-   the requirement, and `run_ablation.py` always declares.
+3. **The population is internal validation, held-out generators.** Two distinct
+   things go wrong if it is not.
+
+   Selecting on the EXTERNAL BENCHMARK spends the organisers' demo set on model
+   selection: the headline rung is then chosen to fit the very images the
+   report claims it generalises to, and no untouched set is left to say so.
+
+   Separately -- and this is the coupling the day-2 note (C-C) is about -- §6.4
+   selects on `val_internal`, and `aigcdet.calibrate` may fit the temperature,
+   the EQI gate and the decision policy ONLY on `val_internal`. The two share
+   rows by design. That is tolerable exactly as long as selection uses the
+   agreed metric over the agreed population, because then the shared use is a
+   stated one; it stops being tolerable the moment selection quietly uses a
+   different rule, since the calibration set has then been spent on a choice
+   nobody wrote down.
+
+   `heldout_robust_tpr` builds the population itself, from the bank's own split
+   column, so a caller cannot pass benchmark rows in by mistake; and
+   `select_headline` refuses any result that DECLARES a different population,
+   split set or target FPR. A caller that declares nothing cannot be checked --
+   the docstrings state the requirement, and `run_ablation.py` always declares.
 """
 from __future__ import annotations
 
@@ -60,10 +73,19 @@ SELECTION_METRIC: str = "heldout_robust_tpr_at_1pct"
 NON_SELECTION_KEYS: tuple[str, ...] = (
     "val_auc", "val_auc_mean_views", "clean_auc", "auc", "robust_auc")
 
-#: Result-dict keys through which a caller may declare the population its
-#: numbers were computed over, so the declaration can be checked.
+#: The operating point the rule is specified at (spec §6.1, §6.4). A module
+#: constant rather than a call-site literal because `SELECTION_RULE` below is
+#: rendered FROM it: a rule string that says "1% FPR" while the call site
+#: passes 0.05 would make `selection.json` -- the artefact whose entire purpose
+#: is to record the rule -- state a rule that was not used.
+SELECTION_TARGET_FPR: float = 0.01
+
+#: Result-dict keys through which a caller may declare the provenance of its
+#: numbers -- the population, the splits and the operating point -- so the
+#: declaration can be checked rather than taken on trust.
 POPULATION_KEY: str = "population"
 SPLITS_KEY: str = "splits"
+TARGET_FPR_KEY: str = "target_fpr"
 
 #: The splits the selection metric is computed over: authentic images from the
 #: internal validation split, generated images from generators withheld from
@@ -75,9 +97,10 @@ SELECTION_POPULATION: str = (
 
 SELECTION_RULE: str = (
     "the rung among " + "/".join(r.upper() for r in ELIGIBLE_RUNGS) + " with "
-    "the highest mean TPR @ 1% FPR over the degraded conditions, computed on "
-    + SELECTION_POPULATION + " (spec §6.4). Fixed before any result existed; "
-    "not clean AUC, not val_auc, not the external benchmark.")
+    f"the highest mean TPR @ {SELECTION_TARGET_FPR:.0%} FPR over the degraded "
+    "conditions, computed on " + SELECTION_POPULATION + " (spec §6.4). Fixed "
+    "before any result existed; not clean AUC, not val_auc, not the external "
+    "benchmark.")
 
 
 class IneligibleRungWarning(UserWarning):
@@ -91,8 +114,35 @@ class IneligibleRungWarning(UserWarning):
 
 # --- the §6.4 selection metric ---------------------------------------------
 
+def check_selection_population(splits: Sequence[str]) -> None:
+    """Refuse a bank that cannot supply the §6.4 population, before any work.
+
+    Split coverage is a property of the eval bank alone, knowable in the first
+    millisecond. `heldout_robust_tpr` cannot check it any earlier than the
+    scores it is handed, which in an ablation run is after a rung has TRAINED;
+    an operator who points the ladder at a benchmark-only bank should not burn
+    a rung to find that out, so `run_ablation.py` calls this up front.
+
+    This is a NECESSARY condition, not a sufficient one: it says the splits are
+    present, not that every condition covers both classes once the population
+    filter is applied. `heldout_robust_tpr` still checks the rest.
+    """
+    values = np.asarray(splits).astype(str)
+    missing = [s for s in SELECTION_SPLITS if not (values == s).any()]
+    if missing:
+        present = {str(s): int(n) for s, n in
+                   zip(*np.unique(values, return_counts=True))} if len(values) \
+            else {}
+        raise ValueError(
+            f"this bank has no {missing} rows, so the §6.4 selection population "
+            f"cannot be built from it. It contains splits {present}; selection "
+            f"requires {list(SELECTION_SPLITS)}. A bank holding only benchmark "
+            "rows is the organisers' demo set and must never decide the "
+            "headline model.")
+
+
 def heldout_robust_tpr(scores_df: pd.DataFrame, splits: Sequence[str],
-                       target_fpr: float = 0.01) -> float:
+                       target_fpr: float = SELECTION_TARGET_FPR) -> float:
     """Mean TPR @ `target_fpr` FPR over the DEGRADED conditions, §6.4 population.
 
     `scores_df` is an `eval.grid.score_grid` frame; `splits` is the eval bank's
@@ -111,6 +161,16 @@ def heldout_robust_tpr(scores_df: pd.DataFrame, splits: Sequence[str],
       memorisation rather than the generalisation §6.4 selects for.
     - `clean` is excluded, per §6.1's robust-metric definition: the mean is
       over the degraded conditions, which is what "robust" means here.
+
+    NOTE FOR TASK 8 (fusion). `splits` is ONE bank's split column, indexed by
+    `image_idx`. A fused score frame (rung A5, two independently-trained banks
+    combined by `eval.fusion.fuse_scores`) has no single owning bank, so before
+    this function is called on one, fusion must define which bank's split
+    column applies -- and the honest answer is that it is only defined when the
+    two banks were extracted from the same frozen manifest, which is what
+    `assert_banks_comparable` already requires of anything sharing a table.
+    Passing the first bank's splits without checking that would silently label
+    A5's rows from the wrong manifest.
 
     Every refusal below exists because the obvious lenient alternative is
     silent. Skipping a condition that has only one class after the population
@@ -186,12 +246,28 @@ def _normalise(rung: str) -> str:
     return str(rung).strip().lower()
 
 
-def _check_population(rung: str, result: Mapping) -> None:
-    """Refuse a result that DECLARES a population other than §6.4's.
+def _check_provenance(rung: str, result: Mapping) -> None:
+    """Refuse a result that DECLARES a population, split set or operating point
+    other than §6.4's.
 
     This is the only contamination the function can detect: a dict of floats
     does not say where it came from unless the producer said so.
+
+    The `target_fpr` arm exists because the operating point is the one part of
+    the rule that a caller can change without changing anything visible -- the
+    metric key stays `heldout_robust_tpr_at_1pct`, the number stays in [0, 1],
+    and `selection.json` keeps quoting SELECTION_RULE. Refusing a declared
+    mismatch means a producer that moved the operating point either says so and
+    is rejected, or does not say so and is not this project's code.
     """
+    declared_fpr = result.get(TARGET_FPR_KEY)
+    if declared_fpr is not None and float(declared_fpr) != SELECTION_TARGET_FPR:
+        raise ValueError(
+            f"rung {rung!r} declares target_fpr {declared_fpr!r}, but §6.4 "
+            f"selects at {SELECTION_TARGET_FPR}. The metric key, the value "
+            "range and the recorded rule all look identical at another "
+            "operating point, so a mismatch here is refused rather than "
+            "recorded.")
     declared = result.get(POPULATION_KEY)
     if declared is not None and str(declared) != SELECTION_POPULATION:
         raise ValueError(
@@ -272,7 +348,7 @@ def select_headline(results: Mapping[str, Mapping]) -> str:
             f"{sorted(ineligible)} are ablation controls. A control winning the "
             "table is a result to report, not a model to ship.")
     for rung, result in eligible.items():
-        _check_population(rung, result)
+        _check_provenance(rung, result)
     scored = {rung: _metric_of(rung, result) for rung, result in eligible.items()}
     winner = min(scored, key=lambda rung: (-scored[rung], str(rung)))
     _warn_if_outscored(winner, scored[winner], ineligible)
@@ -299,6 +375,7 @@ def selection_report(results: Mapping[str, Mapping]) -> dict:
     return {
         "rule": SELECTION_RULE,
         "metric": SELECTION_METRIC,
+        "target_fpr": SELECTION_TARGET_FPR,
         "population": SELECTION_POPULATION,
         "splits": list(SELECTION_SPLITS),
         "eligible_rungs": list(ELIGIBLE_RUNGS),

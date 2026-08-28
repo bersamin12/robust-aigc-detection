@@ -37,6 +37,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from dataclasses import asdict
 
 import torch
@@ -47,7 +48,8 @@ from aigcdet.baselines import (
 )
 from aigcdet.eval.errors import (
     SELECTION_METRIC, SELECTION_POPULATION, SELECTION_SPLITS,
-    heldout_robust_tpr, selection_report,
+    SELECTION_TARGET_FPR, check_selection_population, heldout_robust_tpr,
+    selection_report,
 )
 from aigcdet.eval.grid import score_grid
 from aigcdet.eval.report import (
@@ -74,7 +76,7 @@ def rung_paths(out_dir: str, name: str) -> tuple[str, str]:
 
 def load_rung_config(config_path: str, bank_dir: str, out_dir: str, device: str,
                      manifest_path: str | None = None) -> RungConfig:
-    with open(config_path) as f:
+    with open(config_path, encoding="utf-8") as f:
         raw = yaml.safe_load(f)
     return RungConfig(bank_dir=bank_dir, out_dir=out_dir, device=device,
                       manifest_path=manifest_path, **raw)
@@ -120,23 +122,40 @@ def train_or_resume(cfg: RungConfig, force: bool = False) -> tuple[dict, bool]:
             "model that no longer matches its config file. Delete it or pass "
             "--force-retrain.")
 
-    with open(result_json) as f:
+    with open(result_json, encoding="utf-8") as f:
         result = json.load(f)
     result["checkpoint"] = ckpt
     return result, True
 
 
-def baseline_footnotes(row_names) -> str:
+#: Backbone a rung must have been trained on for `RUNG_IS_A_BASELINE` to apply.
+#: UnivFD is a linear probe on frozen CLIP features; rung A0 on any other bank
+#: is our own rung A0 and nothing else.
+UNIVFD_BACKBONE = "clipl"
+
+
+def baseline_footnotes(row_names, backbone: str | None = None) -> str:
     """Ruling R38/I3: a §6.3 row must not be labelled with a short name that
     understates the published method it is compared against.
 
     Returns markdown naming the required wording for whichever baseline rows
     this table actually contains, or an empty string when it contains none.
+
+    `backbone` is the training bank's own recorded backbone, and it GATES the
+    rung-to-baseline mapping. Emitting "rung A0 on the `clipl` bank" for a row
+    named `a0` that was trained on anything else writes a false sentence into
+    the results file a report writer copies numbers out of -- R38/I3 inverted,
+    manufacturing the mislabelling it exists to prevent. A0 on another bank is
+    rung A0, not UnivFD, and gets no footnote.
     """
     lines = []
     for name in row_names:
         key = str(name).strip().lower()
-        baseline = key if key in BASELINE_ROW_LABELS else RUNG_IS_A_BASELINE.get(key)
+        baseline = key if key in BASELINE_ROW_LABELS else None
+        if baseline is None and RUNG_IS_A_BASELINE.get(key) is not None:
+            if backbone != UNIVFD_BACKBONE:
+                continue
+            baseline = RUNG_IS_A_BASELINE[key]
         if baseline is None:
             continue
         lines.append(f"- Row `{name}` quoted as a baseline must be labelled "
@@ -146,6 +165,21 @@ def baseline_footnotes(row_names) -> str:
         return ""
     return ("\n## Baseline row labels (spec §6.3, ruling R38)\n\n"
             + "\n".join(lines) + "\n")
+
+
+def append_footnotes(path: str, text: str) -> None:
+    """Append `text` to `path`, as UTF-8.
+
+    `encoding="utf-8"` is not decoration: the footnote body contains `spec
+    §6.3`, and a bare `open(path, "a")` encodes through the locale codec --
+    under LC_ALL=C (the default in many container and CI images, and Kaggle is
+    in this project's critical path) that is ANSI_X3.4-1968 and the append dies
+    with UnicodeEncodeError, after the table has already been written.
+    """
+    if not text:
+        return
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(text)
 
 
 def _ensure_parent(path: str) -> None:
@@ -180,8 +214,26 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
+def _make_stdout_encoding_safe() -> None:
+    """Never let a log line kill a run that has already done the work.
+
+    Several messages below quote spec sections (`§`), and error strings from
+    `eval.errors` do too. Python encodes stdout with the LOCALE codec and
+    `errors="strict"`; under LC_ALL=C -- the default in many container and CI
+    images -- that is ASCII, and a single `print` raises UnicodeEncodeError
+    after the artefacts are already on disk. stderr already defaults to
+    `backslashreplace` for exactly this reason; this gives stdout the same
+    treatment rather than making the messages illegible to avoid the codec.
+    """
+    try:
+        sys.stdout.reconfigure(errors="backslashreplace")
+    except (AttributeError, OSError):      # not a reconfigurable stream
+        pass
+
+
 def main(argv=None) -> dict:
     a = build_parser().parse_args(argv)
+    _make_stdout_encoding_safe()
     heatmap_path = a.heatmap or (a.out[:-3] + ".png" if a.out.endswith(".md")
                                  else a.out + ".png")
 
@@ -189,8 +241,13 @@ def main(argv=None) -> dict:
     # The split column is read from the EVAL BANK, never from a caller-supplied
     # list, so the §6.4 population is built from what was actually scored.
     splits = eval_bank.meta["split"].to_numpy()
+    # Checked BEFORE the first rung trains. Split coverage is a property of the
+    # bank alone, so an operator who points the ladder at a benchmark-only bank
+    # should be told in the first millisecond, not after hours of GPU.
+    check_selection_population(splits)
+    backbone = FeatureBank.open(a.bank).config.get("backbone")
 
-    per_rung, summary = {}, {}
+    per_rung, summary, banks = {}, {}, {}
     for config_path in a.rungs:
         cfg = load_rung_config(config_path, a.bank, a.out_dir, a.device, a.manifest)
         result, resumed = train_or_resume(cfg, force=a.force_retrain)
@@ -202,8 +259,20 @@ def main(argv=None) -> dict:
         scores = score_grid(model, eval_bank, use_recon=cfg.use_recon,
                             device=a.device)
         per_rung[cfg.name] = scores
+        # Registered per rung, not built as a comprehension after the loop: a
+        # rung added later that is scored on a DIFFERENT eval bank (Task 8's
+        # fusion opens a second one) must register its own bank here. A
+        # comprehension over `per_rung` would map it to this bank instead --
+        # a false statement that makes assert_banks_comparable pass on a row it
+        # never covered.
+        banks[cfg.name] = eval_bank
         summary[cfg.name] = {
-            SELECTION_METRIC: heldout_robust_tpr(scores, splits),
+            # target_fpr passed EXPLICITLY. At the default it is the same call;
+            # written out, a change to the operating point is visible in the
+            # diff and is contradicted by the declaration two lines below.
+            SELECTION_METRIC: heldout_robust_tpr(
+                scores, splits, target_fpr=SELECTION_TARGET_FPR),
+            "target_fpr": SELECTION_TARGET_FPR,
             "population": SELECTION_POPULATION,
             "splits": list(SELECTION_SPLITS),
             # NOT the selection metric, and named so nobody can read it as one:
@@ -220,18 +289,14 @@ def main(argv=None) -> dict:
 
     # One bank per rung, so `robustness_table` routes them through
     # `assert_banks_comparable` and rejects an eval bank with no manifest
-    # fingerprint. Every rung is scored on the SAME eval bank here; passing the
-    # mapping anyway is what makes that a checked fact rather than an assumption.
-    banks = {rung: eval_bank for rung in per_rung}
+    # fingerprint. `banks` was filled inside the loop, beside the scores it
+    # describes, so it stays true when a rung is scored on another bank.
     table = robustness_table(per_rung, tier=a.tier, metric=a.metric,
                              seed=a.boot_seed, n_boot=a.boot_n, banks=banks)
 
     _ensure_parent(a.out)
     to_markdown(table, tier=a.tier, path=a.out)
-    footnotes = baseline_footnotes(table.index)
-    if footnotes:
-        with open(a.out, "a") as f:
-            f.write(footnotes)
+    append_footnotes(a.out, baseline_footnotes(table.index, backbone=backbone))
     _ensure_parent(heatmap_path)
     save_heatmap(table, heatmap_path)
 
@@ -244,11 +309,19 @@ def main(argv=None) -> dict:
     # from inferring which rule chose the model from which column it can see.
     report["table_metric"] = a.metric
     _ensure_parent(a.selection)
-    with open(a.selection, "w") as f:
+    with open(a.selection, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
 
     print(f"headline model: {report['headline']} "
-          f"(rule: {SELECTION_METRIC} over {SELECTION_POPULATION})")
+          f"(rule: {SELECTION_METRIC} @ {SELECTION_TARGET_FPR:.0%} FPR over "
+          f"{SELECTION_POPULATION})")
+    # On stdout, beside the headline. The IneligibleRungWarning goes to stderr
+    # and is easy to lose in a multi-hour log; the exclusion belongs where the
+    # choice it constrains is read.
+    if report["excluded_as_ineligible"]:
+        print(f"excluded as ineligible under §6.4 (candidates are "
+              f"{report['eligible_rungs']}): "
+              f"{report['excluded_as_ineligible']}")
     if report["headline_error"]:
         print(f"headline not selected: {report['headline_error']}")
     return report
