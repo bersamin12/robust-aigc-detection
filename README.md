@@ -152,8 +152,18 @@ python scripts/run_ablation.py --bank banks/dinov3l --out outputs/rungs
 
 ### 4. Evaluate under the transformation grid
 
+The ablation tier spans `val_internal`, `heldout_generator` and `benchmark`,
+which live in two separate frozen manifests — so they are joined first, into a
+manifest re-rooted onto their common ancestor with fresh, unique index labels
+(the per-view RNG key):
+
 ```bash
-python scripts/extract_eval_bank.py --manifest data/demo/benchmark_manifest.parquet \
+python scripts/build_eval_manifest.py \
+       --manifest data/normalized/manifest.parquet \
+       --benchmark-manifest data/demo/benchmark_manifest.parquet \
+       --out data/eval_manifest.parquet
+
+python scripts/extract_eval_bank.py --manifest data/eval_manifest.parquet \
        --backbone dinov3l --out banks/eval --tier ablation
 ```
 
