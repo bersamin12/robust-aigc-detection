@@ -37,6 +37,17 @@ outputs/
 figures/*.png
 docs/contact_sheets/
 
+# The data/, logs/ and runs/ symlinks point into ../experiments/, which is
+# where every acquired image, feature bank, log and run output now lives (the
+# repository holds only code). A pattern with a TRAILING SLASH matches a real
+# directory and never a symlink, so `/data/` above leaves the `data` symlink
+# reported as an untracked file -- one `git add -A` away from committing a
+# link to a path that exists only on this machine. These slashless anchors
+# cover both spellings.
+/data
+/logs
+/runs
+
 # --- Local scratch ---
 scratch/
 *.log
