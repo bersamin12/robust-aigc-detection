@@ -512,7 +512,12 @@ def acquire_wildfake_benchmark(benchmark_dir: str, *, halves=None,
     """
     halves = tuple(halves) if halves is not None else wf.BENCHMARK_HALVES
     _refuse_training_tree(benchmark_dir)
-    cache = cache_dir or os.path.join(benchmark_dir, WILDFAKE_CACHE)
+    # BESIDE the benchmark dir, never inside it: `benchmark_dir` is published
+    # wholesale (`kaggle datasets create -p <benchmark_dir>`), so scratch left
+    # in there ships to every consumer as undocumented, unmanifested files.
+    # The training verb has no such rule -- its `out` is not a deliverable.
+    cache = cache_dir or os.path.join(
+        os.path.dirname(os.path.abspath(benchmark_dir)), WILDFAKE_CACHE)
     os.makedirs(cache, exist_ok=True)
     fetch = fetch or _hub_download
     list_files = list_files or _hub_list_files

@@ -50,6 +50,29 @@ class RungConfig:
     manifest_path: str | None = None
 
 
+def manifest_rows_for_bank(bank: FeatureBank, manifest_df):
+    """The manifest rows `bank` was extracted from, recovered from the whole.
+
+    A training bank is extracted with `--split train,val_internal`, so it
+    covers a SUBSET of the manifest and its `manifest_sha256` fingerprints
+    that subset -- not the file on disk. Handing the whole manifest to
+    `verify_against_manifest` therefore failed on every honest bank: the
+    alignment check rejected exactly the banks it exists to bless, and the
+    only way past it was to stop passing --manifest, which turned the check
+    off. Reconstructing the selection restores it.
+
+    This mirrors `scripts/extract_features.py:select_splits` exactly --
+    `df[df["split"].isin(...)]`, which preserves manifest order and index
+    labels -- so the reconstructed frame fingerprints to what Stage A
+    recorded. It deliberately does NOT reconstruct `--limit` or `--shard`:
+    a bank that covers only part of its splits SHOULD still fail here,
+    because training on a partial bank while believing it is whole is the
+    error the row-count check catches.
+    """
+    splits = {str(s) for s in bank.meta["split"].unique()}
+    return manifest_df[manifest_df["split"].isin(splits)]
+
+
 def _eval_auc(model, bank, idx, use_recon, device, view: int = 0) -> float:
     """ROC-AUC over `idx` for ONE cached view. `view=0` is the clean view."""
     model.eval()
@@ -88,7 +111,9 @@ def train_rung(cfg: RungConfig) -> dict:
     bank = FeatureBank.open(cfg.bank_dir)
     bank.check_invariants()
     if cfg.manifest_path is not None:
-        bank.verify_against_manifest(read_manifest(cfg.manifest_path))
+        # Restricted to the splits this bank covers -- see manifest_rows_for_bank.
+        full = read_manifest(cfg.manifest_path)
+        bank.verify_against_manifest(manifest_rows_for_bank(bank, full))
 
     split = bank.meta["split"].to_numpy()
     train_idx = np.where(split == "train")[0]

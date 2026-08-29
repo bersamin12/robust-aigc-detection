@@ -694,3 +694,26 @@ class _registry:
     def __exit__(self, *exc):
         wf.SUBSETS.update(self.saved)
         return False
+
+
+def test_the_benchmark_cache_lands_beside_the_benchmark_dir_not_inside_it(tmp_path):
+    """The benchmark directory is published wholesale (`kaggle datasets create
+    -p <benchmark_dir>`), so anything the acquisition leaves inside it ships to
+    everyone who downloads it. The default put the WildFake label-CSV cache
+    there, and 1 MB of scratch duly rode along into the published dataset --
+    where it is not benchmark data, is not described by the manifest, and has
+    no entry any consumer can interpret.
+
+    A sibling directory keeps the resume cheap (the CSVs survive) without
+    making scratch part of the deliverable."""
+    demo = tmp_path / "demo"
+    demo.mkdir()
+    # halves=() so nothing is fetched; the assertion is purely about where the
+    # default cache was created.
+    ad.acquire_wildfake_benchmark(str(demo), halves=())
+    assert not (demo / ad.WILDFAKE_CACHE).exists(), (
+        f"{ad.WILDFAKE_CACHE} was created INSIDE the benchmark dir, so it "
+        "ships with the published dataset")
+    assert (tmp_path / ad.WILDFAKE_CACHE).is_dir(), (
+        "expected the cache beside the benchmark dir, at "
+        f"{tmp_path / ad.WILDFAKE_CACHE}")

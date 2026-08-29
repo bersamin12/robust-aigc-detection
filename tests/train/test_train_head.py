@@ -190,3 +190,98 @@ def test_checkpoint_loads_under_the_strict_weights_only_loader(tmp_path):
     res = train_rung(cfg)
     ck = torch.load(res["checkpoint"], map_location="cpu", weights_only=True)
     assert set(ck) == {"state_dict", "config", "dim_feat", "backbone"}
+
+
+# --- cfg.manifest_path: the bank/manifest alignment check -------------------
+#
+# A training bank is extracted with `--split train,val_internal`, so it holds a
+# SUBSET of the manifest's rows and its recorded manifest_sha256 fingerprints
+# that subset. Handing `verify_against_manifest` the whole manifest therefore
+# fails on every honest bank -- the check rejected exactly the banks it exists
+# to bless. These tests pin both halves: a correct bank must pass, and a bank
+# that is genuinely misaligned must still be refused.
+
+def _manifest_and_bank(tmp_path, n=120, dim=8, reorder_val=False):
+    """A manifest with a third split the bank does not cover, plus a bank
+    extracted from `train,val_internal` exactly as extract_features.py would.
+
+    The `benchmark` rows are the point: they are what makes the full manifest
+    longer than the bank, which is the shape of the real bug.
+    """
+    import pandas as pd
+
+    from aigcdet.data.manifest import write_manifest
+
+    root = tmp_path / "imgs"
+    root.mkdir()
+    rows = []
+    for i in range(n):
+        label = i % 2
+        # 100 train, 20 val_internal, then 40 benchmark rows the bank omits.
+        split = ("train" if i < 100 else "val_internal")
+        rows.append({"path": str(root / f"p{i}.png"), "label": label,
+                     "generator": f"g{label}", "source": "s", "licence": "L",
+                     "width": 256, "height": 256, "split": split,
+                     "rel_path": f"p{i}.png", "content_sha256": f"{i:064x}",
+                     "pixel_sha256": ""})
+    for i in range(n, n + 40):
+        rows.append({"path": str(root / f"p{i}.png"), "label": 1,
+                     "generator": "dalle3", "source": "coco", "licence": "L",
+                     "width": 256, "height": 256, "split": "benchmark",
+                     "rel_path": f"p{i}.png", "content_sha256": f"{i:064x}",
+                     "pixel_sha256": ""})
+    df = pd.DataFrame(rows)
+    mpath = str(tmp_path / "manifest.parquet")
+    df.to_parquet(mpath)
+
+    # The frame Stage A actually sees: select_splits preserves manifest order
+    # and index labels, so this is `df[df.split.isin(...)]` and nothing else.
+    sel = df[df["split"].isin(["train", "val_internal"])]
+    if reorder_val:
+        sel = pd.concat([sel.iloc[1:2], sel.iloc[0:1], sel.iloc[2:]])
+
+    from aigcdet.features.bank import manifest_fingerprint
+    from aigcdet.data.manifest import dataset_root
+
+    w = BankWriter(str(tmp_path / "b"), len(sel), N_VIEWS, dim, "t", 0,
+                   manifest_sha256=manifest_fingerprint(sel),
+                   manifest_root=dataset_root(sel))
+    rng = np.random.default_rng(0)
+    for pos, (_, row) in enumerate(sel.iterrows()):
+        label = int(row["label"])
+        clean = rng.normal(loc=1.5 if label else -1.5, scale=0.5, size=dim)
+        feats = np.stack([clean] + [clean + rng.normal(0, 0.8, dim)
+                                    for _ in range(N_VIEWS - 1)]).astype(np.float32)
+        pres = np.zeros((N_VIEWS, 6), np.float32); pres[1:, 0] = 1.0
+        sev = np.zeros((N_VIEWS, 6), np.float32); sev[1:, 0] = 0.6
+        w.write_image(pos, {"path": row["path"], "rel_path": row["rel_path"],
+                            "label": label, "generator": row["generator"],
+                            "source": "s", "split": row["split"]},
+                      feats=feats, presence=pres, severity=sev,
+                      proxies=np.zeros((N_VIEWS, 3), np.float32),
+                      recipes=["[]"] * N_VIEWS)
+    w.close()
+    return mpath, str(tmp_path / "b")
+
+
+def test_manifest_path_accepts_a_bank_covering_only_the_training_splits(tmp_path):
+    mpath, bank_dir = _manifest_and_bank(tmp_path)
+    cfg = RungConfig(name="a0", bank_dir=bank_dir, epochs=1,
+                     out_dir=str(tmp_path / "o"), use_augmented=False,
+                     manifest_path=mpath)
+    res = train_rung(cfg)          # must not raise
+    assert "val_auc" in res
+
+
+def test_manifest_path_still_rejects_a_bank_whose_rows_were_reordered(tmp_path):
+    """The permissive fix must not neuter the guard. Same rows, same splits,
+    same count -- only the order differs, which is precisely the silent
+    label/feature misalignment the check exists to catch."""
+    import pytest
+
+    mpath, bank_dir = _manifest_and_bank(tmp_path, reorder_val=True)
+    cfg = RungConfig(name="a0", bank_dir=bank_dir, epochs=1,
+                     out_dir=str(tmp_path / "o"), use_augmented=False,
+                     manifest_path=mpath)
+    with pytest.raises(ValueError, match="manifest"):
+        train_rung(cfg)
