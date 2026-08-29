@@ -326,3 +326,81 @@ def test_only_dinov3_is_gated():
     assert BACKBONES["dinov3l"].gated is True
     assert BACKBONES["siglip2l"].gated is False
     assert BACKBONES["clipl"].gated is False
+
+
+# --------------------------------------------------------------------------
+# dtype. DINOv3-L overflows float16 at hidden layer 1 and emits NaN for every
+# image; the 2026-08-29 bank was 131,116 x 11 vectors of NaN, produced at full
+# speed with nothing raising. These pin the fix and the guard that would have
+# caught it on the first batch.
+# --------------------------------------------------------------------------
+
+def test_dinov3_runs_in_bfloat16_never_float16():
+    import torch
+    assert BACKBONES["dinov3l"].dtype is torch.bfloat16
+    for name, spec in BACKBONES.items():
+        assert spec.dtype in (torch.bfloat16, torch.float32) or name != "dinov3l"
+
+
+def test_load_backbone_loads_the_spec_dtype(monkeypatch):
+    """`from_pretrained` must be handed each spec's own dtype -- not one
+    literal for every backbone, which is how DINOv3 ended up in float16."""
+    import torch
+    import transformers
+
+    seen = {}
+
+    def fake_from_pretrained(hf_id, dtype=None, **_):
+        seen[hf_id] = dtype
+        return torch.nn.Linear(2, 2).to(dtype)
+
+    monkeypatch.setattr(transformers.AutoModel, "from_pretrained",
+                        staticmethod(fake_from_pretrained))
+    from aigcdet.features.backbones import load_backbone
+
+    for name, spec in BACKBONES.items():
+        model, got = load_backbone(name, device="cpu")
+        assert got is spec
+        assert seen[spec.hf_id] is spec.dtype, name
+        assert next(model.parameters()).dtype is spec.dtype
+        assert not any(p.requires_grad for p in model.parameters())
+
+
+def test_bfloat16_falls_back_to_float32_not_float16_without_native_support(monkeypatch):
+    """Kaggle's T4/P100 have no hardware bfloat16. There a bfloat16 spec must
+    run in float32 (finite, slower) -- never float16, the dtype it exists to
+    avoid -- and a float16 spec is untouched, and CPU needs no fallback."""
+    import torch
+    from aigcdet.features import backbones
+
+    monkeypatch.setattr(backbones, "_bf16_is_native", lambda: False)
+    assert backbones.run_dtype(BACKBONES["dinov3l"], "cuda") is torch.float32
+    assert backbones.run_dtype(BACKBONES["dinov3l"], "cuda:1") is torch.float32
+    assert backbones.run_dtype(BACKBONES["siglip2l"], "cuda") is torch.float16
+    assert backbones.run_dtype(BACKBONES["dinov3l"], "cpu") is torch.bfloat16
+
+    monkeypatch.setattr(backbones, "_bf16_is_native", lambda: True)
+    assert backbones.run_dtype(BACKBONES["dinov3l"], "cuda") is torch.bfloat16
+
+
+def test_embed_refuses_non_finite_features_on_the_batch_that_produced_them():
+    """A tower that overflows its dtype must fail at the first batch, naming
+    the backbone and the dtype, instead of writing NaN for five hours."""
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    import torch
+    from aigcdet.features.backbones import embed
+
+    spec = replace(BACKBONES["dinov3l"], image_size=_TINY_IMAGE, dim=8, params=0)
+
+    class Overflowing(torch.nn.Module):
+        def forward(self, pixel_values):
+            b = pixel_values.shape[0]
+            h = torch.full((b, spec.num_prefix_tokens + 16, 8), float("nan"))
+            h[0] = 1.0                           # one healthy image in the batch
+            return SimpleNamespace(last_hidden_state=h)
+
+    imgs = [np.zeros((_TINY_IMAGE, _TINY_IMAGE, 3), np.uint8)] * 3
+    with pytest.raises(ValueError, match=r"dinov3l.*non-finite.*2 of 3.*float32"):
+        embed(Overflowing(), spec, imgs, device="cpu", batch_size=3)

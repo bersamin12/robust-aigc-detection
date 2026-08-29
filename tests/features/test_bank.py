@@ -449,3 +449,35 @@ def test_merge_banks_rejects_shards_with_different_extra_config(tmp_path):
                extra_config={"conditions": ["clean", "jpeg_q70"]})
     with pytest.raises(ValueError, match="not part of the same bank"):
         merge_banks([a, b], str(tmp_path / "bad_extra"))
+
+
+def test_check_invariants_refuses_a_bank_with_non_finite_features(tmp_path):
+    """The one check that looks at a feature VALUE. 2026-08-29's dinov3l bank
+    was 131,116 rows of NaN and passed every other invariant here, so a NaN or
+    inf anywhere in feats.npy must be named -- with the rows -- at the first
+    open, not thirty epochs later by sklearn."""
+    from aigcdet.features.bank import non_finite_rows
+
+    n, dim = 4, 8
+    out = str(tmp_path / "nanbank")
+    w = BankWriter(out, n, N_VIEWS, dim, "fake", 0, manifest_sha256="x")
+    for i in range(n):
+        feats = np.full((N_VIEWS, dim), 0.5, np.float32)
+        if i == 1:
+            feats[3, 2] = np.nan            # one NaN in one augmented view
+        if i == 3:
+            feats[0, 0] = np.inf            # one inf in the clean view
+        w.write_image(i, {"path": f"/p{i}.png", "label": i % 2, "generator": "g",
+                          "source": "s", "split": "train"},
+                      feats=feats,
+                      presence=np.zeros((N_VIEWS, 6), np.float32),
+                      severity=np.zeros((N_VIEWS, 6), np.float32),
+                      proxies=np.zeros((N_VIEWS, 3), np.float32),
+                      recipes=["[]"] * N_VIEWS)
+    w.close()
+
+    bank = FeatureBank.open(out)
+    assert non_finite_rows(bank.feats).tolist() == [1, 3]
+    assert non_finite_rows(bank.feats, block=1).tolist() == [1, 3]   # block edges
+    with pytest.raises(ValueError, match=r"non-finite.*2 of 4 rows.*\[1, 3\]"):
+        bank.check_invariants()

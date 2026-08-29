@@ -428,6 +428,22 @@ class FeatureBank:
                     f"{manifest_ids[i]!r} != bank path {bank_ids[i]!r}")
 
     def check_invariants(self) -> None:
+        # Every feature finite, checked FIRST because it is the cheapest check
+        # here (one streamed pass over feats.npy, seconds on a 3 GB bank) and
+        # the only one that looks at a feature value at all. 2026-08-29's
+        # dinov3l bank was 131,116 rows of NaN -- a float16 overflow in the
+        # backbone -- and it passed every other check in this method, the
+        # chained job's row count and the trainer; sklearn's roc_auc was the
+        # first thing to look at a value, thirty epochs later.
+        bad_rows = non_finite_rows(self.feats)
+        if len(bad_rows):
+            raise ValueError(
+                f"feats.npy holds non-finite values in {len(bad_rows)} of "
+                f"{len(self.meta)} rows (first: {bad_rows[:5].tolist()}). A "
+                "bank with NaN/inf features is unusable and must be "
+                "re-extracted; the usual cause is the backbone overflowing "
+                "its dtype (DINOv3-L needs bfloat16 -- see "
+                "aigcdet.features.backbones.BackboneSpec.dtype)")
         # row_id keys every view's RNG, so a duplicate would mean two images
         # sharing one replay key -- the same class of defect extract_bank's
         # duplicated-index guard exists to prevent, checked again on the
@@ -456,6 +472,21 @@ class FeatureBank:
             # enforces this shape at write time -- so this guards against
             # external corruption of recon.npy, not a normal API path.
             raise ValueError("recon view coverage must match feats (spec §3.3)")
+
+
+def non_finite_rows(feats, block: int = 4096) -> np.ndarray:
+    """Indices of the rows of `feats` (N, V, D) holding any NaN or inf.
+
+    Scanned in blocks of `block` rows so a memmapped multi-GB bank is never
+    materialised at once (4096 x 11 x 1024 float16 is ~90 MB per block).
+    """
+    out: list[int] = []
+    n = int(feats.shape[0])
+    for start in range(0, n, block):
+        blk = np.asarray(feats[start:start + block])
+        finite = np.isfinite(blk).reshape(len(blk), -1).all(axis=1)
+        out.extend((np.flatnonzero(~finite) + start).tolist())
+    return np.asarray(out, dtype=np.int64)
 
 
 #: Config keys every shard of one logical bank must agree on. `n_images` and

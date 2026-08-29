@@ -82,6 +82,16 @@ class BackboneSpec:
     #: ungated backbone should not be stopped for one. See
     #: `docs/model_licences.md` for each entry's terms.
     gated: bool = False
+    #: The dtype the tower is loaded and run in. float16 halves memory and
+    #: roughly triples throughput over float32 on every GPU this project uses,
+    #: and SigLIP2 and CLIP are finite in it. DINOv3-L is NOT: its activations
+    #: overflow float16 by hidden layer 1, and every pooled vector comes out NaN
+    #: -- silently, at full speed, for an entire 5-hour bank (2026-08-29).
+    #: bfloat16 keeps float32's exponent range, is finite on DINOv3 at float16's
+    #: throughput, and its pooled output (|x| < 2) stores in the bank's float16
+    #: without loss. Per backbone, because it is a property of the checkpoint;
+    #: see `run_dtype` for the one device-dependent fallback.
+    dtype: torch.dtype = torch.float16
 
     def __post_init__(self):
         if self.input_format not in INPUT_FORMATS:
@@ -110,7 +120,8 @@ class BackboneSpec:
 BACKBONES: dict[str, BackboneSpec] = {
     # Gated: Meta's custom DINOv3 licence must be accepted per ACCOUNT.
     "dinov3l": BackboneSpec("dinov3l", "facebook/dinov3-vitl16-pretrain-lvd1689m",
-                             384, 1024, 5, 303_129_600, gated=True),
+                             384, 1024, 5, 303_129_600, gated=True,
+                             dtype=torch.bfloat16),
     "siglip2l": BackboneSpec("siglip2l", "google/siglip2-large-patch16-384",
                               384, 1024, 0, 316_283_904),
     "clipl": BackboneSpec("clipl", "openai/clip-vit-large-patch14",
@@ -123,12 +134,37 @@ def squish(img: np.ndarray, size: int) -> np.ndarray:
     return cv2.resize(img, (size, size), interpolation=cv2.INTER_AREA)
 
 
+def _bf16_is_native() -> bool:
+    """True when the current CUDA device runs bfloat16 in hardware (Ampere,
+    sm_80, and later). Kaggle's T4 (sm_75) and P100 (sm_60) do not."""
+    try:
+        return bool(torch.cuda.is_bf16_supported(including_emulation=False))
+    except TypeError:                       # torch < 2.3 has no such keyword
+        return bool(torch.cuda.is_bf16_supported())
+
+
+def run_dtype(spec: BackboneSpec, device: str) -> torch.dtype:
+    """The dtype `spec` actually runs in on `device`.
+
+    `spec.dtype`, except that a bfloat16 spec on a CUDA device without native
+    bfloat16 falls back to float32: slower, but finite. It never falls back to
+    float16 -- that is the dtype a bfloat16 spec exists to avoid, and a
+    fallback into it would reproduce the all-NaN bank at the one site meant to
+    prevent it.
+    """
+    if (spec.dtype is torch.bfloat16 and str(device).startswith("cuda")
+            and not _bf16_is_native()):
+        return torch.float32
+    return spec.dtype
+
+
 def load_backbone(name: str, device: str = "cuda") -> tuple[torch.nn.Module, BackboneSpec]:
-    """Load a frozen backbone's vision tower in eval mode on `device`."""
+    """Load a frozen backbone's vision tower in eval mode on `device`, in
+    `run_dtype(spec, device)`."""
     from transformers import AutoModel
 
     spec = BACKBONES[name]
-    model = AutoModel.from_pretrained(spec.hf_id, dtype=torch.float16)
+    model = AutoModel.from_pretrained(spec.hf_id, dtype=run_dtype(spec, device))
     # CLIP and SigLIP wrap a vision tower alongside a text tower; DINOv3 is
     # already a vision-only model.
     model = getattr(model, "vision_model", model)
@@ -205,5 +241,20 @@ def embed(model, spec: BackboneSpec, imgs: list[np.ndarray],
         inputs = model_inputs(spec, imgs[i:i + batch_size], device, dtype)
         h = model(**inputs).last_hidden_state             # (B, T, D)
         patches = h[:, spec.num_prefix_tokens:, :]        # drop CLS + registers
-        out.append(patches.mean(dim=1).float().cpu().numpy())
+        pooled = patches.mean(dim=1).float()
+        # Checked here, on the first batch, rather than discovered by Stage B:
+        # a tower running in a dtype it overflows produces NaN for EVERY image
+        # at full speed, and nothing downstream of this line -- the bank
+        # writer, the row count a chained job checks, `check_invariants` --
+        # looked at a single value until 2026-08-29's 5-hour all-NaN bank.
+        bad = ~torch.isfinite(pooled).all(dim=1)
+        if bool(bad.any()):
+            raise ValueError(
+                f"{spec.name} produced non-finite features for "
+                f"{int(bad.sum())} of {pooled.shape[0]} images in this batch, "
+                f"running in {dtype}. This is the backbone overflowing its "
+                f"dtype, not a bad image: DINOv3-L overflows float16 at hidden "
+                f"layer 1 and needs bfloat16 (or float32). Nothing was "
+                f"written; fix BackboneSpec.dtype / run_dtype and re-run.")
+        out.append(pooled.cpu().numpy())
     return np.concatenate(out, axis=0).astype(np.float32)
