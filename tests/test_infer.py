@@ -133,6 +133,25 @@ def test_predict_array_canonicalises_before_it_embeds(tmp_path, monkeypatch):
     assert seen["shape"] != raw.shape        # or the assertion above is vacuous
 
 
+def test_proxies_describe_the_pixels_the_head_actually_saw(tmp_path, monkeypatch):
+    """The proxies are the degradation evidence the calibrator conditions on,
+    so they have to describe the CANONICALISED image -- the one the backbone
+    embedded -- not the original file. Two of the three (sharpness, noise
+    floor) move with resolution, which is the very thing canonicalisation
+    neutralises, so measuring them on the original feeds the calibrator a
+    description of an image the head never scored."""
+    from aigcdet.features.proxies import proxy_vector
+
+    infer = _patch_backbone(monkeypatch)
+    p = infer.Predictor.load(_fake_bundle(tmp_path), device="cpu")
+    raw = _img(seed=3, shape=(140, 260, 3))
+
+    got = p.predict_array(raw)["proxies"]
+
+    np.testing.assert_allclose(got, proxy_vector(canonicalise(raw)), rtol=1e-6)
+    assert not np.allclose(got, proxy_vector(raw))
+
+
 def test_pred_is_the_calibrated_probability_not_a_raw_sigmoid(tmp_path, monkeypatch):
     """`pred` is what a reader interprets as "90% likely AI-generated", so it
     has to be the calibrator's output. A raw sigmoid of the head's logit is a
@@ -228,6 +247,52 @@ def test_every_result_carries_the_path_it_was_scored_from(tmp_path, monkeypatch)
     assert [r["image_path"] for r in res] == paths
     assert res[2]["error"] and all(res[i]["error"] is None
                                    for i in (0, 1, 3, 4))
+
+
+def test_a_batch_goes_through_the_backbone_in_one_pass(tmp_path, monkeypatch):
+    """`batch_size` has to mean something. Embedding one image per forward
+    pass is roughly an order of magnitude slower on a 5k-image directory, and
+    a signature that accepts the argument and ignores it hides that."""
+    calls = []
+
+    def spy(model, spec, imgs, device="cpu", batch_size=16):
+        calls.append(len(imgs))
+        return np.zeros((len(imgs), spec.dim), np.float32)
+
+    infer = _patch_backbone(monkeypatch, fn=spy)
+    paths = []
+    for i in range(7):
+        q = tmp_path / f"b{i}.png"
+        Image.fromarray(np.full((48, 48, 3), i * 30, np.uint8)).save(q)
+        paths.append(str(q))
+
+    p = infer.Predictor.load(_fake_bundle(tmp_path), device="cpu")
+    res = p.predict_paths(paths, batch_size=4)
+
+    assert len(res) == 7
+    assert calls == [4, 3]
+
+
+def test_a_failure_does_not_reorder_the_batch_around_it(tmp_path, monkeypatch):
+    """The failed row is filled in separately from the scored ones, so the
+    two have to be merged back into the INPUT order rather than concatenated.
+    Appending scored-then-failed puts every bad file at the end of its batch,
+    silently rewriting the order a caller diffing two runs relies on."""
+    infer = _patch_backbone(monkeypatch)
+    paths = []
+    for i in range(4):
+        q = tmp_path / f"c{i}.png"
+        Image.fromarray(np.full((48, 48, 3), i * 30, np.uint8)).save(q)
+        paths.append(str(q))
+    broken = tmp_path / "c_broken.png"
+    broken.write_bytes(b"nope")
+    paths.insert(1, str(broken))
+
+    p = infer.Predictor.load(_fake_bundle(tmp_path), device="cpu")
+    res = p.predict_paths(paths, batch_size=3)
+
+    assert [r["image_path"] for r in res] == paths
+    assert res[1]["error"] and res[1]["pred"] == 0.5
 
 
 def test_predictions_are_deterministic(tmp_path, monkeypatch):
