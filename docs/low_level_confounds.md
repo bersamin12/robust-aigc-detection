@@ -87,41 +87,53 @@ discard.
 
 ## What is not yet done
 
-- The single-feature audit for `laplacian_var`, `noise_floor` and
-  `jpeg_quality`, computed from cached proxies, reported as controls.
+- ~~The single-feature audit for `laplacian_var`, `noise_floor` and
+  `jpeg_quality`, computed from cached proxies.~~ Done; see below.
 - The balanced-index filter itself, and the A/B against the unbalanced pool.
 
-Both are free of GPU cost. Neither has been run.
+Both are free of GPU cost. The audit has now been run (2026-08-30); the
+balanced-index filter has not.
 
 ---
 
-## Measured, 2026-08-29, from cached proxies
+## Measured, 2026-08-29 and re-measured 2026-08-30, from cached proxies
 
-Computed from `data/banks/dinov3l` (`proxies[:, 0, :]`, the undegraded view),
-at zero GPU cost. AUC is orientation-corrected (`max(a, 1-a)`).
+Computed from a bank's `proxies[:, 0, :]` (the undegraded view) at zero GPU
+cost. AUC is orientation-corrected (`max(a, 1-a)`). The middle column is the
+counterfactual pool that barring WildFake's authentic bucket would have
+produced; the right column is the pool as frozen, re-measured from
+`data/banks/siglip2l` after the bar was lifted.
 
-| Signal | stale pool (131,116) | post-bar pool (76,116) |
+| Signal | post-bar pool (76,116) | **live pool (131,116)** |
 | --- | --- | --- |
-| `jpeg_quality` | 0.5532 | 0.5536 |
-| `laplacian_var` | 0.6721 | **0.6871** |
-| `noise_floor` | 0.6374 | 0.6582 |
-| short side (manifest) | 0.5992 | **0.8692** |
+| `jpeg_quality` | 0.5536 | 0.5532 |
+| `laplacian_var` | **0.6871** | **0.6721** |
+| `noise_floor` | 0.6582 | 0.6374 |
+| short side (manifest) | **0.8692** | **0.5992** |
 
-**Barring WildFake's authentic bucket makes the resolution confound worse, not
-better.** Short-side AUC nearly doubles, 0.599 -> 0.869, because the authentic
-side collapses onto a single value: post-bar, 9,954 of 10,049 authentic images
-sit at short side 512, and every bucket below 512 is ~100% generated
-(128 -> 1,262 gen / 0 real; 200 -> 11,516 / 0; 224 -> 7,002 / 0;
-256 -> 22,228 / 0; 450 -> 6,158 / 0). Roughly 49,000 images, 64% of the pool,
-fall in a bucket where "short side < 512" implies "generated" outright.
+**Barring WildFake's authentic bucket made the resolution confound worse, and
+restoring it fixed that.** Short-side AUC nearly doubled under the bar, 0.599
+-> 0.869, because the authentic side collapsed onto a single value: 9,954 of
+10,049 authentic images sat at short side 512, and every bucket below 512 was
+~100% generated. Roughly 49,000 images, 64% of the pool, fell in a bucket where
+"short side < 512" implied "generated" outright.
 
-Sampling the incoming SID_Set acquisition confirms this does not self-heal:
-its `fake` bucket is 1024x1024 for **every** image sampled, its `real` bucket
-runs 390-1200 with median 685, 99.1% at or above 512. Both classes therefore
-normalise onto 512 and land in the same bucket. Adding authentic images moves
-the class RATIO inside the 512 bucket; it does not populate the buckets below
-it, so the between-source resolution split survives however much SID_Set
-arrives.
+With the bucket restored, the two dominant buckets carry both classes —
+200 -> 40,000 authentic / 11,516 generated, 512 -> 24,954 / 17,069 — and only
+**37,482 rows (28.6%)** sit in a single-class bucket, down from 64%. The
+authentic side is 55,000 WildFake plus 10,049 SID_Set, so it spans the same
+resolution range as the generated side rather than one point of it.
+
+Sampling the SID_Set acquisition confirms more SID would NOT have fixed this on
+its own: its `fake` bucket is 1024x1024 for **every** image sampled, its `real`
+bucket runs 390-1200 with median 685, 99.1% at or above 512. Both classes
+normalise onto 512 and land in the same bucket. Adding authentic SID images
+moves the class RATIO inside the 512 bucket; it does not populate the buckets
+below it. Two authentic sources, not more of one, is what made the difference.
+
+`laplacian_var` at 0.672 is now the largest remaining confound, and it is the
+one that survives canonicalisation — so it, not resolution, is what balancing
+has to target.
 
 **What the model actually sees is smaller than that.** `augment.canonical`
 already removes the last-step resampling component at zero information cost by
@@ -130,32 +142,38 @@ figure above is therefore what the dimensions-only CONTROL scores, not what
 reaches the classifier. What survives canonicalisation is the intrinsic
 band-limit -- a 200px image has a lower Nyquist ceiling than a 512px one, and
 no resampling restores it -- and that residue is what `laplacian_var` measures
-at 0.687. `canonical.py` already names the remedy: "Addressing it needs
+at 0.672. `canonical.py` already names the remedy: "Addressing it needs
 source-balanced sampling."
 
 ### Balancing survival
 
-Stratify the post-bar pool, then discard the majority class within each
-stratum until the classes are equal:
+Stratify the pool, then discard the majority class within each stratum until
+the classes are equal. Both pools shown, because the difference is the whole
+argument for keeping two authentic sources:
 
-| Stratified on | rows kept | of 76,116 | authentic side |
-| --- | --- | --- | --- |
-| short side (exact) | 19,940 | 26.2% | 9,970 |
-| `laplacian_var` (10 quantile bins) | 20,098 | 26.4% | 10,049 |
-| short side x `laplacian_var` | 19,470 | 25.6% | 9,735 |
+| Stratified on | post-bar (of 76,116) | **live (of 131,116)** |
+| --- | --- | --- |
+| short side (exact) | 19,940 — 26.2% | 57,202 — 43.6% |
+| `laplacian_var` (10 quantile bins) | 20,098 — 26.4% | **102,602 — 78.3%** |
+| short side x `laplacian_var` | 19,470 — 25.6% | 49,328 — 37.6% |
 
-The authentic class binds in every variant: balancing keeps essentially ALL
-authentic rows and discards ~56,000 generated ones. Pool size is therefore
-governed by how many authentic images we hold, not by any cap on generators.
+**Balancing went from expensive to nearly free.** On the post-bar pool the
+authentic class bound in every variant — balancing kept essentially ALL
+authentic rows and discarded ~56,000 generated ones, costing 74% of the pool.
+On the live pool, stratifying on `laplacian_var` keeps **78.3%**: 102,602 rows,
+51,301 per class. The constraint was never the generators; it was holding only
+10,049 authentic images from one source.
 
-**Generator diversity survives.** Balancing on `laplacian_var` keeps all 17
-generated families, 15 of them above the 200-row `MIN_HELDOUT_IMAGES`
-threshold (only BigGAN at 170 and starGAN at 161 fall short, at the current
-10,049-image authentic side; both clear it once the SID_Set acquisition lands).
-Per-family retention runs 4.6% to 24.1% -- uneven, but nowhere near the
-collapse that stratifying on short side alone would cause, because the
-low-resolution WildFake families are all in the buckets with no authentic
-partner at all.
+**Generator diversity survives, comfortably.** Balancing on `laplacian_var`
+keeps all 17 generated families, every one of them above the 200-row
+`MIN_HELDOUT_IMAGES` threshold (post-bar, BigGAN at 170 and starGAN at 161 fell
+short). Per-family retention runs 37.6% to 97.6%, against 4.6% to 24.1%
+post-bar. The authentic side keeps 43,058 WildFake and 8,243 SID_Set rows, so
+balancing does not quietly collapse back onto a single source either.
+
+This makes the balanced-index filter the cheap intervention it was meant to be:
+a filter on row indices handed to `PairedSampler`, costing 22% of the pool
+rather than 74%, with `laplacian_var` at 0.672 as the signal it removes.
 
 ### Consequence for `--max-per-generator`
 
