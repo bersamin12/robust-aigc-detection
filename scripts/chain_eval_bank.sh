@@ -9,7 +9,10 @@
 # a crashed run needs resuming, and burning 1.8 h of GPU on the next job
 # while the first one sits half-done is how a night gets lost.
 set -u
-cd /mnt/berstorage/techjam/track5
+# The repo root, derived from this script's own location rather than
+# pinned to an absolute path: the tree has moved once already, and a
+# stale `cd` sends a multi-hour job at the wrong data.
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 TRAIN_PID=${1:?usage: chain_eval_bank.sh <train-pid>}
 EXPECTED_ROWS=131116

@@ -20,7 +20,10 @@
 # ~21 GB is re-fetched. That is the cost of a resumable streaming ingest and
 # is cheaper than any alternative at this hour.
 set -eu
-cd /mnt/berstorage/techjam/track5
+# The repo root, derived from this script's own location rather than
+# pinned to an absolute path: the tree has moved once already, and a
+# stale `cd` sends a multi-hour job at the wrong data.
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Do NOT redirect HF_HOME. It would hide both the stored login token and the
 # 161 GB model cache under ~/.cache/huggingface/hub -- including the gated
