@@ -170,10 +170,19 @@ def _tiny_tower(name: str):
             patch_size=_TINY_PATCH, image_size=_TINY_IMAGE,
             num_register_tokens=real.num_prefix_tokens - 1, **_TINY))
     elif name == "siglip2l":
-        from transformers import Siglip2VisionConfig, Siglip2VisionModel
-        model = Siglip2VisionModel(Siglip2VisionConfig(
+        # SiglipVisionModel, NOT Siglip2VisionModel. SigLIP2's FIXED-RESOLUTION
+        # checkpoints (`siglip2-*-patch16-384`) publish `model_type: siglip`
+        # and load as SigLIP v1's tower; only the `-naflex` ones are
+        # Siglip2VisionModel. Building the wrong class here is not a cosmetic
+        # slip -- it is how a wrong `input_format` in BACKBONES stays green:
+        # the stub agrees with the spec, both disagree with the checkpoint, and
+        # the first real forward pass 4 hours into an extraction is what tells
+        # you. `test_declared_input_format_matches_the_published_config` is the
+        # guard that actually consults the repo.
+        from transformers import SiglipVisionConfig, SiglipVisionModel
+        model = SiglipVisionModel(SiglipVisionConfig(
             patch_size=_TINY_PATCH, image_size=_TINY_IMAGE,
-            num_patches=(_TINY_IMAGE // _TINY_PATCH) ** 2, num_channels=3, **_TINY))
+            num_channels=3, **_TINY))
     elif name == "clipl":
         from transformers import CLIPVisionConfig, CLIPVisionModel
         model = CLIPVisionModel(CLIPVisionConfig(
@@ -247,6 +256,41 @@ def test_spec_rejects_an_unusable_input_contract():
     with pytest.raises(ValueError, match="divisible"):
         BackboneSpec("bad", "none", 100, 1024, 0, 1,
                      input_format=INPUT_SIGLIP2_PATCHES, patch_size=16)
+
+
+@pytest.mark.gpu
+@pytest.mark.parametrize("name", sorted(BACKBONES))
+def test_declared_input_format_matches_the_published_config(name):
+    """Every registry entry's `input_format` must match the architecture its
+    hf_id actually publishes.
+
+    The tiny towers above are hermetic, which is their virtue and their blind
+    spot: they assert an architecture rather than discover one, so a registry
+    entry pointing at a checkpoint of a different class passes every one of
+    them. This test is the only place the claim is checked against the repo,
+    which is why it needs the network and carries the gpu marker (config only
+    -- no weights are downloaded).
+    """
+    from transformers import AutoConfig
+    from transformers.models.auto.modeling_auto import MODEL_MAPPING
+
+    from aigcdet.features.backbones import INPUT_SIGLIP2_PATCHES
+
+    if os.environ.get("AIGCDET_ALLOW_GPU_TESTS") != "1":
+        pytest.skip("opt-in: set AIGCDET_ALLOW_GPU_TESTS=1 (downloads configs)")
+
+    spec = BACKBONES[name]
+    cfg = AutoConfig.from_pretrained(spec.hf_id)
+    cls_name = MODEL_MAPPING[type(cfg)].__name__
+
+    # Only the Siglip2* family takes patchified input + attention_mask +
+    # spatial_shapes; everything else takes pixel_values=(B, 3, H, W).
+    needs_patches = cls_name.startswith("Siglip2")
+    declared_patches = spec.input_format == INPUT_SIGLIP2_PATCHES
+    assert needs_patches == declared_patches, (
+        f"{name}: {spec.hf_id} loads as {cls_name}, which "
+        f"{'requires' if needs_patches else 'does not accept'} patchified "
+        f"input, but the registry declares input_format={spec.input_format!r}")
 
 
 def test_patchify_matches_the_transformers_reference_implementation():
