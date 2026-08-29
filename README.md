@@ -166,6 +166,10 @@ python scripts/train_rung.py --config configs/rungs/a3.yaml \
 python scripts/run_ablation.py --bank banks/dinov3l --out outputs/rungs
 ```
 
+The bank is the only thing that changes between backbones — `--bank
+banks/convnextt` runs the identical ladder on the convolutional features,
+because Stage B never sees an image.
+
 | Rung | What it adds |
 |---|---|
 | A0 | Linear probe, clean views only (= UniversalFakeDetect) |
@@ -238,8 +242,15 @@ the generated half, and it widens every confidence interval on that side.
   sharpness alone predicts the label at 68.5% — real images in this corpus are
   simply sharper than generated ones. Canonicalisation neither causes nor cures
   it. The fix is source-balanced sampling, which we have not done.
-- **One backbone.** The design supports DINOv3, SigLIP2 and CLIP with a fusion
-  path, but only DINOv3 has been budgeted for.
+- **One paradigm, so far.** DINOv3 and SigLIP2 are both ViTs pooled by
+  averaging patch tokens, which is one paradigm wearing two hats — they are
+  likely to be wrong on the same images, and A5's fusion earns least from a
+  pair like that. The registry now also carries two **convolutional** towers
+  (ConvNeXt-Tiny, ResNet-50) pooled by mean **and standard deviation** over
+  spatial positions, where the std is the texture statistic the ViT path
+  averages away. They are extracted by `notebooks/kaggle_stage_a_cnn.ipynb`;
+  at the time of writing neither has been trained against, so whether the
+  third paradigm actually decorrelates is measured, not claimed.
 - **Generalisation is measured, not solved.** `heldout_generator` holds out
   entire generator families, and the LOTO rung holds out entire transform
   families, but a genuinely novel generator remains the open risk.

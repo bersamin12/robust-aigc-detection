@@ -7,7 +7,7 @@ Layout:
     bank/meta.parquet    N rows, image-level:
                          image_idx,row_id,path,label,generator,source,split
     bank/views.parquet   N*V rows: image_idx,view_idx,recipe_json
-    bank/feats.npy       (N, V, D) float16   -- the ViT embedding
+    bank/feats.npy       (N, V, D) float16   -- the pooled backbone embedding
     bank/presence.npy    (N, V, 6) float32   -- degradation-head targets
     bank/severity.npy    (N, V, 6) float32
     bank/proxies.npy     (N, V, 3) float32   -- handcrafted h
@@ -281,7 +281,27 @@ class BankWriter:
         one that made its `rel_path` right. Re-deriving it here from the
         merged writer's root would overwrite a correct identity with a wrong
         one."""
-        self.feats[idx] = feats.astype(np.float16)
+        # The cast is where a finite float32 can become inf: `embed` checks
+        # finiteness in the tower's own dtype, BEFORE this line, so it cannot
+        # see an overflow introduced HERE. That was unreachable while every
+        # backbone was a ViT pooling to |x| < 2, and stopped being unreachable
+        # when the convolutional entries landed -- their unnormalised stage
+        # activations pool ~500x larger (convnextt peaks around 945 against
+        # float16's 65504). One `isfinite` over 11 x dim values per image is
+        # nothing next to the forward pass that produced them, and the
+        # alternative is the 2026-08-29 failure again: a bank that is silently
+        # wrong at full speed, discovered hours later by Stage B.
+        cast = feats.astype(np.float16)
+        if not np.isfinite(cast).all() and np.isfinite(feats).all():
+            peak = float(np.abs(np.asarray(feats, dtype=np.float64)).max())
+            raise ValueError(
+                f"image {idx}: finite float32 features overflowed float16 on "
+                f"write (peak |x| = {peak:.1f}, float16 max is 65504). The "
+                f"bank's storage dtype cannot hold this backbone's output; "
+                f"nothing was written for this image. Rescale the pooling or "
+                f"widen the bank's dtype -- do NOT clip, which would make the "
+                f"largest activations indistinguishable from each other.")
+        self.feats[idx] = cast
         self.presence[idx] = presence
         self.severity[idx] = severity
         self.proxies[idx] = proxies

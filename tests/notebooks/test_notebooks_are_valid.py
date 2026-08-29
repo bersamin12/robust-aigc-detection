@@ -23,7 +23,12 @@ NOTEBOOK_PATHS = sorted(glob.glob(os.path.join(REPO_ROOT, "notebooks", "*.ipynb"
 #: Notebooks this project commits to shipping. Named rather than globbed, so
 #: DELETING one is a test failure too -- a teammate's bookmarked link going
 #: dead is exactly as bad as a corrupt file.
-EXPECTED_NOTEBOOKS = ("kaggle_stage_a.ipynb", "kaggle_merge_train.ipynb")
+EXPECTED_NOTEBOOKS = (
+    "kaggle_stage_a.ipynb",          # the five-account ViT fleet
+    "kaggle_stage_a_cnn.ipynb",      # the convolutional bank (A5 third paradigm)
+    "kaggle_stage_a_eval.ipynb",     # the evaluation bank, both manifests joined
+    "kaggle_merge_train.ipynb",      # merge the fleet's shards
+)
 
 
 def _load(path):

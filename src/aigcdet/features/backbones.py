@@ -59,6 +59,24 @@ INPUT_SIGLIP2_PATCHES = "siglip2_patches"  # patchified + attention_mask + spati
 INPUT_FORMATS = (INPUT_IMAGE_TENSOR, INPUT_SIGLIP2_PATCHES)
 
 
+#: How a tower's output is reduced to one vector per image. Separate from
+#: `input_format` because they vary independently: a CNN shares the ViTs'
+#: `pixel_values` input contract but emits a (B, C, H, W) feature MAP, not a
+#: (B, T, D) token sequence, so there are no prefix tokens to strip and no
+#: token axis to average.
+#:
+#: POOL_SPATIAL_MS concatenates the per-channel MEAN and STANDARD DEVIATION
+#: over spatial positions, for each stage in `BackboneSpec.stages`. The std is
+#: the point, not a free extra: the ViT path's `mean` over tokens averages
+#: local texture away, and texture -- noise floor, resampling lattice,
+#: compression grid -- is the forensic evidence a conv stack is here to read.
+#: A mean-only conv bank would be a semantic feature extractor competing with
+#: SigLIP2 on SigLIP2's own ground.
+POOL_TOKENS = "tokens"           # (B, T, D) -> mean over T, after num_prefix_tokens
+POOL_SPATIAL_MS = "spatial_ms"   # (B, C, H, W) per stage -> [mean, std] over H*W
+POOLS = (POOL_TOKENS, POOL_SPATIAL_MS)
+
+
 @dataclass(frozen=True)
 class BackboneSpec:
     name: str
@@ -92,12 +110,34 @@ class BackboneSpec:
     #: without loss. Per backbone, because it is a property of the checkpoint;
     #: see `run_dtype` for the one device-dependent fallback.
     dtype: torch.dtype = torch.float16
+    #: How `embed` reduces this tower's output -- one of `POOLS`. Defaults to
+    #: the ViT contract so every existing entry is unchanged.
+    pool: str = POOL_TOKENS
+    #: For POOL_SPATIAL_MS only: which entries of `output_hidden_states` to
+    #: pool, in the order they are concatenated. Indices into the tuple HF
+    #: returns, where 0 is the stem embedding and the last is the final stage.
+    #: `dim` must equal 2 * sum(channels of these stages) -- asserted against
+    #: the real model in tests/features/test_backbones.py, since the channel
+    #: widths are a property of the checkpoint and cannot be checked here.
+    stages: tuple[int, ...] = ()
 
     def __post_init__(self):
         if self.input_format not in INPUT_FORMATS:
             raise ValueError(
                 f"{self.name}: input_format must be one of {INPUT_FORMATS}, "
                 f"got {self.input_format!r}")
+        if self.pool not in POOLS:
+            raise ValueError(
+                f"{self.name}: pool must be one of {POOLS}, got {self.pool!r}")
+        if (self.pool == POOL_SPATIAL_MS) != bool(self.stages):
+            raise ValueError(
+                f"{self.name}: `stages` is required by {POOL_SPATIAL_MS} and "
+                f"meaningless without it; got pool={self.pool!r} "
+                f"stages={self.stages!r}")
+        if self.pool == POOL_SPATIAL_MS and self.num_prefix_tokens:
+            raise ValueError(
+                f"{self.name}: a feature map has no prefix tokens to strip, "
+                f"got num_prefix_tokens={self.num_prefix_tokens}")
         if self.input_format == INPUT_SIGLIP2_PATCHES:
             if self.patch_size <= 0:
                 raise ValueError(
@@ -126,6 +166,38 @@ BACKBONES: dict[str, BackboneSpec] = {
                               384, 1024, 0, 316_283_904),
     "clipl": BackboneSpec("clipl", "openai/clip-vit-large-patch14",
                            224, 1024, 1, 303_179_776),
+    # --- Convolutional towers (spec 6.4: A5 wants DECORRELATED paradigms, not
+    # three strong ones). Both share the ViTs' `pixel_values` contract and the
+    # ImageNet normalisation above -- which, unlike for CLIP and SigLIP2, is
+    # these checkpoints' OWN pretraining normalisation, so the caveat in the
+    # _MEAN/_STD comment does not apply to them.
+    #
+    # Nothing upstream changes: they consume the same canonicalised, augmented
+    # pixels as every other bank, so views stay bit-identical and
+    # `assert_fusion_parents` still holds. Only the pooling differs.
+    #
+    # Parameter counts measured by instantiating from the published config
+    # (architecture only, no weights), same discipline as the ViTs above.
+    #
+    # `dim` is 2 * sum(stage channels): mean and std per channel per stage.
+    #   convnextt  stages (3, 4) -> (384 + 768) * 2 = 2304
+    #   resnet50   stage  (4,)   -> 2048 * 2        = 4096
+    # Both are float16-safe: ConvNeXt is LayerNorm throughout and ResNet's
+    # BatchNorm runs on frozen eval statistics. Neither has DINOv3's overflow.
+    "convnextt": BackboneSpec("convnextt", "facebook/convnext-tiny-224",
+                               224, 2304, 0, 27_820_128,
+                               pool=POOL_SPATIAL_MS, stages=(3, 4)),
+    # Stage 4 only, at 4096 dims, because stages (3, 4) would be 6144 -- a
+    # 16.59 GiB bank against a 20 GiB Kaggle working quota, with the repo and
+    # pip's cache to fit alongside it. At 4096 it is 11.08 GiB, against
+    # convnextt's 6.27 GiB (measured with kaggle_bootstrap.bank_bytes over the
+    # real 131,116-row split x 11 views). ResNet's 2048-channel final stage is
+    # the old-style width the modern nets dropped, and it is what makes the
+    # multiplier bite. Widen to (3, 4) here only if the convnextt result earns
+    # the storage -- it would need a second session's worth of shards.
+    "resnet50": BackboneSpec("resnet50", "microsoft/resnet-50",
+                              224, 4096, 0, 23_508_032,
+                              pool=POOL_SPATIAL_MS, stages=(4,)),
 }
 
 
@@ -223,6 +295,29 @@ def model_inputs(spec: BackboneSpec, imgs: list[np.ndarray], device: str,
     raise ValueError(f"unknown input_format {spec.input_format!r}")
 
 
+def _pool(model, spec: BackboneSpec, inputs: dict) -> "torch.Tensor":
+    """Run one batch through `model` and reduce it per `spec.pool`, to
+    (B, spec.dim) float32."""
+    if spec.pool == POOL_TOKENS:
+        h = model(**inputs).last_hidden_state             # (B, T, D)
+        patches = h[:, spec.num_prefix_tokens:, :]        # drop CLS + registers
+        return patches.mean(dim=1).float()
+
+    hidden = model(**inputs, output_hidden_states=True).hidden_states
+    parts = []
+    for stage in spec.stages:
+        # (B, C, H, W) -> (B, C, H*W). float() BEFORE the moments: a float16
+        # variance over a few hundred positions loses precision in the tail,
+        # and the std is the whole reason this pooling exists.
+        flat = hidden[stage].flatten(2).float()
+        parts.append(flat.mean(dim=-1))
+        # Population std (correction=0): the spatial positions are the whole
+        # feature map, not a sample from a larger one, and a 1x1 stage would
+        # otherwise divide by zero rather than yielding 0.
+        parts.append(flat.std(dim=-1, correction=0))
+    return torch.cat(parts, dim=1)
+
+
 @torch.inference_mode()
 def embed(model, spec: BackboneSpec, imgs: list[np.ndarray],
           device: str = "cuda", batch_size: int = 16) -> np.ndarray:
@@ -239,9 +334,7 @@ def embed(model, spec: BackboneSpec, imgs: list[np.ndarray],
     out = []
     for i in range(0, len(imgs), batch_size):
         inputs = model_inputs(spec, imgs[i:i + batch_size], device, dtype)
-        h = model(**inputs).last_hidden_state             # (B, T, D)
-        patches = h[:, spec.num_prefix_tokens:, :]        # drop CLS + registers
-        pooled = patches.mean(dim=1).float()
+        pooled = _pool(model, spec, inputs)
         # Checked here, on the first batch, rather than discovered by Stage B:
         # a tower running in a dtype it overflows produces NaN for EVERY image
         # at full speed, and nothing downstream of this line -- the bank

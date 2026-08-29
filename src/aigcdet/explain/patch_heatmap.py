@@ -34,7 +34,7 @@ import numpy as np
 import torch
 
 from aigcdet.augment.canonical import canonicalise
-from aigcdet.features.backbones import model_inputs
+from aigcdet.features.backbones import POOL_TOKENS, model_inputs
 
 PATCH_HEATMAP_CAVEAT = (
     "Heuristic: the classifier was trained on pooled features, so per-patch "
@@ -58,6 +58,16 @@ def patch_scores(backbone, spec, model, img: np.ndarray,
             "branch: that Detector's input is the embedding concatenated with "
             "12 VAE features, which exist per image and not per patch. Show "
             "`features.recon.error_map` instead.")
+
+    if spec.pool != POOL_TOKENS:
+        raise ValueError(
+            f"the patch heatmap is only defined for a token-pooled backbone, "
+            f"and {spec.name} pools a feature map with {spec.pool}. This is "
+            "not a missing feature: that head's input is the per-channel MEAN "
+            "and STANDARD DEVIATION over every spatial position, so a "
+            "single-position feature of the same width does not exist and "
+            "there is nothing to score per patch. Use a ViT bank for the "
+            "heatmap, or `features.recon.error_map` for a spatial view.")
 
     try:
         dtype = next(backbone.parameters()).dtype

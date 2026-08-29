@@ -219,3 +219,52 @@ resolving the same manifest against `data/`.
 `feats.npy`. That fits one session and `/kaggle/working`, which is why
 `N_SHARDS` defaults to 1. Raise it only if the smoke cell's estimate does not
 fit a 9 h GPU session.
+
+
+---
+
+## The convolutional banks (`notebooks/kaggle_stage_a_cnn.ipynb`)
+
+Not a fleet job. Both conv banks fit one session whole, so this is **one
+account, one session, no shards, no merge** — run it twice, changing a single
+line.
+
+| BACKBONE | dim | bank | stages pooled |
+| --- | --- | --- | --- |
+| `convnextt` | 2304 | 6.27 GiB | 3 and 4, mean+std |
+| `resnet50` | 4096 | 11.08 GiB | 4 only, mean+std |
+
+Sizes are `kb.fits_in_working` against the real 131,116-row train+val_internal
+split; both clear the 20 GiB working quota with the 0.5 GiB reserve.
+
+**Attach one Dataset**: `justinbersamin/techjam-aigc-train`. Same manifest,
+same `SEED = 20260827`, same `SPLITS = "train,val_internal"` as the SigLIP2
+fleet — those three are what make the result fusable at A5, and changing any of
+them produces different view pixels that `assert_fusion_parents` will reject.
+
+**No HuggingFace token.** Both checkpoints are Apache-2.0 and ungated
+(`docs/model_licences.md`), so the auth cell reports "not gated" and moves on.
+
+**Why `N_SHARDS = 1` here and 5 for SigLIP2.** A conv tower is ~50x cheaper per
+image than SigLIP2-L, so the run is CPU-bound on JPEG decode rather than
+GPU-bound; `BATCH_SIZE` is raised to 64 because the GPU is otherwise idle
+waiting, and `WORKERS` is what actually sets the pace. The smoke cell still
+measures the marginal rate and tells you whether your session will finish — run
+it with `SMOKE = True` first and read that number rather than trusting this
+paragraph.
+
+**The head is not the same size, and that is a confound in the comparison.**
+`train_head` takes `dim_feat=bank.config["dim"]`, so a wider bank silently buys
+a bigger head: 923,405 parameters on a 1024-d ViT bank, 1,906,445 on
+`convnextt`, 3,282,701 on `resnet50`. A CNN rung that beats a ViT rung has
+therefore been handed 2-3.5x the head capacity, and "the conv paradigm helps"
+is not the only explanation available. Before claiming the third paradigm
+works, re-run the winning ViT rung with `hidden` raised to match the CNN head's
+parameter count — that is a CPU-only Stage B run of a few minutes, and it is
+the difference between a finding and an artefact.
+
+**Reading the result.** Sharpness alone predicts the label at AUC 0.672 in this
+pool (`docs/low_level_confounds.md`), and a tower pooling spatial standard
+deviations is the one most likely to lean on it. Treat a clean CNN AUC as
+provisional until the balanced-index filter is applied, and compare the
+stratified number.

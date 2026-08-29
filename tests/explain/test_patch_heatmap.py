@@ -268,3 +268,23 @@ def test_patch_scores_grid_matches_the_real_backbone_geometry():
     model = Detector(dim_feat=spec.dim).to("cuda")
     heat = patch_scores(bb, spec, model, _img(shape=(512, 512, 3)), device="cuda")
     assert heat.shape == (spec.image_size // 14, spec.image_size // 14)
+
+
+def test_patch_scores_refuses_a_spatially_pooled_backbone():
+    """Per-patch scoring is undefined for POOL_SPATIAL_MS, not merely
+    unimplemented: the head's input is the mean and std over ALL spatial
+    positions, so no single position carries a feature of that width. Without
+    this guard the conv tower's (1, C, H, W) last_hidden_state is sliced as if
+    it were (1, T, D) and the failure surfaces as a shape error inside the
+    head, several frames from the cause."""
+    import numpy as np
+    import pytest
+
+    from aigcdet.explain.patch_heatmap import patch_scores
+    from aigcdet.features.backbones import BACKBONES
+
+    spec = BACKBONES["convnextt"]
+    img = np.zeros((64, 64, 3), dtype=np.uint8)
+
+    with pytest.raises(ValueError, match="only defined for a token-pooled"):
+        patch_scores(backbone=None, spec=spec, model=None, img=img, device="cpu")

@@ -481,3 +481,46 @@ def test_check_invariants_refuses_a_bank_with_non_finite_features(tmp_path):
     assert non_finite_rows(bank.feats, block=1).tolist() == [1, 3]   # block edges
     with pytest.raises(ValueError, match=r"non-finite.*2 of 4 rows.*\[1, 3\]"):
         bank.check_invariants()
+
+
+def test_write_refuses_features_that_overflow_the_banks_float16(tmp_path):
+    """`embed` checks finiteness in the TOWER's dtype, before the bank's cast,
+    so an overflow introduced by `astype(np.float16)` is invisible to it. That
+    gap was unreachable while every backbone pooled to |x| < 2 and became
+    reachable with the convolutional entries, whose unnormalised stage
+    activations pool orders of magnitude larger."""
+    import numpy as np
+    import pytest
+
+    from aigcdet.features.bank import BankWriter
+
+    w = BankWriter(str(tmp_path / "b"), n_images=1, n_views=2, dim=4,
+                   backbone="convnextt", seed=0, manifest_sha256="x" * 64)
+    feats = np.full((2, 4), 1e5, dtype=np.float32)   # finite, but > 65504
+    assert np.isfinite(feats).all(), "the input must be finite or this tests nothing"
+
+    with pytest.raises(ValueError, match="overflowed float16"):
+        w.write_image(0, {"label": 0}, feats,
+                      presence=np.zeros((2, 6), dtype=np.float32),
+                      severity=np.zeros((2, 6), dtype=np.float32),
+                      proxies=np.zeros((2, 3), dtype=np.float32),
+                      recipes=["{}"] * 2)
+
+
+def test_write_accepts_the_large_but_representable_values_a_conv_tower_emits(tmp_path):
+    """The guard must not fire on the magnitudes that actually occur: convnextt
+    peaks near 945, which float16 holds with ~69x headroom. A guard that also
+    rejected legitimate features would block the run it exists to protect."""
+    import numpy as np
+
+    from aigcdet.features.bank import BankWriter
+
+    w = BankWriter(str(tmp_path / "b"), n_images=1, n_views=2, dim=4,
+                   backbone="convnextt", seed=0, manifest_sha256="x" * 64)
+    feats = np.full((2, 4), 945.0, dtype=np.float32)
+    w.write_image(0, {"label": 0}, feats,
+                  presence=np.zeros((2, 6), dtype=np.float32),
+                  severity=np.zeros((2, 6), dtype=np.float32),
+                  proxies=np.zeros((2, 3), dtype=np.float32),
+                  recipes=["{}"] * 2)
+    assert np.isfinite(np.asarray(w.feats[0])).all()

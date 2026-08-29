@@ -3,7 +3,8 @@ import os
 import numpy as np
 import pytest
 
-from aigcdet.features.backbones import BACKBONES, squish
+from aigcdet.features.backbones import (BACKBONES, POOL_SPATIAL_MS,
+                                        POOL_TOKENS, squish)
 
 _MIN_FREE_BYTES = 4 * 1024**3  # 4 GB; a ViT-L backbone needs headroom beyond its weights
 
@@ -31,11 +32,37 @@ def _skip_unless_gpu_has_headroom():
         )
 
 
-def test_registry_has_the_three_planned_backbones():
-    assert set(BACKBONES) == {"dinov3l", "siglip2l", "clipl"}
+def test_registry_has_the_planned_backbones():
+    from aigcdet.features.backbones import POOL_SPATIAL_MS, POOL_TOKENS
+
+    assert set(BACKBONES) == {"dinov3l", "siglip2l", "clipl",
+                              "convnextt", "resnet50"}
     for spec in BACKBONES.values():
         assert spec.dim > 0 and spec.image_size in (224, 384)
-        assert spec.num_prefix_tokens >= 1 or spec.name == "siglip2l"  # at least a CLS token to strip, except SigLIP2 which has none
+        if spec.pool == POOL_TOKENS:
+            # At least a CLS token to strip, except SigLIP2 which has none.
+            assert spec.num_prefix_tokens >= 1 or spec.name == "siglip2l"
+        else:
+            # A feature map has no token axis, so there is nothing to strip;
+            # __post_init__ rejects a non-zero count outright.
+            assert spec.pool == POOL_SPATIAL_MS and spec.num_prefix_tokens == 0
+
+
+def test_the_convolutional_entries_are_a_different_paradigm_not_a_third_vit():
+    """A5 fuses paradigms, not checkpoints (spec 6.4). Two ViTs pooled the same
+    way are one paradigm wearing two hats; the conv entries earn their place in
+    the registry only by differing in BOTH the tower and the pooling."""
+    from aigcdet.features.backbones import POOL_SPATIAL_MS, POOL_TOKENS
+
+    conv = {"convnextt", "resnet50"}
+    assert {n for n, s in BACKBONES.items() if s.pool == POOL_SPATIAL_MS} == conv
+    assert {n for n, s in BACKBONES.items() if s.pool == POOL_TOKENS} == set(BACKBONES) - conv
+    for name in conv:
+        # The std half is the reason the pooling exists: mean-only would make
+        # these semantic extractors competing with SigLIP2 on its own ground.
+        # dim is even because every stage contributes a mean AND a std.
+        assert BACKBONES[name].dim % 2 == 0
+        assert BACKBONES[name].stages
 
 
 def test_two_shipped_backbones_stay_under_1b_working_ceiling():
@@ -60,8 +87,16 @@ def test_full_registry_stays_under_the_2b_hackathon_hard_limit():
 def test_backbone_params_are_positive_and_real_looking():
     # Guards against a placeholder value that happens to satisfy the budget
     # inequality: every recorded count must be a plausible ViT-L parameter count.
+    from aigcdet.features.backbones import POOL_TOKENS
+
     for spec in BACKBONES.values():
-        assert 200_000_000 < spec.params < 500_000_000
+        if spec.pool == POOL_TOKENS:
+            assert 200_000_000 < spec.params < 500_000_000   # a ViT-L
+        else:
+            # A conv tower is one to two orders smaller, which is the point:
+            # ~50x less compute per image than SigLIP2-L, so a bank costs one
+            # Kaggle session rather than a five-account fleet.
+            assert 10_000_000 < spec.params < 150_000_000
 
 
 def test_squish_ignores_aspect_ratio():
@@ -149,6 +184,11 @@ _TINY = dict(hidden_size=32, intermediate_size=64, num_hidden_layers=2,
              num_attention_heads=4)
 _TINY_PATCH = 16
 _TINY_IMAGE = 64          # 4 x 4 = 16 patches
+#: Toy stage widths for the conv towers. Four stages, each halving spatially:
+#: 64 -> 16 (stride-4 stem) -> 8 -> 4 -> 2, so every stage keeps a real spatial
+#: extent for the std to be computed over. A 1x1 stage would make the std
+#: identically zero and hide a broken pooling.
+_TINY_CONV_WIDTHS = [8, 16, 32, 64]
 
 
 def _tiny_tower(name: str):
@@ -187,12 +227,34 @@ def _tiny_tower(name: str):
         from transformers import CLIPVisionConfig, CLIPVisionModel
         model = CLIPVisionModel(CLIPVisionConfig(
             patch_size=_TINY_PATCH, image_size=_TINY_IMAGE, **_TINY))
+    elif name == "convnextt":
+        from transformers import ConvNextConfig, ConvNextModel
+        model = ConvNextModel(ConvNextConfig(
+            num_channels=3, hidden_sizes=_TINY_CONV_WIDTHS, depths=[1, 1, 1, 1]))
+    elif name == "resnet50":
+        from transformers import ResNetConfig, ResNetModel
+        model = ResNetModel(ResNetConfig(
+            num_channels=3, embedding_size=_TINY_CONV_WIDTHS[0],
+            hidden_sizes=_TINY_CONV_WIDTHS, depths=[1, 1, 1, 1],
+            layer_type="bottleneck"))
     else:
         raise AssertionError(f"no tiny tower recipe for {name!r}")
 
     # The same unwrapping load_backbone does.
     model = getattr(model, "vision_model", model).eval()
-    spec = replace(real, image_size=_TINY_IMAGE, dim=_TINY["hidden_size"], params=0)
+    dim = _TINY["hidden_size"]
+    if real.pool == POOL_SPATIAL_MS:
+        # DISCOVERED from the toy tower, not asserted: the whole contract under
+        # test is "spec.dim == 2 * sum(channels at spec.stages)", so hardcoding
+        # a width here would let a wrong `stages` agree with a wrong `dim` and
+        # pass. `test_spatial_pooling_width_is_two_moments_per_stage_channel`
+        # is what pins the relationship.
+        import torch
+        with torch.inference_mode():
+            probe = model(pixel_values=torch.zeros(1, 3, _TINY_IMAGE, _TINY_IMAGE),
+                          output_hidden_states=True).hidden_states
+        dim = 2 * sum(probe[i].shape[1] for i in real.stages)
+    spec = replace(real, image_size=_TINY_IMAGE, dim=dim, params=0)
     return model, spec
 
 
@@ -222,6 +284,9 @@ def test_num_prefix_tokens_matches_the_real_architecture(name):
     import torch
 
     from aigcdet.features.backbones import model_inputs
+
+    if BACKBONES[name].pool != POOL_TOKENS:
+        pytest.skip(f"{name} pools a feature map; it has no token axis")
 
     model, spec = _tiny_tower(name)
     rng = np.random.default_rng(1)
@@ -404,3 +469,148 @@ def test_embed_refuses_non_finite_features_on_the_batch_that_produced_them():
     imgs = [np.zeros((_TINY_IMAGE, _TINY_IMAGE, 3), np.uint8)] * 3
     with pytest.raises(ValueError, match=r"dinov3l.*non-finite.*2 of 3.*float32"):
         embed(Overflowing(), spec, imgs, device="cpu", batch_size=3)
+
+
+# ---------------------------------------------------------------------------
+# Spatial mean+std pooling (the conv entries). The contract is
+# `spec.dim == 2 * sum(channels at spec.stages)`, and the ORDER within it is
+# [mean(stage_a), std(stage_a), mean(stage_b), std(stage_b), ...] -- a bank is
+# written once and read for the rest of the project, so a silent reordering
+# between extraction and a later re-extraction would misalign every column
+# against a head trained on the earlier one, with no shape error anywhere.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("name", sorted(
+    n for n, s in BACKBONES.items() if s.pool == POOL_SPATIAL_MS))
+def test_spatial_pooling_width_is_two_moments_per_stage_channel(name):
+    import torch
+
+    from aigcdet.features.backbones import _pool, model_inputs
+
+    model, spec = _tiny_tower(name)
+    rng = np.random.default_rng(2)
+    imgs = [rng.integers(0, 256, (90, 140, 3), dtype=np.uint8) for _ in range(2)]
+    inputs = model_inputs(spec, imgs, "cpu", torch.float32)
+
+    with torch.inference_mode():
+        hidden = model(**inputs, output_hidden_states=True).hidden_states
+        pooled = _pool(model, spec, inputs)
+
+    channels = [hidden[i].shape[1] for i in spec.stages]
+    assert pooled.shape == (2, 2 * sum(channels))
+    assert pooled.shape[1] == spec.dim
+
+
+@pytest.mark.parametrize("name", sorted(
+    n for n, s in BACKBONES.items() if s.pool == POOL_SPATIAL_MS))
+def test_spatial_pooling_emits_mean_then_std_per_stage_in_stage_order(name):
+    """Recomputes both moments by hand from the same hidden states and matches
+    them slot for slot, so a swapped pair, a dropped stage or a stage read in
+    the wrong order all fail here rather than in a bank six hours later."""
+    import torch
+
+    from aigcdet.features.backbones import _pool, model_inputs
+
+    model, spec = _tiny_tower(name)
+    rng = np.random.default_rng(3)
+    imgs = [rng.integers(0, 256, (110, 90, 3), dtype=np.uint8) for _ in range(2)]
+    inputs = model_inputs(spec, imgs, "cpu", torch.float32)
+
+    with torch.inference_mode():
+        hidden = model(**inputs, output_hidden_states=True).hidden_states
+        pooled = _pool(model, spec, inputs).numpy()
+
+    at = 0
+    for stage in spec.stages:
+        flat = hidden[stage].flatten(2).float().numpy()      # (B, C, H*W)
+        c = flat.shape[1]
+        np.testing.assert_allclose(pooled[:, at:at + c], flat.mean(-1),
+                                   rtol=1e-5, atol=1e-6)
+        np.testing.assert_allclose(pooled[:, at + c:at + 2 * c], flat.std(-1),
+                                   rtol=1e-5, atol=1e-6)
+        at += 2 * c
+    assert at == pooled.shape[1]
+
+
+def test_the_std_half_carries_signal_the_mean_half_discards():
+    """The justification for this pooling, made falsifiable.
+
+    The ViT path averages over tokens, so two images whose feature maps share a
+    per-channel mean but differ in spatial VARIANCE -- flat versus textured --
+    pool to the same vector and are indistinguishable downstream. If the std
+    half were dropped (or were a constant, or a duplicate of the mean), this
+    project's stated reason for adding a conv tower would be false. Uses a
+    stand-in tower so the property is tested, not a checkpoint's luck.
+    """
+    import torch
+    from dataclasses import replace
+
+    from aigcdet.features.backbones import _pool
+
+    class TwoStageMap(torch.nn.Module):
+        """Emits a fixed pair of feature maps, ignoring its input."""
+        def __init__(self, maps):
+            super().__init__()
+            self.maps = maps
+
+        def forward(self, pixel_values=None, output_hidden_states=False):
+            from transformers.modeling_outputs import BaseModelOutput
+            return BaseModelOutput(last_hidden_state=self.maps[-1],
+                                   hidden_states=tuple(self.maps))
+
+    # Two 1-channel 2x2 maps with IDENTICAL means (0.5) and different spreads.
+    flat = torch.full((1, 1, 2, 2), 0.5)
+    textured = torch.tensor([[[[0.0, 1.0], [1.0, 0.0]]]])
+    spec = replace(BACKBONES["resnet50"], dim=2, stages=(0,))
+
+    a = _pool(TwoStageMap([flat]), spec, {})
+    b = _pool(TwoStageMap([textured]), spec, {})
+
+    assert a[0, 0].item() == pytest.approx(b[0, 0].item())   # means agree
+    assert a[0, 1].item() == pytest.approx(0.0)              # flat map, no spread
+    assert b[0, 1].item() == pytest.approx(0.5)              # textured map
+    assert not torch.allclose(a, b), (
+        "mean+std pooling failed to separate a flat map from a textured one "
+        "with the same mean -- the std half is not doing its job")
+
+
+def test_spec_rejects_a_pooling_and_stages_mismatch():
+    from aigcdet.features.backbones import BackboneSpec
+
+    with pytest.raises(ValueError, match="stages"):
+        BackboneSpec("bad", "x", 224, 64, 0, 1, pool=POOL_SPATIAL_MS)
+    with pytest.raises(ValueError, match="stages"):
+        BackboneSpec("bad", "x", 224, 64, 0, 1, pool=POOL_TOKENS, stages=(3,))
+    with pytest.raises(ValueError, match="pool"):
+        BackboneSpec("bad", "x", 224, 64, 0, 1, pool="mean_of_everything")
+    with pytest.raises(ValueError, match="prefix tokens"):
+        BackboneSpec("bad", "x", 224, 64, 2, 1, pool=POOL_SPATIAL_MS, stages=(3,))
+
+
+@pytest.mark.gpu
+@pytest.mark.parametrize("name", sorted(
+    n for n, s in BACKBONES.items() if s.pool == POOL_SPATIAL_MS))
+def test_registry_dim_matches_the_published_architecture(name):
+    """The tiny towers above discover `dim` from a toy width, which is what
+    makes them hermetic and what makes them blind: they cannot catch a `dim`
+    that is wrong for the REAL checkpoint. A wrong `dim` is not a crash -- it
+    is a BankWriter allocating the wrong stride and an extraction that dies on
+    its first batch, hours after the session was paid for. Config only; no
+    weights are downloaded.
+    """
+    import torch
+    from transformers import AutoConfig, AutoModel
+
+    if os.environ.get("AIGCDET_ALLOW_GPU_TESTS") != "1":
+        pytest.skip("opt-in: set AIGCDET_ALLOW_GPU_TESTS=1 (downloads configs)")
+
+    spec = BACKBONES[name]
+    model = AutoModel.from_config(AutoConfig.from_pretrained(spec.hf_id)).eval()
+    with torch.inference_mode():
+        hidden = model(pixel_values=torch.zeros(1, 3, spec.image_size, spec.image_size),
+                       output_hidden_states=True).hidden_states
+
+    expected = 2 * sum(hidden[i].shape[1] for i in spec.stages)
+    assert spec.dim == expected, (
+        f"{name}: registry says dim={spec.dim}, but {spec.hf_id} at stages "
+        f"{spec.stages} pools to {expected}")
