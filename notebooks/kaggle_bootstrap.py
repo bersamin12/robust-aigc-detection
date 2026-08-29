@@ -275,7 +275,22 @@ def hf_token(secrets_client=None, environ=None) -> str | None:
     return str(value).strip() if value and str(value).strip() else None
 
 
-def hf_auth_advice(token: str | None, model_id: str) -> list[str]:
+def requires_hf_token(backbone: str) -> bool:
+    """Whether this backbone's weights need a HuggingFace token to download.
+
+    Read off the registry rather than assumed, because the answer changed with
+    the machine allocation: DINOv3 is gated behind Meta's licence and runs on
+    the A4500, while the fleet runs SigLIP2 (Apache-2.0) and CLIP (MIT), which
+    need nothing. A blanket requirement would stop four teammates to accept a
+    licence their run never touches.
+    """
+    from aigcdet.features.backbones import BACKBONES
+
+    return bool(BACKBONES[backbone].gated)
+
+
+def hf_auth_advice(token: str | None, model_id: str,
+                   gated: bool = True) -> list[str]:
     """What to do about HuggingFace auth, given whether a token was found.
 
     Says the gated-repo part even when a token IS present, because the two
@@ -283,7 +298,18 @@ def hf_auth_advice(token: str | None, model_id: str) -> list[str]:
     `from_pretrained`) and only one of them is fixed by adding a token: the
     licence is accepted per ACCOUNT, so the project owner's acceptance does
     nothing for a teammate's token.
+
+    `gated=False` says so plainly instead. Telling someone a public repo is
+    gated does not fail safe -- they go and do the useless work, and the real
+    cause of whatever they were debugging stays unexamined.
     """
+    if not gated:
+        return [
+            f"{model_id} is a public repo -- no token is required, and none "
+            "was needed to reach this cell.",
+            "If a download fails here it is the network or the mirror, not "
+            "authentication. Re-run the cell.",
+        ]
     if not token:
         return [
             f"No HuggingFace token found. {model_id} is a GATED repo and will "
