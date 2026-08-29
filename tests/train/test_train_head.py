@@ -128,6 +128,23 @@ def test_a7_shaped_run_with_film_trains_and_produces_a_plausible_auc(tmp_path):
     assert meta["config"]["use_film"] is True
 
 
+def test_a7_norecon_shaped_run_trains_film_without_the_recon_branch(tmp_path):
+    """FiLM conditions on the degradation head's embedding, not on recon, so
+    A3 + FiLM must train on a bank that carries NO recon.npy at all -- that is
+    the whole point of the rung: FiLM's answer must not depend on A4's."""
+    cfg = RungConfig(name="a7_norecon", bank_dir=_learnable_bank(tmp_path), epochs=10,
+                     use_augmented=True, use_degradation=True, use_consistency=True,
+                     use_recon=False, use_film=True, out_dir=str(tmp_path / "out7n"))
+    res = train_rung(cfg)
+    assert 0.0 <= res["val_auc"] <= 1.0
+    assert res["val_auc"] > 0.7
+    model, meta = load_detector(res["checkpoint"], device="cpu")
+    assert model.use_film is True and model.use_recon is False
+    assert model.classifier.use_film is True   # FiLM actually wired, not just flagged
+    assert meta["config"]["use_film"] is True
+    assert meta["config"]["use_recon"] is False
+
+
 # --- M1: the clean-view AUC is not the only number a rung reports ----------
 
 def _bank_clean_separable_only(tmp_path, n=120, dim=4):

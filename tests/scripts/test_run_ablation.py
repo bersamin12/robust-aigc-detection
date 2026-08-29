@@ -121,6 +121,10 @@ def _eval_bank(tmp_path, name="eval_bank", fingerprint="eb", n_per_block=60,
 _RUNGS = {
     "a0": {"use_augmented": False, "use_consistency": False, "use_degradation": False},
     "a3": {"use_augmented": True, "use_consistency": True, "use_degradation": True},
+    # A3 + FiLM, recon off: the rung whose name is not a bare `aN`, so it is
+    # also the one that proves the orchestrator keys nothing on that shape.
+    "a7_norecon": {"use_augmented": True, "use_consistency": True,
+                   "use_degradation": True, "use_recon": False, "use_film": True},
 }
 
 
@@ -270,6 +274,37 @@ def test_the_headline_is_chosen_from_a3_to_a6_even_when_a_control_wins(tmp_path)
     assert report["headline"] == "a3"
     assert report["candidates"] == {"a3": 0.10}
     assert report["excluded_as_ineligible"] == {"a0": 0.99}
+
+
+def test_a7_norecon_trains_on_a_bank_with_no_recon_and_is_reported_as_ineligible(tmp_path):
+    """FiLM asked of the shipping system. `_train_bank` writes no recon.npy, so
+    this row can only exist if the FiLM rung is genuinely independent of A4's
+    branch -- and its name is not a bare `aN`, so it also proves the orchestrator
+    keys checkpoints, scores and the selection record on the YAML's `name`
+    rather than on that shape. Like A7 it is a hypothesis test, not a headline
+    candidate: it must be scored, tabulated and then excluded under §6.4."""
+    forced = [0.10, 0.99]   # a3, then a7_norecon, forced to outscore it
+
+    def fake_metric(scores, splits, target_fpr=0.01):
+        return forced.pop(0)
+
+    original = ra.heldout_robust_tpr
+    ra.heldout_robust_tpr = fake_metric
+    try:
+        with pytest.warns(IneligibleRungWarning, match="a7_norecon"):
+            report = ra.main(_argv(tmp_path, rungs=("a3", "a7_norecon")))
+    finally:
+        ra.heldout_robust_tpr = original
+
+    assert set(report["summary"]) == {"a3", "a7_norecon"}
+    assert report["headline"] == "a3"
+    assert report["excluded_as_ineligible"] == {"a7_norecon": 0.99}
+    assert (tmp_path / "rungs" / "a7_norecon" / "checkpoint.pt").exists()
+    ckpt = ra.torch.load(tmp_path / "rungs" / "a7_norecon" / "checkpoint.pt",
+                         map_location="cpu", weights_only=True)
+    assert ckpt["config"]["use_film"] is True and ckpt["config"]["use_recon"] is False
+    table = (tmp_path / "out" / "robustness_table.md").read_text(encoding="utf-8")
+    assert "a7_norecon" in table
 
 
 # --- resumability ----------------------------------------------------------

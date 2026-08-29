@@ -4,6 +4,10 @@
 # trains a3.yaml against a second bank and fuses scores at evaluation time,
 # and A6 is an inference-time option. Both are handled in Plan 3, so this
 # file jumps from a4 straight to a7.
+#
+# This is A4 + FiLM, so it stands or falls with the reconstruction branch.
+# a7_norecon.yaml is A3 + FiLM, the same question asked of the shipping system;
+# read each against its own base, never A7 against A3 (two changes at once).
 name: a7
 use_augmented: true
 use_degradation: true

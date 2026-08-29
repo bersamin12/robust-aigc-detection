@@ -173,7 +173,8 @@ python scripts/run_ablation.py --bank banks/dinov3l --out outputs/rungs
 | A2 | + auxiliary degradation-prediction loss |
 | A3 | + clean/degraded consistency loss — **headline candidate** |
 | A4 | + reconstruction features (kill criterion applies) |
-| A7 | + FiLM conditioning |
+| A7 | A4 + FiLM conditioning |
+| A7-norecon | A3 + FiLM conditioning — so FiLM is read against the shipping system, not only against recon |
 
 ### 4. Evaluate under the transformation grid
 

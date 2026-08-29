@@ -1,0 +1,20 @@
+# STRETCH: + FiLM conditioning, WITHOUT the reconstruction branch.
+#
+# a7.yaml stacks FiLM on top of A4, so it inherits A4's kill criterion: if the
+# reconstruction branch does not ship, A7 goes with it, and a poor A7 result
+# cannot say whether FiLM or recon is to blame. This rung is A3 + FiLM and
+# nothing else, so the ladder carries two one-variable pairs:
+#
+#   A3 -> A7-norecon   does FiLM help the shipping system?
+#   A4 -> A7           does FiLM help the recon system?
+#
+# tests/test_rung_ladder.py pins both pairs to exactly one differing flag.
+# Like A7, this is a hypothesis test, not a headline candidate
+# (eval.errors.ELIGIBLE_RUNGS); a negative result is reported, not hidden.
+name: a7_norecon
+use_augmented: true
+use_degradation: true
+use_consistency: true
+use_recon: false
+use_film: true
+epochs: 30
