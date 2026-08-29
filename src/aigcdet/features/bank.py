@@ -409,10 +409,11 @@ class FeatureBank:
         # Compare like with like. A bank whose rows hold RELATIVE identity was
         # written with a `manifest_root` (or merged from shards that were), and
         # is compared against the manifest's identity. A bank whose rows hold
-        # absolute paths -- a writer that passed no root, as `aigcdet.eval.grid`
-        # does today -- is compared on absolute paths: that bank is simply not
-        # portable, and comparing its paths against a manifest's rel_path would
-        # report every row misaligned when nothing at all is wrong.
+        # absolute paths -- a writer that passed no root, which every producer
+        # in this repo now does pass, leaving ad-hoc frames and older banks --
+        # is compared on absolute paths: that bank is simply not portable, and
+        # comparing its paths against a manifest's rel_path would report every
+        # row misaligned when nothing at all is wrong.
         bank_ids = self.rel_paths
         if bank_ids and not any(os.path.isabs(r) for r in bank_ids):
             manifest_ids = identity_paths(manifest_df)
@@ -479,9 +480,11 @@ def _extra_config(config: dict) -> dict:
     bank would no longer know what its view axis means.
 
     Note this treats EVERY unrecognised config key as a must-match extra. That
-    is correct for the only extra in the project today (`conditions`, which
-    genuinely must agree across shards), but a future writer that recorded a
-    per-run key -- a timestamp, a git sha, a hostname -- would make
+    is correct for both extras in the project today -- `conditions` (eval
+    banks: the view axis would mean two different things) and
+    `exclude_families` (training banks: a LOTO shard merged into a non-LOTO
+    bank silently contaminates the A3-LOTO rung) -- but a future writer that
+    recorded a per-run key -- a timestamp, a git sha, a hostname -- would make
     `merge_banks` refuse legitimate shards with a confusing "not part of the
     same bank" message. Add such a key to `_MERGE_PER_SHARD` when it appears.
     """

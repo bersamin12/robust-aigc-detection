@@ -240,11 +240,17 @@ def test_merging_preserves_each_shards_own_rel_path(tmp_path, monkeypatch):
 
 def test_a_bank_written_without_a_root_still_verifies_against_its_manifest(
         tmp_path):
-    """`aigcdet.eval.grid` builds its eval banks with BankWriter directly and
-    passes no manifest_root, so their rows hold ABSOLUTE paths. Verifying such
-    a bank against a frozen manifest must compare absolute against absolute --
-    comparing the manifest's rel_path against the bank's absolute path would
-    report every row misaligned when nothing at all is wrong."""
+    """A bank written with no manifest_root holds ABSOLUTE paths in its rows.
+    Verifying such a bank against a frozen manifest must compare absolute
+    against absolute -- comparing the manifest's rel_path against the bank's
+    absolute path would report every row misaligned when nothing at all is
+    wrong.
+
+    `aigcdet.eval.grid` was the motivating caller and now passes a root, as
+    every producer in this repo does; what remains are ad-hoc frames with no
+    rel_path, and any bank written before roots were recorded. The case is
+    still reachable, so it is still pinned -- but the name of the caller was
+    load-bearing in this docstring and had gone stale."""
     from aigcdet.features.bank import N_VIEWS, BankWriter
 
     _, _, df = _frozen(tmp_path, n=3)

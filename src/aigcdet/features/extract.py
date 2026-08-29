@@ -304,9 +304,13 @@ def extract_bank(
 
     `exclude_families` forbids an entire transform family (spec FAMILIES
     names) from every sampled recipe in the bank, supporting the A3-LOTO
-    ablation run (spec §4.6). It is NOT recorded in the bank's config, so
-    `merge_banks` cannot see a shard that was extracted with a different
-    value; every shard of one bank must be given the same one.
+    ablation run (spec §4.6). It IS recorded in the bank's config, sorted, so
+    `merge_banks` refuses a shard extracted with a different value and
+    `resume` refuses a continuation under one. That check has no downstream
+    substitute: the presence matrix is per-view and legitimately sparse, so a
+    merged bank in which one shard saw the held-out family is indistinguishable
+    from one where that family simply was not sampled -- and A3-LOTO's entire
+    claim is that it never appeared.
 
     `resume=True` continues an extraction into an existing `out_dir`, skipping
     the rows already written (see `BankWriter`). The same `manifest_df`,
@@ -344,7 +348,17 @@ def extract_bank(
     writer = BankWriter(out_dir, len(df), n_views, spec.dim, backbone_name, seed,
                         manifest_sha256=manifest_fingerprint(df),
                         manifest_root=dataset_root(df),
-                        resume=resume, checkpoint_every=checkpoint_every)
+                        resume=resume, checkpoint_every=checkpoint_every,
+                        # Part of the bank's identity, via extra_config, which
+                        # makes both guards work at once: `merge_banks` refuses
+                        # a LOTO shard glued to a non-LOTO one, and `resume`
+                        # refuses a continuation under a different exclusion.
+                        # Sorted and always present (`[]` when nothing is
+                        # excluded) so two teammates who name the same families
+                        # in different orders still merge, and so a missing key
+                        # can only mean a bank written before this existed.
+                        extra_config={"exclude_families":
+                                      sorted(str(f) for f in exclude_families)})
 
     # Each image's RNG is keyed on the row's own index label -- its position
     # in the frozen manifest -- not on write_idx (this call's local array
