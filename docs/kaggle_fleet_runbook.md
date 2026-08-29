@@ -31,6 +31,32 @@ changes the parameters except `SHARD_INDEX`.
 
 ---
 
+## The notebook is the procedure
+
+**[`notebooks/kaggle_stage_a.ipynb`](../notebooks/kaggle_stage_a.ipynb)** is what
+you actually run. It checks the environment, verifies the data against the
+frozen manifest, cuts your shard, measures the rate on ~40 images and then does
+the real extraction — with the reasoning for each step in the cell above it.
+
+This document is the context the notebook cannot carry: who runs what, which
+shard is yours, and what to do when it stops at 2am.
+
+To get it into Kaggle:
+
+1. Download the file from GitHub (**Raw** → save as `kaggle_stage_a.ipynb`), or
+   clone the repo.
+2. In Kaggle: **Create → New Notebook → File → Import Notebook** → upload it.
+   (If your Kaggle build offers a URL field there, the GitHub link works too.)
+3. Then follow the steps below.
+
+Do not re-type the cells. The notebook clones this repo at run time and imports
+`notebooks/kaggle_bootstrap.py` from it, so the logic that has to be *right* —
+the pip plan that does not destroy Kaggle's torch, the mount unification, the
+shard arithmetic, the resume check — is versioned and tested rather than living
+in a cell someone edited.
+
+---
+
 ## What you need before you start
 
 | | |
@@ -90,8 +116,8 @@ over 5 shards, and the resulting one-image overlap is only discovered by
 4. **Add data** → `techjam-aigc-train`. It carries `sid_set/`, `wildfake/` and
    `manifest.parquet` in one mount.
 
-5. **Paste in `notebooks/kaggle_stage_a.ipynb`**, set your `SHARD_INDEX` in
-   cell 0, and run every cell with `SMOKE = True`. The smoke run exercises
+5. **Open the imported notebook**, set your `SHARD_INDEX` in cell 0, and run
+   every cell with `SMOKE = True`. The smoke run exercises
    everything the real run does — the gate, the shard slice, the backbone, the
    augmentation, the bank writer, the invariant check — on about 40 images, and
    then estimates how long your real shard will take.
