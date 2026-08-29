@@ -34,6 +34,7 @@ from aigcdet.features.bank import (
     manifest_fingerprint,
 )
 from aigcdet.features.proxies import proxy_vector
+from aigcdet.augment.canonical import canonicalise
 
 #: The benchmark subsample seed, fixed by the plan so the tier is reproducible
 #: from nothing but this constant.
@@ -141,6 +142,20 @@ def extract_eval_bank(manifest_df: pd.DataFrame, backbone_name: str, out_dir: st
             continue                     # already written by an earlier session
         with Image.open(row["path"]) as im:
             base = np.asarray(im.convert("RGB"), dtype=np.uint8)
+        # Resolution canonicalisation, BEFORE any recipe/condition transform
+        # (docs/resolution_shortcut.md). Native resolution leaks the label:
+        # 29% of the training pool sits at sizes that are 100% generated, and
+        # the scored benchmark separates perfectly on dimensions alone. The
+        # backbone squishes to a fixed square, so what survives is the
+        # resampling signature -- soft-because-upscaled correlates with the
+        # label. Applied identically to both classes.
+        #
+        # This MUST be applied at every decode site or at none: recon.py
+        # replays stored recipes to reproduce exact cached pixels, so a site
+        # that skips it computes features on different pixels than were
+        # cached, silently and with no shape error. Wire exactly once per
+        # site -- canonicalise is size-stable but NOT pixel-idempotent.
+        base = canonicalise(base)
         views = [r.apply(base, np.random.default_rng([seed, int(row_id), j]))
                  for j, r in enumerate(recipes)]
         writer.write_image(

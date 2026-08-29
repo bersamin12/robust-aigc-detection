@@ -24,6 +24,8 @@ from __future__ import annotations
 import numpy as np
 import torch
 
+from aigcdet.augment.canonical import canonicalise
+
 # Fixed order -- this is a contract, not a convenience. `bank.RECON_DIM` (12)
 # must match this tuple's length, the bank stores this vector positionally,
 # and Plan 3's AEROBLADE baseline reads out a specific entry by
@@ -198,6 +200,14 @@ def attach_recon_to_bank(bank, manifest_df, device: str = "cuda",
     for i in tqdm(range(n), desc="recon"):
         with Image.open(bank.meta.iloc[i]["path"]) as im:
             base = np.asarray(im.convert("RGB"), dtype=np.uint8)
+        # Resolution canonicalisation, BEFORE any stored recipe is replayed
+        # (docs/resolution_shortcut.md). This site is the dangerous one: it
+        # re-decodes and re-runs recipes to reproduce the EXACT pixels that
+        # extract.py cached. If extract.py and grid.py canonicalise and this
+        # does not, reconstruction features are computed on different pixels
+        # than were cached -- silently, with no shape error anywhere. All
+        # three sites or none.
+        base = canonicalise(base)
         rid = int(row_ids[i])
         for j in range(v):
             apply_rng = np.random.default_rng([seed, rid, j])

@@ -52,6 +52,7 @@ from aigcdet.features.bank import (
     manifest_fingerprint,
 )
 from aigcdet.features.proxies import proxy_vector
+from aigcdet.augment.canonical import canonicalise
 
 
 def _sample_recipe_excluding(rng: np.random.Generator, exclude: tuple[str, ...]) -> Recipe:
@@ -175,6 +176,20 @@ def _prepare_image(task: PrepareTask) -> dict:
     write_idx, row_id, path, n_views, seed, exclude_families = task
     with Image.open(path) as im:
         base = np.asarray(im.convert("RGB"), dtype=np.uint8)
+        # Resolution canonicalisation, BEFORE any recipe/condition transform
+        # (docs/resolution_shortcut.md). Native resolution leaks the label:
+        # 29% of the training pool sits at sizes that are 100% generated, and
+        # the scored benchmark separates perfectly on dimensions alone. The
+        # backbone squishes to a fixed square, so what survives is the
+        # resampling signature -- soft-because-upscaled correlates with the
+        # label. Applied identically to both classes.
+        #
+        # This MUST be applied at every decode site or at none: recon.py
+        # replays stored recipes to reproduce exact cached pixels, so a site
+        # that skips it computes features on different pixels than were
+        # cached, silently and with no shape error. Wire exactly once per
+        # site -- canonicalise is size-stable but NOT pixel-idempotent.
+        base = canonicalise(base)
 
     # View 0 is always the clean view (bank invariant) -- no sampling.
     # Views 1..n_views-1 each get their own fresh generator, keyed on
