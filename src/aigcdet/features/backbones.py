@@ -37,12 +37,23 @@ _STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 
 #: The two input contracts the registry's vision towers actually accept. They
-#: are NOT interchangeable, and assuming one contract for all backbones is what
-#: made SigLIP2 unusable: `model(pixel_values=(B, 3, H, W))` is correct for
-#: DINOv3 and CLIP and impossible for SigLIP2, whose transformer signature is
-#: `forward(pixel_values, attention_mask, spatial_shapes)` over an ALREADY
-#: patchified `(B, num_patches, C * patch * patch)` tensor (its
-#: `patch_embedding` is an `nn.Linear`, not a `nn.Conv2d`).
+#: are NOT interchangeable. `model(pixel_values=(B, 3, H, W))` is correct for
+#: DINOv3, CLIP and the FIXED-RESOLUTION SigLIP2 checkpoints
+#: (`siglip2-*-patch16-{224,256,384,512}`, which report `model_type: siglip`
+#: and reuse SigLIP v1's `SiglipVisionModel`). It is impossible for the NaFlex
+#: checkpoints (`siglip2-*-patch16-naflex`, `model_type: siglip2`), whose
+#: transformer signature is `forward(pixel_values, attention_mask,
+#: spatial_shapes)` over an ALREADY patchified
+#: `(B, num_patches, C * patch * patch)` tensor -- their `patch_embedding` is
+#: an `nn.Linear`, not a `nn.Conv2d`.
+#:
+#: The registry pins the fixed-resolution variant deliberately. Every image
+#: reaches a backbone already canonicalised to one size (see
+#: `augment.canonical` -- resolution leaks the label, spec 4.4a), so NaFlex's
+#: native-resolution handling would buy nothing and cost a second contract.
+#: INPUT_SIGLIP2_PATCHES stays implemented and tested against the transformers
+#: reference so that switching to NaFlex is a one-line registry change, but no
+#: entry uses it today.
 INPUT_IMAGE_TENSOR = "image_tensor"       # (B, 3, H, W), pixel_values only
 INPUT_SIGLIP2_PATCHES = "siglip2_patches"  # patchified + attention_mask + spatial_shapes
 INPUT_FORMATS = (INPUT_IMAGE_TENSOR, INPUT_SIGLIP2_PATCHES)
@@ -101,8 +112,7 @@ BACKBONES: dict[str, BackboneSpec] = {
     "dinov3l": BackboneSpec("dinov3l", "facebook/dinov3-vitl16-pretrain-lvd1689m",
                              384, 1024, 5, 303_129_600, gated=True),
     "siglip2l": BackboneSpec("siglip2l", "google/siglip2-large-patch16-384",
-                              384, 1024, 0, 316_283_904,
-                              input_format=INPUT_SIGLIP2_PATCHES, patch_size=16),
+                              384, 1024, 0, 316_283_904),
     "clipl": BackboneSpec("clipl", "openai/clip-vit-large-patch14",
                            224, 1024, 1, 303_179_776),
 }
