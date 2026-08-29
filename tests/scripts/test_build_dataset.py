@@ -405,6 +405,25 @@ def _build_raw_tree_with_wildfake_real(raw_dir, rng, n_wf_real=30):
     return real_paths
 
 
+@pytest.fixture
+def restrict_wildfake_real(monkeypatch):
+    """Register WildFake with its authentic bucket barred, for the tests of
+    the restriction mechanism and of the cap that rebalances after one.
+
+    The real registry restricts nothing: the organisers' 29 Aug rules slide
+    lists WildFake as an approved dataset, and the frozen manifest includes
+    its authentic bucket. The mechanism is kept for a source that needs it,
+    and is exercised here against one registered for the test only."""
+    from aigcdet.data import sources
+    base = sources.SOURCES["wildfake"]
+    monkeypatch.setitem(sources.SOURCES, "wildfake", sources.SourceSpec(
+        name=base.name, licence=base.licence, real_buckets=base.real_buckets,
+        generator_buckets=base.generator_buckets,
+        restricted_buckets=frozenset({"real"}),
+        restriction="upstream terms are non-commercial (test)"))
+
+
+@pytest.mark.usefixtures("restrict_wildfake_real")
 def test_a_restricted_bucket_never_reaches_the_manifest(tmp_path):
     raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
     os.makedirs(demo_dir, exist_ok=True)
@@ -424,6 +443,7 @@ def test_a_restricted_bucket_never_reaches_the_manifest(tmp_path):
     assert set(df[df["label"] == 0]["source"]) == {"sid_set"}
 
 
+@pytest.mark.usefixtures("restrict_wildfake_real")
 def test_a_restricted_bucket_is_dropped_before_it_is_normalised(tmp_path):
     # Not merely filtered out of the manifest afterwards. Normalising 55,000
     # images we may not use costs an hour of wall-clock and ~17 GB, and a
@@ -443,6 +463,7 @@ def test_a_restricted_bucket_is_dropped_before_it_is_normalised(tmp_path):
     assert not os.path.exists(os.path.join(out_dir, "wildfake", "real"))
 
 
+@pytest.mark.usefixtures("restrict_wildfake_real")
 def test_the_restriction_is_recorded_with_the_reason_it_fired(tmp_path):
     raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
     docs_dir = str(tmp_path / "docs")
@@ -476,6 +497,7 @@ def test_nothing_is_recorded_as_restricted_when_nothing_was(tmp_path):
     assert meta["restriction_reasons"] == {}
 
 
+@pytest.mark.usefixtures("restrict_wildfake_real")
 def test_max_per_generator_caps_generated_families_and_leaves_authentic_alone(tmp_path):
     # Dropping WildFake's authentic half leaves the corpus lopsided: every
     # real image now comes from SID_Set while the generated side keeps
@@ -501,6 +523,7 @@ def test_max_per_generator_caps_generated_families_and_leaves_authentic_alone(tm
     assert (df["label"] == 0).sum() == N_REAL
 
 
+@pytest.mark.usefixtures("restrict_wildfake_real")
 def test_the_cap_is_deterministic_given_the_seed(tmp_path):
     raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
     os.makedirs(demo_dir, exist_ok=True)
@@ -526,6 +549,7 @@ def test_the_cap_is_deterministic_given_the_seed(tmp_path):
     assert c["content_sha256"].tolist() != a["content_sha256"].tolist()
 
 
+@pytest.mark.usefixtures("restrict_wildfake_real")
 def test_a_cap_larger_than_every_family_changes_nothing(tmp_path):
     raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
     os.makedirs(demo_dir, exist_ok=True)
@@ -541,6 +565,7 @@ def test_a_cap_larger_than_every_family_changes_nothing(tmp_path):
     assert capped["content_sha256"].tolist() == uncapped["content_sha256"].tolist()
 
 
+@pytest.mark.usefixtures("restrict_wildfake_real")
 def test_the_cap_is_recorded_so_a_rebuild_can_be_reproduced(tmp_path):
     raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
     docs_dir = str(tmp_path / "docs")
@@ -563,6 +588,7 @@ def test_the_cap_is_recorded_so_a_rebuild_can_be_reproduced(tmp_path):
     assert meta["capped_dropped"] == {g: 1 for g in (*GENS, "sid_set")}
 
 
+@pytest.mark.usefixtures("restrict_wildfake_real")
 def test_capped_images_are_not_normalised_either(tmp_path):
     raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
     out_dir = str(tmp_path / "norm")
@@ -580,6 +606,7 @@ def test_capped_images_are_not_normalised_either(tmp_path):
         assert n == cap, f"{g}: normalised {n} images for a cap of {cap}"
 
 
+@pytest.mark.usefixtures("restrict_wildfake_real")
 def test_the_cap_never_thins_the_authentic_side(tmp_path):
     # The cap is expressed over generator FAMILIES, and authentic rows carry
     # generator "". Treating "" as a family would thin the scarce side --

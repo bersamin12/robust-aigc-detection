@@ -143,33 +143,35 @@ def test_dataset_level_pseudo_generators_are_not_heldout_eligible():
     assert is_heldout_eligible("sdxl")
 
 
-# --- Bucket-level licence restriction (28 Aug webinar Q&A) -----------------
-# "Non-commercial datasets cannot be used." WildFake's Apache-2.0 label
-# covers the COMPILATION; its authentic images are re-published FFHQ,
-# CelebA-HQ, AFHQ, ImageNet and LSUN, several of them non-commercial. That
-# is a property of a BUCKET, not of a source -- WildFake's generated buckets
-# are the authors' own work and stay in.
+# --- Bucket-level licence restriction --------------------------------------
+# The mechanism exists for a source whose bucket may not be used. As of the
+# organisers' 29 Aug rules slide, which names WildFake and SID_Set as approved
+# datasets, NO registered source restricts anything: the 28 Aug bar on
+# WildFake's authentic bucket was a stricter reading than the rules require,
+# and the frozen manifest the Kaggle banks were extracted against includes
+# that bucket. A restriction reappearing here would silently make the next
+# rebuild disagree with every bank on disk, so its absence is pinned.
 
-def test_wildfakes_authentic_bucket_is_restricted_but_its_generators_are_not():
-    assert is_restricted_bucket("wildfake", "real")
-    for g in ("ddim", "BigGAN", "styleGAN", "SDwithAdaptor_lora"):
-        assert not is_restricted_bucket("wildfake", g)
-
-
-def test_no_other_sources_authentic_bucket_is_restricted():
-    # SID_Set is CC BY 4.0 throughout; restricting its real bucket would
-    # leave the corpus with no authentic images at all.
+def test_no_registered_source_restricts_any_bucket():
+    for name, spec in SOURCES.items():
+        assert not spec.restricted_buckets, name
+        assert not restriction_reason(name), name
+    assert not is_restricted_bucket("wildfake", "real")
     assert not is_restricted_bucket("sid_set", "real")
     assert not is_restricted_bucket("coco_val2017", "val2017")
 
 
-def test_a_restriction_carries_the_reason_it_exists():
+def test_a_registered_restriction_is_visible_with_its_reason(monkeypatch):
     # The count alone is not an audit trail. Whoever reads docs/splits.json
-    # in six months needs to know WHY 55,000 images were dropped.
-    reason = restriction_reason("wildfake")
-    assert reason
-    assert "commercial" in reason.lower()
-    assert not restriction_reason("sid_set")
+    # in six months needs to know WHY a bucket's images were dropped.
+    spec = SourceSpec("barred", licence="x", real_buckets=frozenset({"real"}),
+                      generator_buckets=True,
+                      restricted_buckets=frozenset({"real"}),
+                      restriction="upstream terms are non-commercial")
+    monkeypatch.setitem(SOURCES, "barred", spec)
+    assert is_restricted_bucket("barred", "real")
+    assert not is_restricted_bucket("barred", "ddim")
+    assert "commercial" in restriction_reason("barred").lower()
 
 
 def test_an_unregistered_source_has_no_restriction_rather_than_raising():

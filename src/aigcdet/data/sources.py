@@ -103,23 +103,27 @@ SOURCES: dict[str, SourceSpec] = {
     ),
     # WildFake is organised by generator upstream, so every non-real bucket
     # is a genuine generator family.
+    #
+    # Its `real/` bucket was barred on 28 Aug (the webinar's "non-commercial
+    # datasets cannot be used", read against the re-published FFHQ, CelebA-HQ,
+    # AFHQ, ImageNet, LSUN and LAION-5B subsets inside it). The organisers'
+    # rules slide of 29 Aug names WildFake and SID_Set as examples of approved
+    # "public/licensed datasets", which settles the reading: the rule bars
+    # datasets whose OWN licence is non-commercial, not the upstream
+    # provenance of sets the organisers themselves listed. The bar is lifted;
+    # the upstream terms stay documented in docs/dataset_licences.md, and the
+    # `restricted_buckets` mechanism stays for any source that needs it. The
+    # frozen manifest (and every bank extracted against it) includes the
+    # bucket, so a bar reappearing here would make the next rebuild disagree
+    # with every bank on disk.
     "wildfake": SourceSpec(
         name="wildfake",
         licence="Apache-2.0 (ModelScope hub metadata) — covers the COMPILATION; "
                 "constituent real subsets keep their own upstream terms, several of "
-                "which are non-commercial. See docs/dataset_licences.md",
+                "which are non-commercial. Organiser-listed as an approved dataset "
+                "(rules slide, 29 Aug). See docs/dataset_licences.md",
         real_buckets=frozenset({"real"}),
         generator_buckets=True,
-        restricted_buckets=frozenset({"real"}),
-        restriction="WildFake's authentic images are re-published FFHQ "
-                    "(CC BY-NC-SA 4.0), CelebA-HQ (research only), AFHQ "
-                    "(CC BY-NC 4.0), ImageNet and LSUN (research only), plus "
-                    "LAION-5B, whose CC BY 4.0 covers the metadata and not the "
-                    "scraped images. The compilation's Apache-2.0 label does "
-                    "not relicense any of them. The 28 Aug webinar Q&A ruled "
-                    "that non-commercial datasets cannot be used, so the whole "
-                    "bucket is barred; WildFake's generated buckets are the "
-                    "authors' own work and stay. See docs/dataset_licences.md.",
     ),
     # The authentic half of the organisers' demo benchmark. val2017/ is the
     # directory name inside the official zip — the mapping that C1 got wrong.

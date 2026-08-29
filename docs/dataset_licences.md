@@ -2,7 +2,7 @@
 
 Recorded per spec §4.5, same discipline as `docs/model_licences.md`: the licence is
 read at its source and quoted, not inferred from a secondary summary. Checked
-2026-08-28.
+2026-08-28; the competition-rule reading revised 2026-08-29 (see WildFake below).
 
 Every row of the frozen manifest carries its source's licence string from
 `aigcdet.data.sources.LICENCES`, and `scripts/acquire_data.py` writes a
@@ -12,7 +12,7 @@ Every row of the frozen manifest carries its source's licence string from
 | --- | --- | --- | --- |
 | SID_Set | CC BY 4.0 | https://huggingface.co/datasets/saberzl/SID_Set — licensing section on the dataset card | Yes, with attribution |
 | WildFake — generated buckets | Apache-2.0 | ModelScope hub metadata, `https://modelscope.cn/api/v1/datasets/hy2628982280/WildFake` → `"License":"Apache License 2.0"` | Yes — the authors' own images, covered by the compilation licence |
-| WildFake — `real/` bucket | **Barred; not used** | Upstream terms of the re-published subsets (table below) | **No.** Dropped at scan time under the 28 Aug rule |
+| WildFake — `real/` bucket | Apache-2.0 on the compilation; organiser-listed | Same ModelScope record; the organisers' rules slide (29 Aug) names WildFake as an approved dataset | Under the competition rules, yes. The re-published subsets' own terms (table below) are non-commercial — anyone taking this beyond the competition must read them |
 | COCO val2017 | CC BY 4.0 (images under Flickr terms) | https://cocodataset.org/#termsofuse | Yes, with attribution |
 | DALL·E Advanced (demo half) | Competition brief terms | TikTok TechJam Track 5 brief | Benchmark only; never trained on (spec §4.1) |
 
@@ -35,10 +35,10 @@ covers the paper, not the data.
 
 The caveat that matters: WildFake is a **compilation**. Its generated images are the
 authors' own, but its authentic images are re-published from other datasets, and an
-Apache-2.0 label on the compilation does not relicense them. The real subsets this project downloaded are exactly the ones with restrictive
-upstream terms. **None of them reach the manifest** — they are listed here as the
-record of what was acquired and then barred, not as a description of the training
-corpus:
+Apache-2.0 label on the compilation does not relicense them. The real subsets this
+project downloaded are exactly the ones with restrictive upstream terms. They are in
+the frozen manifest (55,000 images, all six subsets below), and this table is the
+record of what that means:
 
 | Subset | Upstream | Upstream terms (not verified in-session — see below) |
 | --- | --- | --- |
@@ -56,44 +56,42 @@ in this session; they are the widely-documented terms for those datasets and are
 recorded here so the constraint is visible, not so it can be cited. Anyone taking this
 project commercial must read each one at source first.
 
-**What this file used to argue, and why it no longer holds.** This section previously
-argued that the hackathon is a research prototype rather than a commercial deployment,
-that non-commercial research use is permitted by every licence above, and that we
-publish only code, small trained heads and metrics — never redistributed images. That
-argument was about what the licences permit. It was overtaken on 28 August by a rule
-about what the competition permits.
+**The generated buckets are a compilation too.** The paper (arXiv 2402.11843) says the
+GAN and "Others" families were gathered from "official GitHub repositories and model
+cards from Hugging Face — when these repositories include generated samples, we
+directly extract fake images from there", and that "user-created images from
+open-source platforms such as Civitai" were sourced for the Stable-Diffusion-adaptor
+families. Only the diffusion families the authors ran themselves are unambiguously
+their own. Recorded for the same reason as the table above.
 
-**The 28 Aug webinar Q&A: "Non-commercial datasets cannot be used."** That is a
-competition rule, not a licence interpretation, and it has no research-use exemption to
-appeal to. Every WildFake authentic subset in the table above is either explicitly
-non-commercial (FFHQ, CelebA-HQ, AFHQ, ImageNet, LSUN) or carries per-image rights we
-cannot establish (LAION-5B, whose CC BY 4.0 covers the metadata and not the scraped
-images). So the whole bucket is barred.
+**How the competition rule was read, twice.**
 
-**What that cost, and what it did not.** WildFake's authentic bucket was 55,000 images
-— 42% of the training pool and 85% of its authentic half. WildFake's *generated*
-buckets are the authors' own work and are unaffected; they remain the entire source of
-generator diversity, and both `heldout_generator` and the LOTO rung still work. The gap
-on the authentic side is filled with more SID_Set (CC BY 4.0), which means every
-authentic image in the corpus now comes from a single commercially-usable source.
+*28 August.* The webinar Q&A said "non-commercial datasets cannot be used". We read
+that against the upstream terms above and barred WildFake's `real/` bucket at scan
+time (`SourceSpec.restricted_buckets`), replacing it with more SID_Set. The cost was a
+single-sourced authentic half — the wrong shape for the sharpness finding in
+`docs/resolution_shortcut.md`.
 
-We could absorb this because **no rung had been trained yet**: Stage A caches
-frozen-backbone features, so the fix is a manifest rebuild and a re-extraction rather
-than a model being retracted.
+*29 August.* The organisers' rules slide reads: "Data: only public/licensed datasets
+(e.g., WildFake, CIFAKE, SID_Set)." WildFake and SID_Set are named as examples of
+approved datasets, without qualification. That settles the reading: the rule bars
+datasets whose **own** declared licence is non-commercial (GenImage's CC BY-NC-SA,
+Community Forensics' research-only clause), not the upstream provenance of the sets the
+organisers themselves listed — a test SID_Set (derived from Flickr30k, itself
+non-commercial research only) would fail just as WildFake does. The bar was lifted, and
+the frozen manifest of 29 Aug 00:32, against which every feature bank is fingerprinted,
+includes the bucket: 65,049 authentic images from two sources.
 
-**How the rule is enforced, rather than remembered.**
-`aigcdet.data.sources.SourceSpec.restricted_buckets` declares the bar and `restriction`
-records why; `scripts/build_dataset.py` drops those rows at scan time, *before
-normalisation*, so no normalised copy is ever written, and it records both the counts
-and the reasons in `docs/splits.json`. A restriction naming a bucket the source does not
-declare raises — a `"reals"` typo would otherwise bar nothing while every image it was
-meant to name flowed through.
+**What stays enforced.** `aigcdet.data.sources.SourceSpec.restricted_buckets` and
+`restriction` remain, and `scripts/build_dataset.py` still drops a restricted bucket at
+scan time and records counts and reasons in `docs/splits.json`; no registered source
+uses them now, and `tests/data/test_sources.py` pins that, because a restriction
+reappearing would make the next rebuild disagree with every bank on disk.
 
-**Consequence to state in the Devpost writeup:** the authentic half of the training
-corpus is single-sourced (SID_Set, CC BY 4.0) as a direct result of this rule. That is a
-real limitation — source diversity on the authentic side is exactly what the sharpness
-finding in `docs/resolution_shortcut.md` says we most need — and §5.5 asks for this kind
-of reflection.
+**Consequence to state in the Devpost writeup:** the training corpus is the two
+organiser-listed datasets. Its authentic side is 85% WildFake's re-published subsets,
+whose upstream terms are non-commercial; that is permitted by the competition's rules as
+the organisers stated them, and is a constraint on any use beyond the competition.
 
 ## Receipts on disk
 
