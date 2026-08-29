@@ -391,3 +391,216 @@ def test_force_overwrites_an_existing_manifest(tmp_path):
     on_disk = read_manifest(str(manifest_path))
     expected_n = N_PER_GEN * 2 + 5
     assert len(df) == len(on_disk) == expected_n
+
+
+# --- Licence-restricted buckets, and the balance cap ----------------------
+# The 28 Aug webinar Q&A: "Non-commercial datasets cannot be used." WildFake's
+# authentic bucket is re-published FFHQ/CelebA-HQ/AFHQ/ImageNet/LSUN, so it is
+# barred while its generated buckets stay. See aigcdet.data.sources.
+
+
+def _build_raw_tree_with_wildfake_real(raw_dir, rng, n_wf_real=30):
+    real_paths = _build_raw_tree(raw_dir, rng)
+    _write_images(raw_dir, "wildfake", raw_subdir("wildfake", 0), n_wf_real, rng)
+    return real_paths
+
+
+def test_a_restricted_bucket_never_reaches_the_manifest(tmp_path):
+    raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
+    os.makedirs(demo_dir, exist_ok=True)
+    rng = np.random.default_rng(1)
+    _build_raw_tree_with_wildfake_real(raw_dir, rng)
+
+    df = bd.build_dataset(raw_dir, str(tmp_path / "norm"), demo_dir,
+                          str(tmp_path / "m.parquet"), workers=4,
+                          docs_dir=str(tmp_path / "docs"))
+
+    assert ((df["source"] == "wildfake") & (df["label"] == 0)).sum() == 0
+    # ... and only the authentic bucket went. WildFake is barred in part, not
+    # excluded wholesale: its generated images are the authors' own work and
+    # are the entire reason the corpus has generator diversity at all.
+    assert set(df[df["source"] == "wildfake"]["generator"]) == set(GENS)
+    # The authentic images that remain are SID_Set's, which are CC BY 4.0.
+    assert set(df[df["label"] == 0]["source"]) == {"sid_set"}
+
+
+def test_a_restricted_bucket_is_dropped_before_it_is_normalised(tmp_path):
+    # Not merely filtered out of the manifest afterwards. Normalising 55,000
+    # images we may not use costs an hour of wall-clock and ~17 GB, and a
+    # copy of a non-commercial image on our disk is the thing the rule is
+    # about -- the manifest row is only its shadow.
+    raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
+    out_dir = str(tmp_path / "norm")
+    os.makedirs(demo_dir, exist_ok=True)
+    rng = np.random.default_rng(2)
+    _build_raw_tree_with_wildfake_real(raw_dir, rng)
+
+    bd.build_dataset(raw_dir, out_dir, demo_dir, str(tmp_path / "m.parquet"),
+                     workers=4, docs_dir=str(tmp_path / "docs"))
+
+    # `dst` is out/<source>/<generator or "real">/, so a normalised WildFake
+    # authentic image could only land here.
+    assert not os.path.exists(os.path.join(out_dir, "wildfake", "real"))
+
+
+def test_the_restriction_is_recorded_with_the_reason_it_fired(tmp_path):
+    raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
+    docs_dir = str(tmp_path / "docs")
+    os.makedirs(demo_dir, exist_ok=True)
+    rng = np.random.default_rng(3)
+    _build_raw_tree_with_wildfake_real(raw_dir, rng, n_wf_real=30)
+
+    bd.build_dataset(raw_dir, str(tmp_path / "norm"), demo_dir,
+                     str(tmp_path / "m.parquet"), workers=4, docs_dir=docs_dir)
+
+    with open(os.path.join(docs_dir, "splits.json")) as f:
+        meta = json.load(f)
+    assert meta["restricted_dropped"] == {"wildfake/real": 30}
+    # A count with no reason is a number, not an audit trail.
+    assert "commercial" in meta["restriction_reasons"]["wildfake"].lower()
+
+
+def test_nothing_is_recorded_as_restricted_when_nothing_was(tmp_path):
+    raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
+    docs_dir = str(tmp_path / "docs")
+    os.makedirs(demo_dir, exist_ok=True)
+    rng = np.random.default_rng(4)
+    _build_raw_tree(raw_dir, rng)          # no wildfake/real at all
+
+    bd.build_dataset(raw_dir, str(tmp_path / "norm"), demo_dir,
+                     str(tmp_path / "m.parquet"), workers=4, docs_dir=docs_dir)
+
+    with open(os.path.join(docs_dir, "splits.json")) as f:
+        meta = json.load(f)
+    assert meta["restricted_dropped"] == {}
+    assert meta["restriction_reasons"] == {}
+
+
+def test_max_per_generator_caps_generated_families_and_leaves_authentic_alone(tmp_path):
+    # Dropping WildFake's authentic half leaves the corpus lopsided: every
+    # real image now comes from SID_Set while the generated side keeps
+    # ~19 WildFake families. The cap is how that is rebalanced without
+    # touching the raw tree or losing a family.
+    raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
+    os.makedirs(demo_dir, exist_ok=True)
+    rng = np.random.default_rng(5)
+    _build_raw_tree_with_wildfake_real(raw_dir, rng)
+
+    cap = N_PER_GEN - 1                    # still clears MIN_HELDOUT_IMAGES
+    df = bd.build_dataset(raw_dir, str(tmp_path / "norm"), demo_dir,
+                          str(tmp_path / "m.parquet"), workers=4,
+                          docs_dir=str(tmp_path / "docs"),
+                          max_per_generator=cap)
+
+    counts = df[df["label"] == 1]["generator"].value_counts()
+    assert counts.max() <= cap
+    # Every family survives -- the cap thins families, it does not delete
+    # them, which is what makes heldout_generator and LOTO still possible.
+    assert set(counts.index) == set(GENS) | {"sid_set"}
+    # Authentic images are untouched: they are the scarce side.
+    assert (df["label"] == 0).sum() == N_REAL
+
+
+def test_the_cap_is_deterministic_given_the_seed(tmp_path):
+    raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
+    os.makedirs(demo_dir, exist_ok=True)
+    rng = np.random.default_rng(6)
+    _build_raw_tree_with_wildfake_real(raw_dir, rng)
+
+    kw = dict(workers=4, max_per_generator=N_PER_GEN - 1,
+              docs_dir=str(tmp_path / "docs"))
+    a = bd.build_dataset(raw_dir, str(tmp_path / "n1"), demo_dir,
+                         str(tmp_path / "m1.parquet"), **kw)
+    b = bd.build_dataset(raw_dir, str(tmp_path / "n2"), demo_dir,
+                         str(tmp_path / "m2.parquet"), **kw)
+    # Compared on content_sha256, which identifies the IMAGE. Neither `path`
+    # nor `rel_path` can be used here: the normalised filename is the row's
+    # POSITION (`{i:07d}.png`), so two runs that kept entirely different
+    # images still produce byte-identical path lists. That is exactly the
+    # assertion this test would have made vacuously.
+    assert a["content_sha256"].tolist() == b["content_sha256"].tolist()
+
+    c = bd.build_dataset(raw_dir, str(tmp_path / "n3"), demo_dir,
+                         str(tmp_path / "m3.parquet"),
+                         seed=DEFAULT_SEED + 1, **kw)
+    assert c["content_sha256"].tolist() != a["content_sha256"].tolist()
+
+
+def test_a_cap_larger_than_every_family_changes_nothing(tmp_path):
+    raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
+    os.makedirs(demo_dir, exist_ok=True)
+    rng = np.random.default_rng(7)
+    _build_raw_tree_with_wildfake_real(raw_dir, rng)
+
+    kw = dict(workers=4, docs_dir=str(tmp_path / "docs"))
+    uncapped = bd.build_dataset(raw_dir, str(tmp_path / "n1"), demo_dir,
+                                str(tmp_path / "m1.parquet"), **kw)
+    capped = bd.build_dataset(raw_dir, str(tmp_path / "n2"), demo_dir,
+                              str(tmp_path / "m2.parquet"),
+                              max_per_generator=10_000, **kw)
+    assert capped["content_sha256"].tolist() == uncapped["content_sha256"].tolist()
+
+
+def test_the_cap_is_recorded_so_a_rebuild_can_be_reproduced(tmp_path):
+    raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
+    docs_dir = str(tmp_path / "docs")
+    os.makedirs(demo_dir, exist_ok=True)
+    rng = np.random.default_rng(8)
+    _build_raw_tree_with_wildfake_real(raw_dir, rng)
+
+    cap = N_PER_GEN - 1
+    bd.build_dataset(raw_dir, str(tmp_path / "norm"), demo_dir,
+                     str(tmp_path / "m.parquet"), workers=4, docs_dir=docs_dir,
+                     max_per_generator=cap)
+
+    with open(os.path.join(docs_dir, "splits.json")) as f:
+        meta = json.load(f)
+    assert meta["max_per_generator"] == cap
+    # SID_Set's unattributed fakes carry the dataset-level pseudo-generator
+    # and are capped like any other family: the knob is about how many
+    # generated images of each KIND the corpus holds, and "unattributed" is
+    # a kind.
+    assert meta["capped_dropped"] == {g: 1 for g in (*GENS, "sid_set")}
+
+
+def test_capped_images_are_not_normalised_either(tmp_path):
+    raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
+    out_dir = str(tmp_path / "norm")
+    os.makedirs(demo_dir, exist_ok=True)
+    rng = np.random.default_rng(9)
+    _build_raw_tree_with_wildfake_real(raw_dir, rng)
+
+    cap = N_PER_GEN - 2                    # still clears MIN_HELDOUT_IMAGES
+    bd.build_dataset(raw_dir, out_dir, demo_dir, str(tmp_path / "m.parquet"),
+                     workers=4, docs_dir=str(tmp_path / "docs"),
+                     max_per_generator=cap)
+
+    for g in GENS:
+        n = len(os.listdir(os.path.join(out_dir, "wildfake", g)))
+        assert n == cap, f"{g}: normalised {n} images for a cap of {cap}"
+
+
+def test_the_cap_never_thins_the_authentic_side(tmp_path):
+    # The cap is expressed over generator FAMILIES, and authentic rows carry
+    # generator "". Treating "" as a family would thin the scarce side --
+    # precisely inverting what the knob is for.
+    #
+    # The test above cannot see that: its cap (201) sits above the authentic
+    # count (60), so the branch never fires and the assertion passes either
+    # way. Here the cap is well below it. The held-out families are pinned
+    # because a cap this small leaves none of them clearing
+    # MIN_HELDOUT_IMAGES for the automatic draw.
+    raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
+    os.makedirs(demo_dir, exist_ok=True)
+    rng = np.random.default_rng(10)
+    _build_raw_tree_with_wildfake_real(raw_dir, rng)
+
+    cap = N_REAL // 2
+    df = bd.build_dataset(raw_dir, str(tmp_path / "norm"), demo_dir,
+                          str(tmp_path / "m.parquet"), workers=4,
+                          docs_dir=str(tmp_path / "docs"),
+                          max_per_generator=cap,
+                          heldout_generators=list(GENS[:2]))
+
+    assert (df["label"] == 0).sum() == N_REAL
+    assert df[df["label"] == 1]["generator"].value_counts().max() <= cap

@@ -120,16 +120,24 @@ script with nothing failing anywhere.
 ```bash
 python scripts/acquire_data.py --dataset sid_set  --out data/raw
 python scripts/acquire_data.py --dataset wildfake --out data/raw \
-       --generators ddim,ddpm,VQGAN,BigGAN,...
+       --generators ddim,ddpm,VQGAN,BigGAN,...   # generated buckets only
 python scripts/acquire_data.py --dataset wildfake_benchmark --benchmark-dir data/demo
 python scripts/build_dataset.py --raw data/raw --out data/normalized \
-       --demo-dir data/demo --manifest data/normalized/manifest.parquet
+       --demo-dir data/demo --manifest data/normalized/manifest.parquet \
+       --max-per-generator 4000
 python scripts/build_benchmark_manifest.py    # -> data/demo/benchmark_manifest.parquet
 ```
 
 Every dataset's licence and source URL is recorded **at acquisition time** into
 `LICENCES.json` and carried into the manifest per row. `build_dataset` refuses
-to fabricate provenance for a source with no recorded entry.
+to fabricate provenance for a source with no recorded entry, and drops
+licence-restricted buckets before they are ever normalised.
+
+`--max-per-generator` keeps at most N images per generator family, drawn from
+the seed. Barring WildFake's authentic bucket left the corpus lopsided — every
+real image from one source, every generated family still full — and this thins
+the families without deleting any, so `heldout_generator` and the LOTO rung
+still have every family to work with.
 
 The manifest is **frozen on write**. Feature banks index it positionally, so
 re-splitting after banks exist silently misaligns labels against cached
@@ -244,16 +252,28 @@ the generated half, and it widens every confidence interval on that side.
 
 | Dataset | Role | Licence |
 |---|---|---|
-| SID_Set | Training | CC BY 4.0 |
-| WildFake | Training | Apache-2.0 (compilation); constituent subsets keep upstream terms, several non-commercial |
+| SID_Set | Training — every authentic image | CC BY 4.0 |
+| WildFake, generated buckets | Training — generator diversity | Apache-2.0 (the authors' own images) |
+| WildFake, `real/` bucket | **Barred, not used** | Re-published subsets with upstream non-commercial terms |
 | COCO val2017 | Benchmark only | CC BY 4.0, images under Flickr terms |
 | DALL·E Advanced | Benchmark only | Competition brief |
 
-WildFake is a **compilation**, and its Apache-2.0 hub metadata does not relicense
-its constituents (FFHQ CC BY-NC-SA 4.0, CelebA-HQ research-only, AFHQ CC BY-NC
-4.0, ImageNet non-commercial, LSUN research). Full table, with what was verified
-and what was not: [docs/dataset_licences.md](docs/dataset_licences.md).
+WildFake is a **compilation**: its generated images are the authors' own, but its
+authentic images are re-published FFHQ (CC BY-NC-SA 4.0), CelebA-HQ
+(research-only), AFHQ (CC BY-NC 4.0), ImageNet, LSUN and LAION-5B, and an
+Apache-2.0 label on the compilation does not relicense them. The 28 August
+webinar Q&A ruled that non-commercial datasets cannot be used, so that bucket —
+55,000 images, 42% of the pool we had acquired — is **barred at scan time,
+before normalisation**, and every authentic image in the corpus now comes from
+SID_Set alone. The rule is declared in `aigcdet.data.sources` and enforced by
+`scripts/build_dataset.py`, which records the counts *and the reasons* in
+`docs/splits.json`; it is not a convention anyone has to remember. Full table:
+[docs/dataset_licences.md](docs/dataset_licences.md).
 Model weight provenance: [docs/model_licences.md](docs/model_licences.md).
+
+The cost is real and is stated as a limitation rather than buried: a
+single-sourced authentic half is exactly the wrong shape for the sharpness
+shortcut described below.
 
 All models are well under the 2B-parameter limit — the largest is DINOv3
 ViT-L/16 at 303,129,600 parameters, measured rather than quoted.

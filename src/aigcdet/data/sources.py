@@ -9,7 +9,7 @@ photographs was labelled AI-generated, and the §4.1 exclusion — gated on
 layout is declared once and a change on the writing side that the reading
 side does not know about raises instead of silently mislabelling a class.
 
-Two properties are deliberately NOT derived from the label:
+Three properties are deliberately NOT derived from the label:
 
 - `exclude_from_training` is a property of the SOURCE. Spec §4.1(2) forbids
   training on the organisers' demo benchmark whatever a row claims to be, so
@@ -19,6 +19,12 @@ Two properties are deliberately NOT derived from the label:
   *pseudo*-generator (its own name), and holding that out would remove an
   entire source — measuring dataset shift, not the unseen-generator
   generalisation spec §4.6 defines.
+- `restricted_buckets` is a property of a BUCKET. A compilation can be usable
+  in part: WildFake's generated images are the authors' own, its authentic
+  images are re-published from datasets several of which are non-commercial,
+  and the 28 Aug webinar Q&A bars those outright. Source-level exclusion is
+  too coarse to say that, and label-level exclusion says it about the wrong
+  thing — SID_Set's authentic images are CC BY 4.0 and must stay.
 """
 from __future__ import annotations
 
@@ -43,6 +49,39 @@ class SourceSpec:
     generator_buckets: bool = True
     #: Spec §4.1(2): never train on this source, whatever a row's label says.
     exclude_from_training: bool = False
+    #: Declared buckets barred from ingestion outright, whatever their label.
+    #: This is separate from `exclude_from_training`, which is a property of a
+    #: whole SOURCE: a compilation can be usable in part, and WildFake is
+    #: exactly that -- its generated buckets are the authors' own work, its
+    #: authentic bucket is re-published from datasets with their own terms.
+    #: Only DECLARED buckets may be named, so a typo cannot silently restrict
+    #: nothing (see `__post_init__`).
+    restricted_buckets: frozenset[str] = frozenset()
+    #: Why those buckets are barred. Required alongside them and forbidden
+    #: without them: a count in a log is not an audit trail, and a reason
+    #: recorded against nothing reads as a restriction that is not in force.
+    restriction: str = ""
+
+    def __post_init__(self):
+        declared = set(self.real_buckets) | (
+            {self.pseudo_bucket} if self.pseudo_bucket else set())
+        unknown = sorted(self.restricted_buckets - declared)
+        if unknown:
+            raise ValueError(
+                f"{self.name}: restricted_buckets names {unknown}, which this "
+                f"source does not declare (declared: {sorted(declared)}). A "
+                "restriction on a bucket that does not exist restricts "
+                "nothing while every image in the bucket it was meant to name "
+                "flows through -- name a declared bucket, or declare it first.")
+        if self.restricted_buckets and not self.restriction.strip():
+            raise ValueError(
+                f"{self.name}: restricted_buckets needs a restriction reason. "
+                "The dropped count reaches a log; the reason is what makes it "
+                "an audit trail.")
+        if self.restriction.strip() and not self.restricted_buckets:
+            raise ValueError(
+                f"{self.name}: a restriction reason is recorded but no bucket "
+                "is restricted, which reads as a rule in force when it is not.")
 
     @property
     def pseudo_generator(self) -> str:
@@ -71,6 +110,16 @@ SOURCES: dict[str, SourceSpec] = {
                 "which are non-commercial. See docs/dataset_licences.md",
         real_buckets=frozenset({"real"}),
         generator_buckets=True,
+        restricted_buckets=frozenset({"real"}),
+        restriction="WildFake's authentic images are re-published FFHQ "
+                    "(CC BY-NC-SA 4.0), CelebA-HQ (research only), AFHQ "
+                    "(CC BY-NC 4.0), ImageNet and LSUN (research only), plus "
+                    "LAION-5B, whose CC BY 4.0 covers the metadata and not the "
+                    "scraped images. The compilation's Apache-2.0 label does "
+                    "not relicense any of them. The 28 Aug webinar Q&A ruled "
+                    "that non-commercial datasets cannot be used, so the whole "
+                    "bucket is barred; WildFake's generated buckets are the "
+                    "authors' own work and stay. See docs/dataset_licences.md.",
     ),
     # The authentic half of the organisers' demo benchmark. val2017/ is the
     # directory name inside the official zip — the mapping that C1 got wrong.
@@ -206,6 +255,24 @@ def is_excluded_from_training(source: str) -> bool:
     """Spec §4.1(2). Label-agnostic on purpose: a mislabelled row must still
     be excluded."""
     return source in SOURCES and SOURCES[source].exclude_from_training
+
+
+def is_restricted_bucket(source: str, bucket: str) -> bool:
+    """Whether `<source>/<bucket>` is barred from ingestion by its licence.
+
+    Total over unregistered sources, like `is_excluded_from_training`: the
+    scan loop in `build_dataset` asks this of every row it has already
+    classified, and a raise here would only duplicate the one `classify`
+    already makes on an unregistered source.
+    """
+    spec = SOURCES.get(source)
+    return spec is not None and bucket in spec.restricted_buckets
+
+
+def restriction_reason(source: str) -> str:
+    """Why `source`'s restricted buckets are barred; "" if none are."""
+    spec = SOURCES.get(source)
+    return spec.restriction if spec is not None else ""
 
 
 def is_heldout_eligible(generator: str) -> bool:

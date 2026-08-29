@@ -21,13 +21,16 @@ import glob
 import json
 import os
 
+import numpy as np
 import pandas as pd
 
 from aigcdet.data.audit import audit_flags, audit_table
 from aigcdet.data.dedupe import build_hash_index, find_leaks
 from aigcdet.data.manifest import MANIFEST_COLUMNS, validate_manifest, write_manifest
 from aigcdet.data.normalize import normalize_many
-from aigcdet.data.sources import classify, is_excluded_from_training
+from aigcdet.data.sources import (
+    classify, is_excluded_from_training, is_restricted_bucket, restriction_reason,
+)
 from aigcdet.data.splits import (
     DEFAULT_SEED,
     assign_splits,
@@ -88,6 +91,37 @@ def _load_licences(raw_dir: str) -> dict[str, str]:
     return licences
 
 
+def _cap_per_generator(
+    df: pd.DataFrame, cap: int, seed: int,
+) -> tuple[pd.DataFrame, dict[str, int]]:
+    """Keep at most `cap` rows per generator family, drawn from `seed`.
+
+    Returns the thinned frame in its original row order and the per-family
+    dropped counts. Authentic rows (generator "") are never touched.
+
+    Row order is preserved rather than regrouped because `_scan` sorts, and
+    that sorted order is what makes a rebuild with the same seed produce the
+    same manifest -- which matters more here than usual, since the manifest is
+    indexed positionally by every feature bank built against it.
+    """
+    keep = np.ones(len(df), dtype=bool)
+    dropped: dict[str, int] = {}
+    rng = np.random.default_rng(seed)
+    generated = df["generator"].to_numpy()
+    for g in sorted({x for x in generated if x}):
+        idx = np.flatnonzero(generated == g)
+        if len(idx) <= cap:
+            continue
+        # `choice` on the POSITIONS, then set the complement False: sampling
+        # which to keep rather than which to drop keeps the draw's size fixed
+        # at `cap` however large the family is.
+        chosen = rng.choice(idx, size=cap, replace=False)
+        keep[idx] = False
+        keep[chosen] = True
+        dropped[g] = int(len(idx) - cap)
+    return df[keep].reset_index(drop=True), dropped
+
+
 def build_dataset(
     raw: str,
     out: str,
@@ -98,6 +132,7 @@ def build_dataset(
     seed: int = DEFAULT_SEED,
     force: bool = False,
     heldout_generators: list[str] | None = None,
+    max_per_generator: int = 0,
 ) -> pd.DataFrame:
     """Run the full audit -> normalise -> dedupe -> split -> manifest
     pipeline and write the manifest. Returns the DataFrame it wrote.
@@ -111,6 +146,17 @@ def build_dataset(
     with `choose_heldout_generators`; the automatic choice is restricted to
     genuine generator families (spec §4.6), so a human who wants a specific
     pair says so here rather than reseeding until the draw obliges.
+
+    `max_per_generator` keeps at most that many images per generator family,
+    drawn deterministically from `seed`. It exists because the corpus is
+    lopsided by construction: barring WildFake's authentic bucket (see
+    `aigcdet.data.sources`) leaves every real image coming from SID_Set while
+    the generated side keeps every WildFake family. Thinning the families
+    rebalances the classes WITHOUT deleting a family -- `heldout_generator`
+    and the LOTO rung both need every family to survive -- and without
+    touching the raw tree, so the decision stays a rebuild flag rather than an
+    irreversible `rm`. Authentic images are never capped: they are the scarce
+    side.
     """
     if os.path.exists(manifest) and not force:
         raise FileExistsError(
@@ -129,15 +175,35 @@ def build_dataset(
     # labelled all ~5,000 COCO val2017 photographs AI-generated: their bucket
     # is `val2017`, not `real`. An unregistered source or bucket now raises.
     rows = []
+    restricted: dict[str, int] = {}
     for p in _scan(raw):
         rel = os.path.relpath(p, raw).split(os.sep)
         source = rel[0]
         bucket = rel[1] if len(rel) > 1 else ""
+        # classify FIRST, so an unregistered source or bucket still raises
+        # even when the bucket would then have been barred: a tree we cannot
+        # read is a different problem from one we may not use.
         label, generator = classify(source, bucket)
+        if is_restricted_bucket(source, bucket):
+            # Barred here, before normalisation, not filtered out of the
+            # manifest afterwards. Normalising images we may not use costs an
+            # hour and ~17 GB, and the licence is about the copy on our disk,
+            # not about the manifest row that points at it.
+            key = f"{source}/{bucket}"
+            restricted[key] = restricted.get(key, 0) + 1
+            continue
         rows.append({"src": p, "label": label, "generator": generator, "source": source})
     raw_df = pd.DataFrame(rows)
     if raw_df.empty:
         raise ValueError(f"no images found under {raw}")
+    for key, n in sorted(restricted.items()):
+        print(f"barred {n} images in {key} by licence: "
+              f"{restriction_reason(key.split('/')[0])}")
+    capped: dict[str, int] = {}
+    if max_per_generator:
+        raw_df, capped = _cap_per_generator(raw_df, max_per_generator, seed)
+        for g, n in sorted(capped.items()):
+            print(f"capped {g}: dropped {n} to {max_per_generator}")
     print(f"scanned {len(raw_df)} raw images")
 
     # Reject a missing key, JSON `null`, `""`, AND a whitespace-only value
@@ -241,7 +307,16 @@ def build_dataset(
     with open(os.path.join(docs_dir, "splits.json"), "w") as f:
         json.dump(
             {"heldout_generators": held, "seed": seed, "leaked_dropped": len(leaks),
-             "normalize_skipped": len(failures)},
+             "normalize_skipped": len(failures),
+             # The licence audit trail. The counts say what was dropped; the
+             # reasons say why, which is the half a reader six months from now
+             # cannot reconstruct.
+             "restricted_dropped": restricted,
+             "restriction_reasons": {
+                 src: restriction_reason(src)
+                 for src in sorted({k.split("/")[0] for k in restricted})},
+             "max_per_generator": max_per_generator,
+             "capped_dropped": capped},
             f, indent=2,
         )
     return df
@@ -257,12 +332,17 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=DEFAULT_SEED)
     ap.add_argument("--force", action="store_true",
                      help="overwrite an existing manifest at --manifest")
+    ap.add_argument("--max-per-generator", type=int, default=0,
+                    help="keep at most N images per generator family, drawn "
+                         "deterministically from --seed; 0 (default) keeps "
+                         "every image. Authentic images are never capped.")
     ap.add_argument("--heldout-generators", default="",
                     help="comma-separated generator families to hold out, "
                          "pinning the choice instead of drawing it")
     a = ap.parse_args()
     build_dataset(a.raw, a.out, a.demo_dir, a.manifest, workers=a.workers,
                   seed=a.seed, force=a.force,
+                  max_per_generator=a.max_per_generator,
                   heldout_generators=[g for g in a.heldout_generators.split(",") if g])
 
 

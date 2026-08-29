@@ -5,8 +5,9 @@ from __future__ import annotations
 import pytest
 
 from aigcdet.data.sources import (
-    PSEUDO_GENERATORS, SOURCES, classify, is_excluded_from_training,
-    is_heldout_eligible, is_safe_generator, raw_subdir,
+    PSEUDO_GENERATORS, SOURCES, SourceSpec, classify, is_excluded_from_training,
+    is_heldout_eligible, is_restricted_bucket, is_safe_generator, raw_subdir,
+    restriction_reason,
 )
 
 
@@ -140,3 +141,63 @@ def test_dataset_level_pseudo_generators_are_not_heldout_eligible():
     assert not is_heldout_eligible("sid_set")
     assert not is_heldout_eligible("")       # authentic rows carry no generator
     assert is_heldout_eligible("sdxl")
+
+
+# --- Bucket-level licence restriction (28 Aug webinar Q&A) -----------------
+# "Non-commercial datasets cannot be used." WildFake's Apache-2.0 label
+# covers the COMPILATION; its authentic images are re-published FFHQ,
+# CelebA-HQ, AFHQ, ImageNet and LSUN, several of them non-commercial. That
+# is a property of a BUCKET, not of a source -- WildFake's generated buckets
+# are the authors' own work and stay in.
+
+def test_wildfakes_authentic_bucket_is_restricted_but_its_generators_are_not():
+    assert is_restricted_bucket("wildfake", "real")
+    for g in ("ddim", "BigGAN", "styleGAN", "SDwithAdaptor_lora"):
+        assert not is_restricted_bucket("wildfake", g)
+
+
+def test_no_other_sources_authentic_bucket_is_restricted():
+    # SID_Set is CC BY 4.0 throughout; restricting its real bucket would
+    # leave the corpus with no authentic images at all.
+    assert not is_restricted_bucket("sid_set", "real")
+    assert not is_restricted_bucket("coco_val2017", "val2017")
+
+
+def test_a_restriction_carries_the_reason_it_exists():
+    # The count alone is not an audit trail. Whoever reads docs/splits.json
+    # in six months needs to know WHY 55,000 images were dropped.
+    reason = restriction_reason("wildfake")
+    assert reason
+    assert "commercial" in reason.lower()
+    assert not restriction_reason("sid_set")
+
+
+def test_an_unregistered_source_has_no_restriction_rather_than_raising():
+    # is_excluded_from_training is already total over unknown sources; the
+    # sibling predicate must be too, or build_dataset's scan loop grows a
+    # try/except around a question it asks about every row.
+    assert not is_restricted_bucket("nonesuch", "real")
+    assert not restriction_reason("nonesuch")
+
+
+def test_restricting_an_undeclared_bucket_is_a_typo_and_raises():
+    # `restricted_buckets={"reals"}` would silently restrict nothing while
+    # every authentic image flowed through -- the failure mode is a corpus
+    # that looks rebuilt and is not. Only DECLARED buckets may be named.
+    with pytest.raises(ValueError, match="reals"):
+        SourceSpec(name="x", licence="l", real_buckets=frozenset({"real"}),
+                   restricted_buckets=frozenset({"reals"}), restriction="because")
+
+
+def test_a_restriction_without_a_reason_raises():
+    with pytest.raises(ValueError, match="reason"):
+        SourceSpec(name="x", licence="l", real_buckets=frozenset({"real"}),
+                   restricted_buckets=frozenset({"real"}))
+
+
+def test_a_reason_without_a_restriction_raises():
+    # The mirror case: a reason recorded against nothing reads as a
+    # restriction that is in force when it is not.
+    with pytest.raises(ValueError, match="restrict"):
+        SourceSpec(name="x", licence="l", real_buckets=frozenset({"real"}),
+                   restriction="because")
