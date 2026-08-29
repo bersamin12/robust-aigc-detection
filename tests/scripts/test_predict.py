@@ -1,4 +1,4 @@
-"""The submission's inference entry point (brief §5.5.2).
+"""The submission's inference entry point (brief section 5.5.2).
 
     "A script that takes an image directory as input and outputs a confidence
      score for each image, indicating the likelihood that it is AIGC-generated.
@@ -11,11 +11,9 @@ loose files with no manifest, no labels and no bank -- so the properties that
 the rest of the pipeline gets from the manifest have to be established here
 instead.
 
-The one that matters most is canonicalisation. `predict` is a FOURTH decode
-site, and the resolution shortcut (docs/resolution_shortcut.md) means a decode
-site that skips it computes features on different pixels than the head was
-trained on -- with no shape error, no warning, and scores that are merely
-wrong rather than absent.
+The scoring itself is `aigcdet.infer.Predictor`, tested in `tests/test_infer.py`.
+What is tested here is what the SCRIPT owns: which files it finds, in what
+order, what lands in the JSON, and what it does when a file will not decode.
 """
 from __future__ import annotations
 
@@ -28,10 +26,13 @@ import pytest
 import torch
 from PIL import Image
 
+from aigcdet.calibrate.policy import Policy
+from aigcdet.calibrate.temperature import GlobalTemperature
 from aigcdet.models.heads import Detector
 
 REPO = __import__("pathlib").Path(__file__).resolve().parents[2]
 SCRIPT = str(REPO / "scripts" / "predict.py")
+DIM = 8
 
 
 def _images(d, n=5, size=(40, 57)):
@@ -47,33 +48,70 @@ def _images(d, n=5, size=(40, 57)):
     return paths
 
 
-def _checkpoint(path, dim=8, use_recon=False, use_film=False):
+def _calibrator():
+    """A real, fitted GlobalTemperature.
+
+    A stub class defined in this file would need to be importable by name in
+    the subprocess test's fresh interpreter, since the bundle is unpickled
+    there. A shipped class avoids that entirely.
+    """
+    rng = np.random.default_rng(0)
+    n = 400
+    y = rng.integers(0, 2, n)
+    logits = rng.normal(0, 1, n) + np.where(y == 1, 1.2, -1.2)
+    return GlobalTemperature().fit(logits, y,
+                                   split=np.array(["val_internal"] * n))
+
+
+def _bundle(tmp_path, name="bundle", use_recon=False, use_film=False,
+            backbone="fake"):
+    """A release bundle in the shape `export_bundle` writes."""
+    from aigcdet.infer import export_bundle
+
     torch.manual_seed(0)
-    model = Detector(dim_feat=dim, use_recon=use_recon, use_film=use_film)
+    model = Detector(dim_feat=DIM, use_recon=use_recon, use_film=use_film)
+    ck = tmp_path / f"{name}_checkpoint.pt"
     torch.save({"state_dict": model.state_dict(),
                 "config": {"use_recon": use_recon, "use_film": use_film,
                            "name": "a3", "seed": 1},
-                "dim_feat": dim, "backbone": "fake"}, path)
-    return str(path)
+                "dim_feat": DIM, "backbone": backbone}, ck)
+    return export_bundle(
+        str(ck), _calibrator(), None,
+        Policy(flag_threshold=0.8, clear_threshold=0.2, eqi_threshold=0.3),
+        str(tmp_path / name), backbone_name=backbone, use_recon=use_recon,
+        dim_feat=DIM)
 
 
 @pytest.fixture()
 def pred(monkeypatch):
-    """Import the script with a stand-in backbone: no weights, no GPU."""
+    """The script, with a stand-in backbone: no weights, no GPU.
+
+    The stubs go on `aigcdet.infer`, not on the script: the script holds no
+    backbone of its own any more, which is the point of routing it through
+    `Predictor`.
+    """
     import importlib.util
+
+    from aigcdet import infer
+    from aigcdet.features.backbones import BackboneSpec
 
     spec = importlib.util.spec_from_file_location("predict_mod", SCRIPT)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
 
-    from aigcdet.features.backbones import BackboneSpec
-    bspec = BackboneSpec("fake", "none", 64, 8, 1, 0)
-    monkeypatch.setattr(mod, "load_backbone", lambda n, device: (None, bspec))
+    bspec = BackboneSpec("fake", "none", 64, DIM, 1, 0)
+    monkeypatch.setattr(infer, "load_backbone", lambda n, device: (None, bspec))
     monkeypatch.setattr(
-        mod, "embed",
-        lambda m, s, imgs, device, batch_size=16:
+        infer, "embed",
+        lambda m, s, imgs, device="cpu", batch_size=16:
             np.stack([np.full(s.dim, float(i.mean()), np.float32) for i in imgs]))
+    mod.infer = infer
     return mod
+
+
+def _argv(images, bundle, out, *extra):
+    return ["--images", str(images), "--bundle", str(bundle), "--out", str(out),
+            "--device", "cpu", *extra]
 
 
 # --- the deliverable's literal contract -------------------------------------
@@ -81,9 +119,7 @@ def pred(monkeypatch):
 def test_writes_image_path_and_pred_for_every_image(tmp_path, pred):
     paths = _images(tmp_path / "in")
     out = tmp_path / "preds.json"
-    pred.main(["--images", str(tmp_path / "in"),
-               "--checkpoint", _checkpoint(tmp_path / "ck.pt"),
-               "--out", str(out), "--device", "cpu"])
+    pred.main(_argv(tmp_path / "in", _bundle(tmp_path), out))
 
     rows = json.loads(out.read_text())
     assert isinstance(rows, list) and len(rows) == len(paths)
@@ -94,12 +130,41 @@ def test_writes_image_path_and_pred_for_every_image(tmp_path, pred):
 def test_pred_is_a_probability(tmp_path, pred):
     _images(tmp_path / "in")
     out = tmp_path / "preds.json"
-    pred.main(["--images", str(tmp_path / "in"),
-               "--checkpoint", _checkpoint(tmp_path / "ck.pt"),
-               "--out", str(out), "--device", "cpu"])
+    pred.main(_argv(tmp_path / "in", _bundle(tmp_path), out))
     for r in json.loads(out.read_text()):
         assert isinstance(r["pred"], float)
         assert 0.0 <= r["pred"] <= 1.0
+
+
+def test_pred_is_the_calibrated_probability(tmp_path, pred):
+    """Not `sigmoid(logit)`. Both are floats in [0, 1] that move with the
+    image, so nothing about the output file distinguishes them -- which is
+    exactly why it is asserted rather than eyeballed."""
+    _images(tmp_path / "in", n=3)
+    out = tmp_path / "preds.json"
+    pred.main(_argv(tmp_path / "in", _bundle(tmp_path), out, "--full"))
+
+    rows = json.loads(out.read_text())
+    assert rows, "nothing scored"
+    for r in rows:
+        raw = 1.0 / (1.0 + np.exp(-r["logit"]))
+        assert r["pred"] != pytest.approx(raw, abs=1e-9)
+
+
+def test_the_submitted_file_carries_no_extra_keys(tmp_path, pred):
+    """`--full` is opt-in. The default output is the two keys the brief names
+    and nothing else, because an extra key is how a submission fails on a
+    technicality."""
+    _images(tmp_path / "in", n=2)
+    plain, full = tmp_path / "a.json", tmp_path / "b.json"
+    bundle = _bundle(tmp_path)
+    pred.main(_argv(tmp_path / "in", bundle, plain))
+    pred.main(_argv(tmp_path / "in", bundle, full, "--full"))
+
+    assert all(set(r) == {"image_path", "pred"}
+               for r in json.loads(plain.read_text()))
+    assert {"logit", "eqi", "decision", "severity"} <= set(
+        json.loads(full.read_text())[0])
 
 
 def test_finds_images_in_nested_directories_and_ignores_non_images(tmp_path, pred):
@@ -108,9 +173,7 @@ def test_finds_images_in_nested_directories_and_ignores_non_images(tmp_path, pre
     (tmp_path / "in" / "notes.txt").write_text("not an image")
     (tmp_path / "in" / "README.md").write_text("nor this")
     out = tmp_path / "preds.json"
-    pred.main(["--images", str(tmp_path / "in"),
-               "--checkpoint", _checkpoint(tmp_path / "ck.pt"),
-               "--out", str(out), "--device", "cpu"])
+    pred.main(_argv(tmp_path / "in", _bundle(tmp_path), out))
     rows = json.loads(out.read_text())
     assert len(rows) == 5
     assert not any(r["image_path"].endswith((".txt", ".md")) for r in rows)
@@ -120,12 +183,11 @@ def test_output_order_is_stable_across_runs(tmp_path, pred):
     """A judge may diff two runs. os.walk order is filesystem-dependent, so
     the rows are sorted rather than left to whatever readdir returned."""
     _images(tmp_path / "in", n=6)
-    ck = _checkpoint(tmp_path / "ck.pt")
+    bundle = _bundle(tmp_path)
     got = []
     for i in range(2):
         out = tmp_path / f"p{i}.json"
-        pred.main(["--images", str(tmp_path / "in"), "--checkpoint", ck,
-                   "--out", str(out), "--device", "cpu"])
+        pred.main(_argv(tmp_path / "in", bundle, out))
         got.append([r["image_path"] for r in json.loads(out.read_text())])
     assert got[0] == got[1] == sorted(got[0])
 
@@ -133,25 +195,24 @@ def test_output_order_is_stable_across_runs(tmp_path, pred):
 # --- the properties that fail silently --------------------------------------
 
 def test_canonicalises_every_image_before_embedding(tmp_path, pred, monkeypatch):
-    """The fourth decode site. If this one skips canonicalisation it scores
+    """The fourth decode site. If inference skips canonicalisation it scores
     images on different pixels than the head was trained on -- no error, just
     wrong numbers. Counted per image, not merely 'called at least once'."""
     seen = []
-    real = pred.canonicalise
-    monkeypatch.setattr(pred, "canonicalise",
+    real = pred.infer.canonicalise
+    monkeypatch.setattr(pred.infer, "canonicalise",
                         lambda a: (seen.append(a.shape), real(a))[1])
     _images(tmp_path / "in", n=4)
-    pred.main(["--images", str(tmp_path / "in"),
-               "--checkpoint", _checkpoint(tmp_path / "ck.pt"),
-               "--out", str(tmp_path / "p.json"), "--device", "cpu"])
+    pred.main(_argv(tmp_path / "in", _bundle(tmp_path), tmp_path / "p.json"))
     assert len(seen) == 4
 
 
-def test_the_script_uses_the_same_canonicalise_as_the_other_decode_sites(pred):
+def test_inference_uses_the_same_canonicalise_as_the_other_decode_sites(pred):
     from aigcdet.augment import canonical
     from aigcdet.features import extract
 
-    assert pred.canonicalise is canonical.canonicalise is extract.canonicalise
+    assert pred.infer.canonicalise is canonical.canonicalise \
+        is extract.canonicalise
 
 
 def test_scores_the_clean_view_only(tmp_path, pred, monkeypatch):
@@ -161,14 +222,12 @@ def test_scores_the_clean_view_only(tmp_path, pred, monkeypatch):
     from aigcdet.augment.canonical import canonicalise
 
     handed = []
-    monkeypatch.setattr(pred, "embed",
-                        lambda m, s, imgs, device, batch_size=16:
+    monkeypatch.setattr(pred.infer, "embed",
+                        lambda m, s, imgs, device="cpu", batch_size=16:
                             (handed.extend(imgs),
                              np.zeros((len(imgs), s.dim), np.float32))[1])
     paths = _images(tmp_path / "in", n=3)
-    pred.main(["--images", str(tmp_path / "in"),
-               "--checkpoint", _checkpoint(tmp_path / "ck.pt"),
-               "--out", str(tmp_path / "p.json"), "--device", "cpu"])
+    pred.main(_argv(tmp_path / "in", _bundle(tmp_path), tmp_path / "p.json"))
 
     assert len(handed) == 3
     for p, got in zip(sorted(paths), handed):
@@ -177,25 +236,29 @@ def test_scores_the_clean_view_only(tmp_path, pred, monkeypatch):
         assert np.array_equal(got, want)
 
 
-def test_refuses_a_recon_checkpoint_rather_than_scoring_without_recon(tmp_path, pred):
-    """An A4 head expects `[f | r]`. Handing it `f` alone is a shape error at
-    best and a silently wrong score at worst, so it is refused by name."""
-    _images(tmp_path / "in", n=2)
-    with pytest.raises(SystemExit, match="recon"):
-        pred.main(["--images", str(tmp_path / "in"),
-                   "--checkpoint", _checkpoint(tmp_path / "ck.pt", use_recon=True),
-                   "--out", str(tmp_path / "p.json"), "--device", "cpu"])
-
-
-def test_a_film_checkpoint_scores_normally(tmp_path, pred):
-    """FiLM conditions on the degradation head's own embedding, computed
-    inside Detector.forward -- it needs nothing extra from the caller, so
-    unlike recon it must NOT be refused."""
+def test_a_recon_bundle_computes_recon_features(tmp_path, pred, monkeypatch):
+    """An A4 head expects `[f | r]`. The bundle records that, so the recon
+    branch runs rather than the head being handed half its input -- which is a
+    shape error at best and a confident meaningless score at worst."""
+    calls = []
+    monkeypatch.setattr(
+        "aigcdet.infer.Predictor._recon_vector",
+        lambda self, img: (calls.append(img.shape),
+                           np.zeros(12, np.float32))[1])
     _images(tmp_path / "in", n=2)
     out = tmp_path / "p.json"
-    pred.main(["--images", str(tmp_path / "in"),
-               "--checkpoint", _checkpoint(tmp_path / "ck.pt", use_film=True),
-               "--out", str(out), "--device", "cpu"])
+    pred.main(_argv(tmp_path / "in", _bundle(tmp_path, use_recon=True), out))
+
+    assert len(calls) == 2
+    assert len(json.loads(out.read_text())) == 2
+
+
+def test_a_film_bundle_scores_normally(tmp_path, pred):
+    """FiLM conditions on the degradation head's own embedding, computed
+    inside Detector.forward -- it needs nothing extra from the caller."""
+    _images(tmp_path / "in", n=2)
+    out = tmp_path / "p.json"
+    pred.main(_argv(tmp_path / "in", _bundle(tmp_path, use_film=True), out))
     assert len(json.loads(out.read_text())) == 2
 
 
@@ -204,70 +267,76 @@ def test_an_empty_directory_fails_loudly(tmp_path, pred):
     scored nothing. The likely cause is a wrong --images path."""
     (tmp_path / "in").mkdir()
     with pytest.raises(SystemExit, match="no images"):
-        pred.main(["--images", str(tmp_path / "in"),
-                   "--checkpoint", _checkpoint(tmp_path / "ck.pt"),
-                   "--out", str(tmp_path / "p.json"), "--device", "cpu"])
+        pred.main(_argv(tmp_path / "in", _bundle(tmp_path), tmp_path / "p.json"))
 
 
-def test_an_unreadable_file_names_itself_and_does_not_abort_the_run(tmp_path, pred):
-    """A judge's directory will contain something PIL cannot open. Losing a
-    12-hour run's worth of scores to one bad file is worse than skipping it,
-    but skipping it silently is worse than both."""
+def test_a_missing_bundle_says_what_a_bundle_is(tmp_path, pred):
+    _images(tmp_path / "in", n=1)
+    with pytest.raises(SystemExit, match="export_bundle"):
+        pred.main(_argv(tmp_path / "in", tmp_path / "nope",
+                        tmp_path / "p.json"))
+
+
+def test_an_unreadable_file_gets_a_row_and_a_non_zero_exit(tmp_path, pred):
+    """A judge's directory will contain something PIL cannot open. Every image
+    still gets a row -- a result file shorter than the directory is a puzzle
+    for whoever reads it -- scored at 0.5, which asserts nothing. The non-zero
+    exit is how the run reports that it was not complete."""
     _images(tmp_path / "in", n=3)
     (tmp_path / "in" / "broken.png").write_bytes(b"not a png")
     out = tmp_path / "p.json"
-    rc = pred.main(["--images", str(tmp_path / "in"),
-                    "--checkpoint", _checkpoint(tmp_path / "ck.pt"),
-                    "--out", str(out), "--device", "cpu"])
+    rc = pred.main(_argv(tmp_path / "in", _bundle(tmp_path), out))
+
     rows = json.loads(out.read_text())
-    assert len(rows) == 3
-    assert not any("broken" in r["image_path"] for r in rows)
+    assert len(rows) == 4
+    bad = [r for r in rows if r["image_path"].endswith("broken.png")]
+    assert len(bad) == 1 and bad[0]["pred"] == 0.5
     assert rc != 0
-
-
-def test_runs_as_a_command_line_program(tmp_path):
-    """Imported-and-called is not the same as `python scripts/predict.py`.
-    The deliverable is the command line, so it is exercised as one -- with a
-    real (tiny) backbone stubbed out via the module's own hook."""
-    _images(tmp_path / "in", n=2)
-    ck = _checkpoint(tmp_path / "ck.pt")
-    out = tmp_path / "p.json"
-    stub = tmp_path / "stub.py"
-    stub.write_text(
-        "import numpy as np, runpy, sys\n"
-        "import aigcdet.features.backbones as B\n"
-        "spec = B.BackboneSpec('fake', 'none', 64, 8, 1, 0)\n"
-        "B.load_backbone = lambda n, device: (None, spec)\n"
-        "B.embed = lambda m, s, imgs, device, batch_size=16: "
-        "np.zeros((len(imgs), s.dim), np.float32)\n"
-        f"sys.argv = ['predict.py', '--images', {str(tmp_path / 'in')!r}, "
-        f"'--checkpoint', {ck!r}, '--out', {str(out)!r}, '--device', 'cpu']\n"
-        f"runpy.run_path({SCRIPT!r}, run_name='__main__')\n")
-    r = subprocess.run([sys.executable, str(stub)], capture_output=True, text=True)
-    assert r.returncode == 0, r.stdout + r.stderr
-    assert len(json.loads(out.read_text())) == 2
 
 
 def test_scores_stay_paired_with_their_paths_when_a_colon_named_file_fails(
         tmp_path, pred, monkeypatch):
-    """The pairing must not be reconstructed by parsing the failure strings.
-
-    A colon is legal in a POSIX filename, and a failure line reads
-    `<path>: <error>` -- so splitting one on ':' truncates such a path, the
-    undecodable file survives the filter, and `zip` then silently pairs each
-    score with the WRONG image_path. Every row still looks well-formed."""
+    """A colon is legal in a POSIX filename, and an error line reads
+    `<path>: <error>` -- so any scheme that recovers the pairing by splitting
+    such a string truncates the path, and `zip` then pairs each score with the
+    WRONG image. Every row still looks well-formed."""
     d = tmp_path / "in"
     _images(d, n=2)
     (d / "a:b.png").write_bytes(b"not a png")
 
-    # One batch, so the failed file and the good ones are filtered together.
-    monkeypatch.setattr(pred, "embed",
-                        lambda m, s, imgs, device, batch_size=16:
+    monkeypatch.setattr(pred.infer, "embed",
+                        lambda m, s, imgs, device="cpu", batch_size=16:
                             np.arange(len(imgs) * s.dim, dtype=np.float32
                                       ).reshape(len(imgs), s.dim))
     out = tmp_path / "p.json"
-    pred.main(["--images", str(d), "--checkpoint", _checkpoint(tmp_path / "ck.pt"),
-               "--out", str(out), "--batch-size", "8", "--device", "cpu"])
+    pred.main(_argv(d, _bundle(tmp_path), out, "--batch-size", "8"))
 
     rows = json.loads(out.read_text())
-    assert [r["image_path"] for r in rows] == [str(d / "img0.png"), str(d / "img1.png")]
+    assert [r["image_path"] for r in rows] == [
+        str(d / "a:b.png"), str(d / "img0.png"), str(d / "img1.png")]
+    assert rows[0]["pred"] == 0.5
+
+
+def test_runs_as_a_command_line_program(tmp_path):
+    """Imported-and-called is not the same as `python scripts/predict.py`.
+    The deliverable is the command line, so it is exercised as one."""
+    _images(tmp_path / "in", n=2)
+    bundle = _bundle(tmp_path)
+    out = tmp_path / "p.json"
+    stub = tmp_path / "stub.py"
+    stub.write_text(
+        "import numpy as np, runpy, sys\n"
+        "import aigcdet.infer as I\n"
+        "import aigcdet.features.backbones as B\n"
+        "spec = B.BackboneSpec('fake', 'none', 64, 8, 1, 0)\n"
+        # Patched on `infer`, where they are bound: the script imports the
+        # Predictor, not the backbone helpers.
+        "I.load_backbone = lambda n, device: (None, spec)\n"
+        "I.embed = lambda m, s, imgs, device='cpu', batch_size=16: "
+        "np.zeros((len(imgs), s.dim), np.float32)\n"
+        f"sys.argv = ['predict.py', '--images', {str(tmp_path / 'in')!r}, "
+        f"'--bundle', {bundle!r}, '--out', {str(out)!r}, '--device', 'cpu']\n"
+        f"runpy.run_path({SCRIPT!r}, run_name='__main__')\n")
+    r = subprocess.run([sys.executable, str(stub)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert len(json.loads(out.read_text())) == 2

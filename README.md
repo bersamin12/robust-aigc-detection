@@ -71,8 +71,12 @@ The submission's inference entry point. A directory in, a JSON file out, one
 object per image:
 
 ```bash
+# once, after training: freeze checkpoint + calibrator + EQI + policy
+python scripts/export_bundle.py --checkpoint outputs/rungs/a3/checkpoint.pt \
+       --eval-bank data/banks/eval_dinov3l --out outputs/release
+
 python scripts/predict.py --images path/to/images \
-       --checkpoint outputs/rungs/a3/checkpoint.pt --out predictions.json
+       --bundle outputs/release --out predictions.json
 ```
 
 ```json
@@ -82,17 +86,30 @@ python scripts/predict.py --images path/to/images \
 ]
 ```
 
-`pred` is P(AI-generated) in [0, 1]. The directory is searched recursively,
-non-images are ignored, and rows come out sorted so two runs of the same
-directory are diffable.
+`pred` is the **calibrated** P(AI-generated) in [0, 1], so 0.9 means roughly
+90% rather than only "higher than 0.8". That is why the script takes a bundle
+rather than a bare checkpoint: the temperature and the decision policy are
+fitted by `export_bundle.py` on internal validation only, and a checkpoint on
+its own has neither. Add `--full` to also get `logit`, `eqi`, `decision`,
+`severity`, `presence` and `proxies` per image — useful for error analysis,
+and deliberately not the default, since an extra key is how a submission fails
+on a technicality.
+
+The directory is searched recursively, non-images are ignored, and rows come
+out sorted so two runs of the same directory are diffable.
 
 It scores the **clean view only** — the transforms exist to make training
 robust to degradation, not to degrade the image you asked about — and it
 canonicalises resolution before the backbone sees anything, exactly as the
-three other decode sites do. A file that cannot be decoded is named on stderr
-and the run exits non-zero with the other scores still written; an empty
-directory and a checkpoint whose head needs the reconstruction branch are both
-refused by name rather than producing a plausible-looking empty or wrong result.
+three other decode sites do. A file that cannot be decoded still gets a row,
+scored 0.5, is named on stderr, and the run exits non-zero with every other
+score written. An empty directory and a missing bundle are refused by name
+rather than producing a plausible-looking empty result.
+
+Scoring itself lives in `aigcdet.infer.Predictor`, which the dashboard uses
+too: two inference paths that agree today drift apart quietly, and the
+divergence surfaces as a demo reporting a different number than the submitted
+script with nothing failing anywhere.
 
 ---
 

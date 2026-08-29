@@ -94,6 +94,14 @@ def _calibrator_arity(calibrator) -> int:
     return len(params)
 
 
+def _failed_result(exc: BaseException) -> dict:
+    """The row a file that could not be decoded gets."""
+    return {"pred": FAILED_PRED, "logit": 0.0, "eqi": 0.0, "decision": "review",
+            "severity": [0.0] * _N_SEVERITY, "presence": [0.0] * _N_SEVERITY,
+            "proxies": [0.0] * _N_PROXIES, "deg_embedding": [],
+            "error": f"{type(exc).__name__}: {exc}"}
+
+
 class Predictor:
     """Bundle in, calibrated decisions out."""
 
@@ -127,52 +135,72 @@ class Predictor:
             self._vae, self._lpips = load_recon_models(self.device)
         return recon_features(img, self._vae, self._lpips, self.device)
 
-    def _calibrate(self, logit: float, cond: np.ndarray) -> float:
-        logits = np.asarray([logit], dtype=np.float64)
-        arity = _calibrator_arity(self.calibrator)
-        if arity >= 2:
-            return float(self.calibrator.transform(logits, cond[None])[0])
-        return float(self.calibrator.transform(logits)[0])
+    def _calibrate(self, logits: np.ndarray, cond: np.ndarray) -> np.ndarray:
+        logits = np.asarray(logits, dtype=np.float64)
+        if _calibrator_arity(self.calibrator) >= 2:
+            return np.asarray(self.calibrator.transform(logits, cond),
+                              dtype=np.float64)
+        return np.asarray(self.calibrator.transform(logits), dtype=np.float64)
 
     @torch.no_grad()
-    def predict_array(self, img: np.ndarray, path: str | None = None) -> dict:
-        """Score one decoded RGB uint8 image.
+    def predict_arrays(self, imgs: list[np.ndarray],
+                       paths: list[str | None] | None = None) -> list[dict]:
+        """Score decoded RGB uint8 images, one result each, in order.
 
-        `img` is canonicalised first, exactly as `features/extract.py`,
+        Every image is canonicalised first, exactly as `features/extract.py`,
         `eval/grid.py` and `features/recon.py` do. Resolution separates this
-        project's real and fake pools almost perfectly and transfers
-        backwards (docs/resolution_shortcut.md), so an inference path that
-        skipped this step would feed the head a distribution it never trained
-        on and report the result with full confidence.
+        project's real and fake pools almost perfectly and transfers backwards
+        (docs/resolution_shortcut.md), so an inference path that skipped this
+        step would feed the head a distribution it never trained on and report
+        the result with full confidence.
+
+        Canonicalisation gives images of differing shapes, which is fine:
+        `embed` squishes each to the backbone's input size, so the whole list
+        still goes through the tower as ONE batch. That is the difference
+        between a 5k-image directory taking minutes and taking a quarter of an
+        hour.
         """
-        canon = canonicalise(img)
-        f = embed(self.backbone, self.spec, [canon], device=self.device,
-                  batch_size=1)
-        r = self._recon_vector(canon)[None] if self.use_recon else None
+        if not imgs:
+            return []
+        paths = list(paths) if paths is not None else [None] * len(imgs)
+        canon = [canonicalise(i) for i in imgs]
+
+        f = np.asarray(embed(self.backbone, self.spec, canon,
+                             device=self.device, batch_size=len(canon)))
+        r = (np.stack([self._recon_vector(c) for c in canon])
+             if self.use_recon else None)
         out = self.model(
-            torch.from_numpy(np.asarray(f)).to(self.device),
+            torch.from_numpy(f).to(self.device),
             torch.from_numpy(np.asarray(r)).to(self.device) if r is not None
             else None)
 
-        logit = float(out["logit"].reshape(-1)[0].item())
-        severity = out["severity"].cpu().numpy()[0]
-        presence = torch.sigmoid(out["presence"]).cpu().numpy()[0]
-        deg_emb = out["deg_embedding"].cpu().numpy()[0]
+        logits = out["logit"].reshape(-1).cpu().numpy().astype(np.float64)
+        severity = out["severity"].cpu().numpy()
+        presence = torch.sigmoid(out["presence"]).cpu().numpy()
+        deg_emb = out["deg_embedding"].cpu().numpy()
         # Proxies describe the image as it will be judged, so they are measured
         # on the canonicalised pixels the head actually saw -- not on the
         # original file, whose resolution is the thing being neutralised.
-        proxies = proxy_vector(canon, path)
+        proxies = np.stack([proxy_vector(c, p) for c, p in zip(canon, paths)])
 
-        cond = np.concatenate([severity, proxies]).astype(np.float32)
-        pred = self._calibrate(logit, cond)
-        eqi_val = (float(self.eqi.predict(cond[None])[0])
-                   if self.eqi is not None else float(max(pred, 1.0 - pred)))
-        decision = str(decide(np.array([pred]), np.array([eqi_val]),
-                              self.policy)[0])
-        return {"pred": pred, "logit": logit, "eqi": eqi_val,
-                "decision": decision, "severity": severity.tolist(),
-                "presence": presence.tolist(), "proxies": proxies.tolist(),
-                "deg_embedding": deg_emb.tolist(), "error": None}
+        cond = np.concatenate([severity, proxies], axis=1).astype(np.float32)
+        preds = self._calibrate(logits, cond)
+        eqi = (np.asarray(self.eqi.predict(cond), dtype=np.float64)
+               if self.eqi is not None
+               else np.maximum(preds, 1.0 - preds))
+        decisions = decide(preds, eqi, self.policy)
+
+        return [{"pred": float(preds[i]), "logit": float(logits[i]),
+                 "eqi": float(eqi[i]), "decision": str(decisions[i]),
+                 "severity": severity[i].tolist(),
+                 "presence": presence[i].tolist(),
+                 "proxies": proxies[i].tolist(),
+                 "deg_embedding": deg_emb[i].tolist(), "error": None}
+                for i in range(len(canon))]
+
+    def predict_array(self, img: np.ndarray, path: str | None = None) -> dict:
+        """Score one decoded RGB uint8 image. A batch of one."""
+        return self.predict_arrays([img], [path])[0]
 
     def predict_paths(self, paths: list[str], batch_size: int = 16) -> list[dict]:
         """Score every path, in order, one result each.
@@ -183,23 +211,33 @@ class Predictor:
         after it -- re-pairing results to inputs positionally in the caller is
         how every score after the first bad file lands on the wrong image while
         every row still looks well-formed.
+
+        Decoding is done a batch at a time so the backbone sees `batch_size`
+        images per forward pass rather than one.
         """
-        results = []
-        for p in paths:
-            try:
-                with Image.open(p) as im:
-                    arr = np.asarray(im.convert("RGB"), dtype=np.uint8)
-                res = self.predict_array(arr, path=p)
-            except Exception as exc:              # noqa: BLE001 -- reported
-                warnings.warn(f"skipping {p}: {type(exc).__name__}: {exc}",
-                              stacklevel=2)
-                res = {"pred": FAILED_PRED, "logit": 0.0, "eqi": 0.0,
-                       "decision": "review",
-                       "severity": [0.0] * _N_SEVERITY,
-                       "presence": [0.0] * _N_SEVERITY,
-                       "proxies": [0.0] * _N_PROXIES,
-                       "deg_embedding": [],
-                       "error": f"{type(exc).__name__}: {exc}"}
-            res["image_path"] = p
-            results.append(res)
+        results: list[dict] = []
+        for start in range(0, len(paths), batch_size):
+            chunk = paths[start:start + batch_size]
+            imgs, kept, slots = [], [], {}
+            for p in chunk:
+                try:
+                    with Image.open(p) as im:
+                        arr = np.asarray(im.convert("RGB"), dtype=np.uint8)
+                except Exception as exc:          # noqa: BLE001 -- reported
+                    warnings.warn(f"skipping {p}: {type(exc).__name__}: {exc}",
+                                  stacklevel=2)
+                    slots[p] = _failed_result(exc)
+                    continue
+                imgs.append(arr)
+                kept.append(p)
+            scored = self.predict_arrays(imgs, kept)
+            # Keyed by path, then re-emitted in the CHUNK's order. Appending
+            # the scored rows and then the failed ones would reorder the
+            # output around every bad file; re-pairing positionally after a
+            # drop is how each remaining score lands on the wrong image.
+            slots.update(dict(zip(kept, scored)))
+            for p in chunk:
+                res = dict(slots[p])
+                res["image_path"] = p
+                results.append(res)
         return results
