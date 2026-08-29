@@ -6,7 +6,7 @@ each pay for a fifth of the 8-13 h and `scripts/merge_banks.py` can put the
 result back together.
 
     python notebooks/run_shard.py \
-        --manifest /kaggle/input/aigcdet-manifest/manifest.parquet \
+        --manifest /kaggle/input/techjam-aigc-train/manifest.parquet \
         --root /kaggle/temp/dataset \
         --backbone dinov3l --out /kaggle/working/banks/dinov3l_shard0 \
         --split train,val_internal --shard 0 --n-shards 5 \
