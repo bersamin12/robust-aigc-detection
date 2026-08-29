@@ -1063,3 +1063,22 @@ def test_load_script_module_reuses_the_cli_not_a_copy_of_it(repo_root):
     mod = kb.load_script_module("extract_features", repo_root)
     assert kb.select_splits.__module__ == kb.__name__
     assert callable(mod.select_splits)
+
+
+def test_a_token_is_required_only_for_a_gated_backbone():
+    """The auth cell raises when no token is found. Under the current
+    allocation the fleet runs SigLIP2, which is Apache-2.0 and ungated, so a
+    blanket requirement would stop four teammates on a licence acceptance
+    their run never touches."""
+    assert kb.requires_hf_token("dinov3l") is True
+    assert kb.requires_hf_token("siglip2l") is False
+    assert kb.requires_hf_token("clipl") is False
+
+
+def test_the_advice_for_an_ungated_backbone_does_not_demand_a_token():
+    """A teammate reading 'GATED repo ... will fail without one' for a repo
+    that is neither will go and do the useless work anyway."""
+    lines = " ".join(kb.hf_auth_advice(None, "google/siglip2-large-patch16-384",
+                                       gated=False))
+    assert "gated" not in lines.lower()
+    assert "not required" in lines.lower() or "no token" in lines.lower()

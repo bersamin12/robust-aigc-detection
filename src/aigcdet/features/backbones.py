@@ -64,6 +64,13 @@ class BackboneSpec:
     #: Patch side length, required by (and only used by) INPUT_SIGLIP2_PATCHES,
     #: which has to patchify the image itself before the model sees it.
     patch_size: int = 0
+    #: Whether the HuggingFace repo requires accepting a licence on the
+    #: downloading account before the weights can be fetched. A property of the
+    #: checkpoint, so it lives here rather than in a notebook's prose: it
+    #: decides whether a run needs an HF token at all, and the fleet running an
+    #: ungated backbone should not be stopped for one. See
+    #: `docs/model_licences.md` for each entry's terms.
+    gated: bool = False
 
     def __post_init__(self):
         if self.input_format not in INPUT_FORMATS:
@@ -90,8 +97,9 @@ class BackboneSpec:
 #     summed `.vision_model.parameters()`. siglip2l -> 316_283_904,
 #     clipl -> 303_179_776.
 BACKBONES: dict[str, BackboneSpec] = {
+    # Gated: Meta's custom DINOv3 licence must be accepted per ACCOUNT.
     "dinov3l": BackboneSpec("dinov3l", "facebook/dinov3-vitl16-pretrain-lvd1689m",
-                             384, 1024, 5, 303_129_600),
+                             384, 1024, 5, 303_129_600, gated=True),
     "siglip2l": BackboneSpec("siglip2l", "google/siglip2-large-patch16-384",
                               384, 1024, 0, 316_283_904,
                               input_format=INPUT_SIGLIP2_PATCHES, patch_size=16),

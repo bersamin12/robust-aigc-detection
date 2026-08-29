@@ -265,3 +265,20 @@ def test_patchify_matches_the_transformers_reference_implementation():
     assert (n_h, n_w) == (4, 3)
     for b in range(2):
         np.testing.assert_array_equal(ours[b], convert_image_to_patches(arr[b], 16))
+
+
+# --- which weights are gated ------------------------------------------------
+
+def test_only_dinov3_is_gated():
+    """Gating is a property of the checkpoint, so it belongs on the spec rather
+    than in a notebook's prose.
+
+    It decides whether a run needs a HuggingFace token at all, and the
+    allocation now has five teammates on SigLIP2 (Apache-2.0) while DINOv3
+    runs locally -- so a blanket token requirement would block four people over
+    a licence acceptance none of their runs need. See docs/model_licences.md."""
+    from aigcdet.features.backbones import BACKBONES
+
+    assert BACKBONES["dinov3l"].gated is True
+    assert BACKBONES["siglip2l"].gated is False
+    assert BACKBONES["clipl"].gated is False
