@@ -44,6 +44,23 @@ def _all_source(nb) -> str:
     return "\n".join(_source(c) for c in nb["cells"])
 
 
+def _strip_comments(src: str) -> str:
+    """`src` with comments removed, so prose about an import is not mistaken
+    for one. These cells explain the sys.path trap in comments that quote the
+    very code being searched for."""
+    import io
+    import tokenize
+
+    out = []
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(src).readline):
+            if tok.type != tokenize.COMMENT:
+                out.append(tok)
+    except tokenize.TokenError:               # incomplete cell; keep it as-is
+        return src
+    return tokenize.untokenize(out)
+
+
 def test_the_expected_notebooks_exist():
     assert {os.path.basename(p) for p in NOTEBOOK_PATHS} == set(EXPECTED_NOTEBOOKS)
 
@@ -158,6 +175,53 @@ def test_no_notebook_offers_to_rebuild_the_frozen_manifest(path):
     notebooks warn about it) but never invoked."""
     for cell in _code_cells(_load(path)):
         assert "build_dataset.py" not in _source(cell), path
+
+
+@pytest.mark.parametrize("path", NOTEBOOK_PATHS, ids=os.path.basename)
+def test_a_notebook_that_imports_aigcdet_puts_src_on_sys_path_first(path):
+    """`pip install -e` does NOT make the package importable in a kernel that
+    was already running when pip finished: the editable install registers
+    itself in a .pth file, and site.py reads those at interpreter start.
+    Subprocesses get a fresh interpreter and import fine, which is why every
+    extraction works while an in-kernel `from aigcdet...` raises
+    ModuleNotFoundError -- several cells after the install cell said "done".
+
+    So any notebook importing the project in-kernel must add `src/` to
+    sys.path itself, in a cell that runs BEFORE the first such import.
+    """
+    nb = _load(path)
+    cells = [(i, _source(c)) for i, c in enumerate(nb["cells"])
+             if c.get("cell_type") == "code"]
+
+    # Parsed, not grepped. The prose in these cells discusses `from aigcdet`
+    # precisely because this is the trap being warned about, and a substring
+    # scan cannot tell the warning from the import.
+    imports = [(i, node.lineno)
+               for i, src in cells
+               for node in ast.walk(ast.parse(src))
+               if (isinstance(node, ast.Import)
+                   and any(a.name.split(".")[0] == "aigcdet" for a in node.names))
+               or (isinstance(node, ast.ImportFrom)
+                   and (node.module or "").split(".")[0] == "aigcdet")]
+    if not imports:
+        return
+
+    code = {i: _strip_comments(src) for i, src in cells}
+    fixes = [(i, n) for i, src in code.items()
+             for n, line in enumerate(src.splitlines(), start=1)
+             if "sys.path" in line]
+    assert fixes, f"{path} imports aigcdet but never touches sys.path"
+    # (cell, line) ordering, because both can legitimately live in one cell.
+    assert min(fixes) < min(imports), (
+        f"{path}: sys.path is set at cell/line {min(fixes)}, after the first "
+        f"aigcdet import at cell/line {min(imports)}")
+    # ...and what it puts there is `src`. Asserting only that sys.path is
+    # touched passes a notebook that adds `notebooks/` and nothing else, which
+    # is exactly the bug: kaggle_bootstrap imports, aigcdet does not.
+    joined = "".join(code.values())
+    assert '"src"' in joined or "'src'" in joined, (
+        f"{path} touches sys.path but never adds REPO_DIR/src, so the aigcdet "
+        f"package stays unimportable in the kernel")
 
 
 # --- the Stage A notebook's specific obligations ----------------------------
