@@ -8,6 +8,7 @@ import pytest
 from PIL import Image
 
 from aigcdet.features.bank import RECON_DIM, BankWriter, FeatureBank
+from aigcdet.augment.canonical import canonicalise
 from aigcdet.features.recon import (
     RECON_FEATURE_NAMES,
     _radial_bands,
@@ -370,6 +371,13 @@ def test_attach_recon_to_bank_replays_extract_banks_own_pixels_bit_exactly(tmp_p
     for i in range(len(bank.meta)):
         with Image.open(bank.meta.iloc[i]["path"]) as im:
             base = np.asarray(im.convert("RGB"), dtype=np.uint8)
+            # This block is extract_bank's preprocessing, recomputed by hand as
+            # ground truth independent of attach_recon_to_bank. It has to
+            # mirror EVERY step extract_bank takes before applying a recipe,
+            # canonicalisation included -- otherwise it compares recon's
+            # canonicalised pixels against an uncanonicalised expectation and
+            # reports a divergence that is the test's, not the code's.
+            base = canonicalise(base)
         rid = int(row_ids[i])
         for j in range(bank.config["n_views"]):
             apply_rng = np.random.default_rng([42, rid, j])
@@ -505,6 +513,13 @@ def test_attach_recon_replays_bit_exactly_from_a_reset_index_manifest(tmp_path, 
     for i in range(len(bank.meta)):
         with Image.open(bank.meta.iloc[i]["path"]) as im:
             base = np.asarray(im.convert("RGB"), dtype=np.uint8)
+            # This block is extract_bank's preprocessing, recomputed by hand as
+            # ground truth independent of attach_recon_to_bank. It has to
+            # mirror EVERY step extract_bank takes before applying a recipe,
+            # canonicalisation included -- otherwise it compares recon's
+            # canonicalised pixels against an uncanonicalised expectation and
+            # reports a divergence that is the test's, not the code's.
+            base = canonicalise(base)
         rid = int(train_df.index.to_numpy()[i])
         for j in range(n_views):
             expected[(i, j)] = Recipe.from_json(bank.recipe_json(i, j)).apply(

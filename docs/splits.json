@@ -1,0 +1,9 @@
+{
+  "heldout_generators": [
+    "SDwithAdaptor_controlnet",
+    "VQGAN"
+  ],
+  "seed": 20260827,
+  "leaked_dropped": 20,
+  "normalize_skipped": 12
+}

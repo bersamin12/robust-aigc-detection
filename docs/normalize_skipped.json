@@ -1,0 +1,50 @@
+[
+  {
+    "src": "data/raw/wildfake/GigaGAN/3f53f94d4f346ec2.png",
+    "reason": "SyntaxError: broken PNG file (chunk b'\\x00\\x00\\x00\\x00')"
+  },
+  {
+    "src": "data/raw/wildfake/GigaGAN/4c2b2bf059684db3.png",
+    "reason": "UnidentifiedImageError: cannot identify image file 'data/raw/wildfake/GigaGAN/4c2b2bf059684db3.png'"
+  },
+  {
+    "src": "data/raw/wildfake/GigaGAN/5bbbb3a520b85855.png",
+    "reason": "SyntaxError: broken PNG file (chunk b'\\x00\\x00\\x00\\x00')"
+  },
+  {
+    "src": "data/raw/wildfake/GigaGAN/5e4bb512b10848d8.png",
+    "reason": "SyntaxError: broken PNG file (chunk b'\\x00\\x00\\x00\\x00')"
+  },
+  {
+    "src": "data/raw/wildfake/GigaGAN/9d474cec3ebc7bb4.png",
+    "reason": "UnidentifiedImageError: cannot identify image file 'data/raw/wildfake/GigaGAN/9d474cec3ebc7bb4.png'"
+  },
+  {
+    "src": "data/raw/wildfake/GigaGAN/aaa15a0b08ea5a33.png",
+    "reason": "SyntaxError: broken PNG file (chunk b'\\x00\\x00\\x00\\x00')"
+  },
+  {
+    "src": "data/raw/wildfake/GigaGAN/af2fa4a7042f914a.png",
+    "reason": "UnidentifiedImageError: cannot identify image file 'data/raw/wildfake/GigaGAN/af2fa4a7042f914a.png'"
+  },
+  {
+    "src": "data/raw/wildfake/GigaGAN/d9d6250f0d087b19.png",
+    "reason": "UnidentifiedImageError: cannot identify image file 'data/raw/wildfake/GigaGAN/d9d6250f0d087b19.png'"
+  },
+  {
+    "src": "data/raw/wildfake/GigaGAN/e38a6e29db35a541.png",
+    "reason": "SyntaxError: broken PNG file (chunk b'\\x00\\x00\\x00\\x00')"
+  },
+  {
+    "src": "data/raw/wildfake/GigaGAN/edb20866f08d5397.png",
+    "reason": "SyntaxError: broken PNG file (chunk b'\\x00\\x00\\x00\\x00')"
+  },
+  {
+    "src": "data/raw/wildfake/GigaGAN/ef331daa96df0700.png",
+    "reason": "UnidentifiedImageError: cannot identify image file 'data/raw/wildfake/GigaGAN/ef331daa96df0700.png'"
+  },
+  {
+    "src": "data/raw/wildfake/GigaGAN/f848e0ad783fe9e6.png",
+    "reason": "UnidentifiedImageError: cannot identify image file 'data/raw/wildfake/GigaGAN/f848e0ad783fe9e6.png'"
+  }
+]
