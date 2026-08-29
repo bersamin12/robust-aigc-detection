@@ -65,6 +65,37 @@ imported lazily, so the package stays importable and testable without it.
 
 ---
 
+## Scoring a directory of images
+
+The submission's inference entry point. A directory in, a JSON file out, one
+object per image:
+
+```bash
+python scripts/predict.py --images path/to/images \
+       --checkpoint outputs/rungs/a3/checkpoint.pt --out predictions.json
+```
+
+```json
+[
+  {"image_path": "path/to/images/a.png", "pred": 0.9317},
+  {"image_path": "path/to/images/b.jpg", "pred": 0.0412}
+]
+```
+
+`pred` is P(AI-generated) in [0, 1]. The directory is searched recursively,
+non-images are ignored, and rows come out sorted so two runs of the same
+directory are diffable.
+
+It scores the **clean view only** — the transforms exist to make training
+robust to degradation, not to degrade the image you asked about — and it
+canonicalises resolution before the backbone sees anything, exactly as the
+three other decode sites do. A file that cannot be decoded is named on stderr
+and the run exits non-zero with the other scores still written; an empty
+directory and a checkpoint whose head needs the reconstruction branch are both
+refused by name rather than producing a plausible-looking empty or wrong result.
+
+---
+
 ## Reproducing the results
 
 ### 1. Acquire and freeze the data
