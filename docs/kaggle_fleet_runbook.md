@@ -177,3 +177,45 @@ The merge refuses shards that disagree on backbone, dim, view count, seed or
 excluded transform families, or whose rows overlap. A refused merge is telling
 you two people ran different parameters — far cheaper to learn there than from
 an unexplained drop in val AUC three days later.
+
+
+---
+
+## The evaluation bank (`kaggle_stage_a_eval.ipynb`)
+
+Everything above builds the TRAINING bank. The robustness table is scored from
+a separate EVALUATION bank, and rung **A5** fuses two backbones, so it needs one
+for *each*. `dinov3l`'s is chained after its training extraction on the A4500;
+`siglip2l`'s is this notebook's job.
+
+**Attach three Datasets, not two:**
+
+| Dataset | Carries |
+|---|---|
+| `techjam-aigc-train` | `sid_set/`, `wildfake/` — the normalised tree |
+| `techjam-aigc-benchmark` | `coco_val2017/`, `dalle_advanced/` — the organisers' demo halves |
+| `techjam-aigc-eval-manifest` | `eval_manifest.parquet` |
+
+The manifest is published on its own because neither image Dataset carries it,
+and because it must be the SAME FILE the local runs use. `manifest_sha256` is
+taken over the ordered `rel_path` column, and `eval.fusion.assert_fusion_parents`
+refuses to fuse two banks whose fingerprints differ — so a manifest rebuilt in
+the session, however correctly, would produce a bank that cannot be fused with
+the A4500's. Upload it; do not regenerate it.
+
+**Why this notebook does not call `unify_mounts`.** The eval manifest joins two
+trees and is re-rooted onto their common ancestor, so its `rel_path` starts
+`normalized/` or `demo/`. Both Datasets mount their CONTENTS at that level
+instead of a directory of that name, so `content_root` cannot find either.
+The notebook builds a two-link symlink farm explicitly, asserts the link names
+against the manifest's own top-level names, and then resolves 200 sampled rows
+before any GPU is spent — a farm whose links point at a mount attached under a
+different slug lists correctly and resolves to nothing.
+
+Verified locally: the farm yields fingerprint `7015981b…`, identical to
+resolving the same manifest against `data/`.
+
+**Size.** 25,332 rows x 20 conditions = 506,640 forwards, and about 1.1 GB of
+`feats.npy`. That fits one session and `/kaggle/working`, which is why
+`N_SHARDS` defaults to 1. Raise it only if the smoke cell's estimate does not
+fit a 9 h GPU session.
