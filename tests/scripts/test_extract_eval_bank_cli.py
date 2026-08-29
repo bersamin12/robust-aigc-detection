@@ -506,10 +506,23 @@ def test_shards_are_contiguous_disjoint_and_exhaustive(tmp_path):
 
 
 def test_shard_frame_preserves_index_labels(tmp_path):
+    """The property is that labels SURVIVE the slice -- they are the per-view
+    RNG key, so a `reset_index` here would make a shard's pixels differ from
+    the full run's.
+
+    The expected block is taken from `shard_bounds`, not spelled as
+    `len(df)//2:3*len(df)//4`. That literal silently encoded the old
+    `np.linspace` rule, which differs from the project's partition by one row
+    whenever the row count is not divisible by the shard count -- so this test
+    failed the moment the arithmetic was unified, over a boundary it was never
+    written to be about."""
+    from aigcdet.features.extract import shard_bounds
+
     _, _, df = _frozen(tmp_path)
     part = eb.shard_frame(df, "2/4")
     assert part.index.tolist() != list(range(len(part)))
-    assert part.index.tolist() == df.index.tolist()[len(df) // 2:3 * len(df) // 4]
+    lo, hi = shard_bounds(len(df), 4)[2]
+    assert part.index.tolist() == df.index.tolist()[lo:hi]
 
 
 def test_shard_frame_rejects_a_malformed_spec(tmp_path):
@@ -814,3 +827,39 @@ def test_limit_truncates_after_the_subsample_and_before_the_shard(tmp_path,
     bank = FeatureBank.open(out)
     assert bank.config["n_images"] == 5
     assert bank.row_ids.tolist() == list(range(18, 23))
+
+
+def test_eval_shard_blocks_use_the_same_arithmetic_as_the_training_shards():
+    """One partition rule for the whole project, not two that happen to agree
+    on round numbers.
+
+    This script used `np.linspace(0, n, k+1).astype(int)` while
+    `features.extract` and `notebooks/kaggle_bootstrap` gave the remainder to
+    the first shards. Both are contiguous, disjoint and exhaustive, so every
+    property test either file asserts passes under either rule -- and at
+    120,001 rows over 5 shards every boundary lands one row apart.
+
+    Nothing today merges an eval bank with a training bank, so the divergence
+    was harmless; nothing enforced that either, and a divergence that is only
+    safe by convention is the kind that outlives the convention. The failure
+    it would produce is a one-image overlap that `merge_banks` refuses after
+    five people have each paid for a Kaggle session.
+    """
+    from aigcdet.features.extract import shard_bounds
+
+    df = pd.DataFrame({"a": range(120001)})
+    for n in list(range(0, 25)) + [4998, 13841, 120000, 120001]:
+        frame = df.iloc[:n]
+        for k in (1, 2, 3, 5, 7):
+            got = [(int(eb.shard_frame(frame, f"{i}/{k}").index[0]) if
+                    len(eb.shard_frame(frame, f"{i}/{k}")) else None,
+                    len(eb.shard_frame(frame, f"{i}/{k}")))
+                   for i in range(k)]
+            want = [(lo if hi > lo else None, hi - lo)
+                    for lo, hi in shard_bounds(n, k)]
+            assert got == want, (n, k, got, want)
+
+    # The rule this replaced really is a different partition, or the loop above
+    # is asserting that two identical things are identical.
+    linspace = np.linspace(0, 120001, 6).astype(int).tolist()
+    assert [b[0] for b in shard_bounds(120001, 5)] != linspace[:5]

@@ -414,3 +414,71 @@ def test_sharded_then_merged_equals_one_uninterrupted_extraction(tmp_path, monke
     # And the merged bank verifies against the manifest it collectively covers.
     assert merged.config["manifest_sha256"] == manifest_fingerprint(df)
     merged.verify_against_manifest(df)
+
+
+# --- exclude_families is part of the bank's identity ------------------------
+#
+# A3-LOTO (spec §4.6) is one rung whose whole claim is "this bank never saw
+# family X". Because `exclude_families` was not recorded, a LOTO shard and a
+# non-LOTO shard of the same manifest agreed on every config key `merge_banks`
+# compares, merged without complaint, and produced a bank that had seen the
+# held-out family in 4/5 of its rows. Nothing downstream can detect that: the
+# presence matrix is per-view and legitimately sparse, so "family X never
+# appears" is not distinguishable from "family X happened not to be sampled".
+
+def _fake_bank(tmp_path, monkeypatch, name, rows, exclude=(), seed=7):
+    from aigcdet.features import extract
+    from aigcdet.features.backbones import BackboneSpec
+
+    spec = BackboneSpec("fake", "none", 64, 4, 1, 0)
+    monkeypatch.setattr(extract, "load_backbone", lambda n, device: (None, spec))
+    monkeypatch.setattr(extract, "embed",
+                        lambda m, s, imgs, device, batch_size=16:
+                            np.zeros((len(imgs), s.dim), np.float32))
+    df = make_dummy_manifest(6, str(tmp_path / "imgs"), np.random.default_rng(0))
+    return extract.extract_bank(df.iloc[rows], "fake", str(tmp_path / name),
+                                seed=seed, device="cpu", exclude_families=exclude)
+
+
+def test_extract_bank_records_which_families_it_excluded(tmp_path, monkeypatch):
+    out = _fake_bank(tmp_path, monkeypatch, "loto", slice(0, 3), exclude=("noise",))
+    cfg = FeatureBank.open(out).config
+    assert cfg["exclude_families"] == ["noise"]
+
+
+def test_a_bank_that_excluded_nothing_records_that_explicitly(tmp_path, monkeypatch):
+    """An absent key is indistinguishable from a bank written before the key
+    existed, so the no-exclusion case must record the empty list rather than
+    omit it -- otherwise `merge_banks` compares a missing key against a
+    present one and cannot say which of the two is the LOTO shard."""
+    out = _fake_bank(tmp_path, monkeypatch, "plain", slice(0, 3))
+    assert FeatureBank.open(out).config["exclude_families"] == []
+
+
+def test_the_recorded_exclusion_is_order_insensitive(tmp_path, monkeypatch):
+    """Two teammates given the same two families in different order must
+    produce mergeable shards; `merge_banks` compares the recorded value, so
+    an unsorted list would refuse a perfectly good merge."""
+    a = _fake_bank(tmp_path, monkeypatch, "ab", slice(0, 3), exclude=("noise", "blur"))
+    b = _fake_bank(tmp_path, monkeypatch, "ba", slice(3, 6), exclude=("blur", "noise"))
+    assert (FeatureBank.open(a).config["exclude_families"]
+            == FeatureBank.open(b).config["exclude_families"] == ["blur", "noise"])
+
+
+def test_merge_refuses_a_loto_shard_glued_to_a_non_loto_shard(tmp_path, monkeypatch):
+    from aigcdet.features.bank import merge_banks
+
+    loto = _fake_bank(tmp_path, monkeypatch, "s0", slice(0, 3), exclude=("noise",))
+    plain = _fake_bank(tmp_path, monkeypatch, "s1", slice(3, 6))
+    with pytest.raises(ValueError, match="exclude_families"):
+        merge_banks([loto, plain], str(tmp_path / "merged"))
+
+
+def test_merge_still_accepts_shards_that_excluded_the_same_families(tmp_path, monkeypatch):
+    """The guard must not refuse the merge LOTO actually needs to perform."""
+    from aigcdet.features.bank import merge_banks
+
+    a = _fake_bank(tmp_path, monkeypatch, "m0", slice(0, 3), exclude=("noise",))
+    b = _fake_bank(tmp_path, monkeypatch, "m1", slice(3, 6), exclude=("noise",))
+    merged = merge_banks([a, b], str(tmp_path / "merged_ok"))
+    assert FeatureBank.open(merged).config["exclude_families"] == ["noise"]

@@ -74,6 +74,7 @@ from aigcdet.data.verify import verify_images
 from aigcdet.eval.grid import BENCHMARK_SEED, extract_eval_bank, stratified_subsample
 from aigcdet.eval.report import TIER_CONDITIONS
 from aigcdet.features.bank import CHECKPOINT_EVERY, FeatureBank
+from aigcdet.features.extract import shard_bounds
 
 #: §4.4a's benchmark cap for the ablation/selection tier.
 BENCHMARK_SUBSAMPLE_N = 5000
@@ -258,6 +259,14 @@ def shard_frame(df: pd.DataFrame, spec: str | None) -> pd.DataFrame:
     labels -- the RNG key. Applied AFTER the subsample, so all N sessions
     shard the same subsampled manifest and their row_id sets do not overlap
     (`merge_banks` refuses them if they do).
+
+    The block boundaries come from `features.extract.shard_bounds`, the one
+    partition rule in the project, rather than a local `np.linspace`. Both are
+    contiguous, disjoint and exhaustive -- so every property asserted here
+    held under either -- but they are not the same partition: at 120,001 rows
+    over 5 shards every boundary lands one row apart, and at 1 row over 2
+    shards they disagree about which shard gets the row. Nothing merges an
+    eval bank with a training bank today, and nothing enforced that either.
     """
     if not spec:
         return df
@@ -272,8 +281,8 @@ def shard_frame(df: pd.DataFrame, spec: str | None) -> pd.DataFrame:
     if n < 1 or not (0 <= i < n):
         raise ValueError(
             f"--shard takes I/N with 0 <= I < N, e.g. 0/5; got {spec!r}")
-    bounds = np.linspace(0, len(df), n + 1).astype(int)
-    return df.iloc[int(bounds[i]):int(bounds[i + 1])]
+    lo, hi = shard_bounds(len(df), n)[i]
+    return df.iloc[lo:hi]
 
 
 def preflight(df: pd.DataFrame, digest: str | None = None,
