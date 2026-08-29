@@ -44,9 +44,19 @@ Distinguish AI-generated images from authentic ones, and keep that accuracy afte
 
 Judging is qualitative (35% technical execution, 20% innovation, 20% impact, 15% feasibility, 10% presentation). The provided WildFake/COCO validation subset explicitly does not contribute to the final score.
 
-**Assumption, to confirm at the 28 Aug webinar:** there is no hidden test set. If that holds, marginal AUC is worth little and a defensible, well-instrumented, well-explained system is worth a lot. If it does not hold, predict.py gets executed on unknown images and the robust-AUC numbers carry direct weight. The design below is built to be fine under either outcome: the same predict.py is the deliverable in both cases, and its behaviour under transforms is measured rather than assumed.
+**RESOLVED at the 28 Aug webinar (`docs/techjam webinar - Google Docs.pdf`).** The assumption recorded here — that judging is qualitative and "marginal AUC is worth little" — is **false**. The organisers announced a formula:
 
-Two other things to ask at the webinar: whether the 2B limit is per model or total (this design stays under 1B total either way), and which subset of the transform table the judges actually apply.
+> **Final Score = 0.50 × AUC_clean + 0.50 × AUC_robust**, with ROC AUC as the primary metric (threshold-free, robust to imbalance).
+
+Consequences for this design:
+
+- The score is implemented as `eval.report.challenge_score` and recorded per rung in `selection.json` by `run_ablation.py`. Its robust half averages the **brief's required transforms only** — `CHALLENGE_ROBUST_CONDITIONS`, i.e. `CORE_CONDITIONS` minus `clean` — and deliberately *not* the table's `robust_auc` column, which at the ablation tier also averages the five composed scenarios this project invented.
+- `AUC_robust` is not defined by the organisers. This project defines it as the unweighted mean over those fourteen conditions and records that definition next to every number.
+- **The §6.4 selection rule is unchanged.** `heldout_robust_tpr_at_1pct` follows from the §1.3 deployment assumption and is the metric the calibration and abstention branch exists to serve. The announced score is reported *beside* it, and `run_ablation.py` prints a NOTE when the two prefer different rungs. That disagreement is a finding for the error-analysis note, not something to resolve by quietly adopting whichever rule flatters the run.
+
+Still unconfirmed: whether there is a hidden test set. The design is unchanged either way — the same `predict.py` is the deliverable, and its behaviour under transforms is measured rather than assumed.
+
+The webinar also confirmed the transform table verbatim (it matches `augment.recipes.FAMILIES` and the eval grid exactly), and added three pointers this design should answer rather than ignore: a recommended FFT/DCT frequency branch, SAFE (KDD 2025) preferring **crop over down-sample** to preserve high-frequency artefacts — which is in direct tension with §3.2 canonicalisation — and RandomRotation as a shortcut-killer, which the recipe pool does not contain.
 
 A detector that visibly collapses at JPEG-30 loses on technical execution regardless, so the robustness numbers must be real.
 

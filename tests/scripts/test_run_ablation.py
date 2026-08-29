@@ -925,3 +925,73 @@ def test_acc_fixed_uses_a_threshold_from_internal_validation(tmp_path):
     assert expected != pytest.approx(
         _best_threshold(val_all_views["label"].to_numpy(),
                         val_all_views["score"].to_numpy()))
+
+
+# --- the organisers' announced score ---------------------------------------
+
+def test_the_announced_score_is_recorded_beside_the_headline_not_instead_of_it(
+        tmp_path):
+    """0.50 x AUC_clean + 0.50 x AUC_robust is what the judges compute, and
+    §6.4's rule is what this project selects on. Both go in the record. Letting
+    the announced score quietly become the selection rule would discard the
+    deployment argument the whole calibration branch is built on; leaving it
+    out entirely means discovering the ranking disagreement on submission
+    night."""
+    with _quiet_control_warning():
+        report = ra.main(_argv(tmp_path))
+
+    cs = report["challenge_score"]
+    assert cs["weights"] == {"clean": 0.5, "robust": 0.5}
+    assert set(cs["per_rung"]) == {"a0", "a3"}
+    for row in cs["per_rung"].values():
+        assert set(row) == {"auc_clean", "auc_robust", "challenge_score"}
+        assert row["challenge_score"] == pytest.approx(
+            0.5 * row["auc_clean"] + 0.5 * row["auc_robust"])
+    assert cs["best"] in cs["per_rung"]
+
+    # ... and the selection rule is untouched by it.
+    assert report["metric"] == SELECTION_METRIC
+    assert report["population"] == SELECTION_POPULATION
+
+
+def test_the_recorded_robust_conditions_are_the_briefs_not_our_scenarios(
+        tmp_path):
+    """The composed conditions (`social_repost`, `messaging_app`, ...) are
+    this project's invention and the judges do not score them. Recording the
+    list is what lets a reader verify the number was averaged over the right
+    fourteen rather than take it on trust."""
+    from aigcdet.augment.scenarios import CORE_CONDITIONS
+
+    with _quiet_control_warning():
+        report = ra.main(_argv(tmp_path))
+
+    got = report["challenge_score"]["robust_conditions"]
+    assert set(got) == set(CORE_CONDITIONS) - {"clean"}
+    ours = [c for c in EVAL_GRID if c not in CORE_CONDITIONS]
+    assert ours and not (set(got) & set(ours))
+
+
+def test_a_non_auc_table_records_why_the_score_is_absent(tmp_path):
+    """A missing key reads as an oversight; a recorded reason reads as a
+    measurement that was not taken, and says how to take it."""
+    with _quiet_control_warning():
+        report = ra.main(_argv(tmp_path, **{"--metric": "tpr_at_1pct"}))
+
+    cs = report["challenge_score"]
+    assert cs["computed"] is False
+    assert "auc" in cs["reason"].lower()
+    assert "per_rung" not in cs
+
+
+def test_the_score_is_printed_beside_the_headline(tmp_path, capsys):
+    """The selection log is the only place most readers look. A number that
+    exists solely in selection.json is a number nobody reads on the day."""
+    with _quiet_control_warning():
+        report = ra.main(_argv(tmp_path))
+    out = capsys.readouterr().out
+
+    assert "challenge score" in out
+    best = report["challenge_score"]["best"]
+    assert best in out
+    if best != report["headline"]:
+        assert "NOTE:" in out and report["headline"] in out

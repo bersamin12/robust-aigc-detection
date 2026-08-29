@@ -76,6 +76,7 @@ from aigcdet.eval.grid import score_grid
 from aigcdet.eval.report import (
     DEFAULT_BOOT_SEED, DEFAULT_N_BOOT, METRIC_COLUMNS, PROBABILITY_METRICS,
     THRESHOLD_METRICS, TIER_CONDITIONS, clean_validation_threshold,
+    CHALLENGE_ROBUST_CONDITIONS, CHALLENGE_WEIGHTS, challenge_score,
     robustness_table, save_heatmap, to_markdown,
 )
 from aigcdet.eval.tta import TTA_VIEWS
@@ -544,6 +545,33 @@ def main(argv=None) -> dict:
     report["table_metric"] = a.metric
     # §6.4's eligible range is a3-a6. A rung that was not run is recorded as
     # not run, so an absent A5 or A6 row is never read as an A5 or A6 that lost.
+    # The organisers' announced score (28 Aug webinar):
+    # `0.50 x AUC_clean + 0.50 x AUC_robust`. It is a REPORTING number and is
+    # recorded beside the §6.4 headline, never in place of it -- the two are
+    # computed over different populations and rank the rungs differently, and
+    # a disagreement between them is a finding worth reading on the day rather
+    # than on submission night. `challenge_score` refuses a non-AUC table, so
+    # the guard here is the same condition stated once.
+    if a.metric == "auc":
+        cs = challenge_score(table)
+        report["challenge_score"] = {
+            "weights": {"clean": CHALLENGE_WEIGHTS[0],
+                        "robust": CHALLENGE_WEIGHTS[1]},
+            # Written out because the robust half is the brief's required
+            # transforms only -- NOT the table's `robust_auc`, which at this
+            # tier also averages the five composed scenarios this project
+            # invented. A reader cannot check that from the number alone.
+            "robust_conditions": list(CHALLENGE_ROBUST_CONDITIONS),
+            "per_rung": {str(r): {k: float(v) for k, v in cs.loc[r].items()}
+                         for r in cs.index},
+            "best": str(cs["challenge_score"].idxmax()),
+        }
+    else:
+        report["challenge_score"] = {
+            "computed": False,
+            "reason": f"the table holds {a.metric!r}; the announced score is "
+                      "defined on ROC AUC. Re-run with --metric auc.",
+        }
     report["fusion"] = fusion_record
     report["tta"] = tta_record
     _ensure_parent(a.selection)
@@ -560,6 +588,19 @@ def main(argv=None) -> dict:
         print(f"excluded as ineligible under §6.4 (candidates are "
               f"{report['eligible_rungs']}): "
               f"{report['excluded_as_ineligible']}")
+    cs_record = report["challenge_score"]
+    if cs_record.get("per_rung"):
+        best = cs_record["best"]
+        print(f"challenge score (0.50 clean + 0.50 robust, reporting only): "
+              f"best {best} at "
+              f"{cs_record['per_rung'][best]['challenge_score']:.4f}")
+        if report["headline"] and best != report["headline"]:
+            # Printed, not resolved. The two rules answer different questions
+            # and the project reports both; silently preferring either is how
+            # a submission ships a model chosen by a rule nobody wrote down.
+            print(f"NOTE: the announced score prefers {best}, the §6.4 rule "
+                  f"chose {report['headline']}. Both are recorded in "
+                  f"{a.selection}.")
     if report["headline_error"]:
         print(f"headline not selected: {report['headline_error']}")
     return report

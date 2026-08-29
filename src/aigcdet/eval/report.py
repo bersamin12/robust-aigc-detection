@@ -803,6 +803,82 @@ def robustness_table(per_rung: Mapping[str, pd.DataFrame], tier: str,
 
 # --- rendering -------------------------------------------------------------
 
+#: The organisers' announced score (28 Aug webinar):
+#: `0.50 x AUC_clean + 0.50 x AUC_robust`, ROC AUC throughout. Named
+#: constants so that a change to the announced weighting is one edit, and so
+#: that a rendering can state the weighting it used rather than implying it.
+CHALLENGE_WEIGHTS: tuple[float, float] = (0.5, 0.5)
+
+#: The conditions the robust half averages over: the brief's required
+#: transforms, clean excluded.
+#:
+#: Deliberately NOT the table's own `robust_<metric>` column. That column is
+#: the §6.1 reporting mean over EVERY degraded condition in whatever tier the
+#: table holds, and at the ablation tier that includes the five composed
+#: scenarios this project invented (`social_repost`, `messaging_app`, ...).
+#: Those are ours; the judges do not score them. Averaging them in produces a
+#: number in [0, 1] that moves sensibly with the model, renders in the same
+#: cell, and is not the announced score.
+CHALLENGE_ROBUST_CONDITIONS: tuple[str, ...] = tuple(
+    c for c in CORE_CONDITIONS if c != "clean")
+
+
+def challenge_score(table: pd.DataFrame) -> pd.DataFrame:
+    """The announced score per rung, and both halves it is made of.
+
+    Returns `auc_clean`, `auc_robust` and `challenge_score`, indexed by rung
+    in the table's own order. Both halves are returned because the total
+    hides which one moved: two rungs reaching 0.90 by (0.99, 0.81) and by
+    (0.90, 0.90) are not the same system, and the second is the one this
+    project is about.
+
+    This is a REPORTING number, not the §6.4 selection rule. The ladder
+    selects on `errors.SELECTION_METRIC` over a different population
+    (`val_internal` authentic vs `heldout_generator` generated), and the two
+    can name different winners -- which is worth reporting rather than
+    resolving silently.
+    """
+    metric = _metric_of(table)
+    if metric != "auc":
+        raise ValueError(
+            f"the challenge score is defined on ROC AUC, but this table holds "
+            f"{metric!r}. A {metric} table has the same shape and the same "
+            "column names, so the score would render, land in [0, 1] and not "
+            "be the announced number. Rebuild with metric='auc'.")
+
+    tier = _tier_of(table)
+    if tier in UNPUBLISHABLE_TIERS:
+        raise ValueError(
+            f"tier {tier!r} is unpublishable ({sorted(UNPUBLISHABLE_TIERS)}), "
+            "so it cannot carry a headline score. Score an 'ablation' or "
+            "'final_report' table.")
+
+    needed = ("clean",) + CHALLENGE_ROBUST_CONDITIONS
+    missing = [c for c in needed if c not in table.columns]
+    if missing:
+        raise ValueError(
+            f"the table is missing required condition(s) {missing}, so the "
+            "robust half would be a mean over fewer transforms than the brief "
+            f"specifies. The score needs all of {list(needed)}.")
+
+    block = table.loc[:, list(needed)].astype(float)
+    nonfinite = ~np.isfinite(block.to_numpy())
+    if nonfinite.any():
+        rows, cols = np.where(nonfinite)
+        bad = sorted({(str(block.index[r]), str(block.columns[c]))
+                      for r, c in zip(rows, cols)})
+        raise ValueError(
+            f"non-finite AUC(s) in the table: {bad}. Averaging over them "
+            "yields NaN, which renders as an empty cell and reads as a "
+            "formatting problem rather than a missing measurement.")
+
+    w_clean, w_robust = CHALLENGE_WEIGHTS
+    clean = block["clean"]
+    robust = block.loc[:, list(CHALLENGE_ROBUST_CONDITIONS)].mean(axis=1)
+    return pd.DataFrame({"auc_clean": clean, "auc_robust": robust,
+                         "challenge_score": w_clean * clean + w_robust * robust})
+
+
 def _tier_of(table: pd.DataFrame) -> str:
     """The tier a table carries, from its column, falling back to its attrs.
 
