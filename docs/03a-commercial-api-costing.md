@@ -95,7 +95,7 @@ table.
 |---|---|---:|---:|---:|---|
 | OpenAI | `gpt-image-2`, 1K **medium** | 0.053 | 500 | $26.50 | calculator ✓ (see tier note) |
 | Google | Gemini 3.1 Flash Image, 1K standard | 0.067 | 500 | $33.50 | vendor page ✓ |
-| Ideogram | 4.0 Turbo | 0.030 | 500 | $15.00 | *unconfirmed* — the pricing tab loads its rates by script; corroborated at three aggregators |
+| Ideogram | 4.0 Turbo | 0.030 | 500 | $15.00 | vendor pricing page ✓ (4.0 Turbo $0.03 / Default $0.06 / Quality $0.10) |
 | Bytedance | Seedream 4.5, 1K | 0.040 | 500 | $20.00 | OpenRouter ✓; Bytedance's own terms behind the reseller still unread |
 | | | | **2,000** | **$95.00** | |
 | Retry / refusal budget | +20%, see below | | | **+$19.00** | |
@@ -106,6 +106,16 @@ appears in none of NTIRE 2026's held-out splits, Seedream appears in four of
 five. Recraft is slightly cheaper ($0.03535 raster / $0.0440 inpaint, vendor
 page ✓) and remains the reserve if a provider drops out — the swap is about
 matching the benchmark's composition, not price.
+
+⚠ **Seedream is not yet purchasable.** No terms document exists for BytePlus's
+*image* models — only for the video ones — and OpenRouter's terms bind us to the
+upstream model terms rather than replacing them. Until BytePlus's own terms are
+obtained at signup, this row fails the brief's §5.4 and Recraft takes its place.
+
+**Ideogram's mode column is simple, unusually.** Its published rates are per
+output image by model and tier, and the Generate / Remix / Edit / Reframe /
+Replace Background endpoints all share that rate — so unlike Recraft, its
+inpainted 30% costs the same $0.03 as its text-to-image 70%.
 
 Cheaper same-lineage substitutions, if the total needs to come down without
 dropping a provider: **Google batch tier** at $0.0335 (halves Google's line to
@@ -194,8 +204,11 @@ now the brief's §3.1, ahead of everything else.
    (brief §3.1).
 2. `jpeg_quality` AUC on the 200-image pilot below ~0.60 (02 §5.2's own gate,
    now brief §5.6). The pilot also replaces the guessed 20% refusal rate.
-3. Ideogram's price confirmed at the vendor rather than at aggregators, and the
-   OpenAI and Ideogram terms pasted into `dataset_licences.md` with quotes.
+3. ~~Ideogram's price confirmed at the vendor~~ ✓ done, and ~~the OpenAI and
+   Ideogram terms pasted into `dataset_licences.md`~~ ✓ done. **What remains:
+   Seedream has no published terms for its image models** — see
+   `dataset_licences.md`. Register at BytePlus direct to obtain them, or fall
+   back to Recraft.
 4. The quality tier decided and written down. Defaulting to "cheapest" silently
    changes what the benchmark measures.
 

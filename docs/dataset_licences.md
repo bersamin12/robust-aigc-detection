@@ -186,9 +186,9 @@ applies here exactly as it does to the datasets.
 | Provider | Commercial use of output | Redistribution | Watermark? | Trains on our submissions? |
 | --- | --- | --- | --- | --- |
 | **Google** (Gemini API) | Yes — Google disclaims ownership | No explicit bar found | **Yes — SynthID, no opt-out** | ⚠ not read |
-| **OpenAI** (`gpt-image-2`) | ⚠ believed yes (assignment clause) — **unverified, see below** | ⚠ not read | ⚠ not read (C2PA metadata suspected) | ⚠ not read |
+| **OpenAI** (`gpt-image-2`) | **Yes — Output assigned to Customer** (Services Agreement §4.1) | No explicit bar; but see the Permitted Exception below | ⚠ not read (C2PA metadata suspected; normalisation strips it) | **No** — §4.2 |
 | **Ideogram** (4.0) | Permitted; no explicit IP assignment | Permitted, **but attribution is mandatory** | ⚠ not read | **No — committed in writing** |
-| **Bytedance** (Seedream 4.5, via OpenRouter) | ⚠ not read | ⚠ not read | ⚠ not read | ⚠ not read |
+| **Bytedance** (Seedream) | **No terms document found for the image models** — see below | unknown | unknown | unknown |
 
 ### Google — Gemini API
 
@@ -235,24 +235,93 @@ Ownership: the agreement grants no explicit assignment of output IP, which is
 weaker than OpenAI's position. Absence of an assignment is not a grant. Keep
 Ideogram rows local until someone confirms the ownership position.
 
-### OpenAI — NOT YET VERIFIED, and a human has to do it
+### OpenAI — read at source 2026-08-30 (both pages 403 automated fetch; retrieved by hand)
 
-`openai.com/policies/row-terms-of-use/` and `openai.com/policies/services-agreement/`
-both return **HTTP 403 to automated fetch**. They were not read at source, so
-nothing here may be cited yet.
+**Read the right document.** The consumer **Terms of Use** state up front:
+*"Our Business Terms govern use of ChatGPT Enterprise, our APIs, and our other
+services for businesses and developers."* The **OpenAI Services Agreement**
+(effective 2026-01-01) confirms it applies *"only ... to use of OpenAI's APIs"*.
+So the API is governed by the **Services Agreement**, and the consumer ToU is
+the wrong document to quote here.
 
-Secondary sources report OpenAI assigns **"all our right, title, and interest,
-if any, in and to Output"** to the user, and separately bars using Output to
-develop competing models. **Both are hearsay until someone opens the pages in a
-browser.** Paste the two clauses verbatim with the URL and the date, and delete
-this paragraph.
+That distinction is not cosmetic. The consumer ToU bars *"Automatically or
+programmatically extract data or Output"* — read as binding, that would bar this
+entire task. It does not apply to the API.
 
-### Bytedance / Seedream — NOT YET READ
+**Ownership — §4.1:** *"As between Customer and OpenAI, to the extent permitted
+by applicable law, Customer: (a) retains all ownership rights in Input; and (b)
+owns all Output. OpenAI hereby assigns to Customer all OpenAI's right, title,
+and interest, if any, in and to Output."*
 
-Seedream 4.5 is reached through a reseller (OpenRouter, fal), so **two** sets of
-terms bind: the reseller's and Bytedance's own. Neither has been read. Price and
-capability are confirmed ($0.04/image, 1K/2K/4K, up to 10 images per request,
-<https://openrouter.ai/bytedance-seed/seedream-4.5>) — terms are not.
+**Does not train on us — §4.2:** *"OpenAI will only use Customer Content as
+necessary to provide Customer with the Services, comply with applicable law,
+enforce the OpenAI Policies, and prevent abuse. **OpenAI will not use Customer
+Content to develop or improve the Services, unless Customer explicitly agrees to
+such use.**"* As strong as Ideogram's §2.2.
+
+**Competing models — §3.3(e), and read the exception with it.** The restriction
+is *"except for a Permitted Exception, use Output to develop artificial
+intelligence models that compete with OpenAI's products and services"*. §17
+defines:
+
+> *"**Permitted Exception**" means Customer using Output to: (a) develop
+> artificial intelligence models **primarily intended to categorize, classify,
+> or organize data (e.g., embeddings or classifiers), if these models are not
+> distributed or made commercially available to third parties**; and (b) fine
+> tune or customize models provided as part of OpenAI's fine-tuning or other
+> Services set forth on the Pricing Page.*
+
+**A detector is a classifier, so this project sits inside exception (a) — but
+the exception carries a condition, and the condition is about the model, not
+the data:** the classifier must not be *distributed or made commercially
+available to third parties*. Two consequences to carry into the writeup:
+
+* Task 03's images are **eval-only and never trained on** (`docs/03` §1), so the
+  weakest form of the restriction barely engages — we are measuring with Output,
+  not developing from it. The condition is recorded because the safe reading
+  treats evaluation during development as part of development.
+* If the deliverable ships model weights or an inference bundle publicly, check
+  that against this clause **before** publishing. This is a constraint on the
+  *artifact*, and it is separate from whether the images may be redistributed.
+
+**Redistribution:** not barred. Customer owns Output. §10 (No Publicity) bars
+using OpenAI's name or logo in marketing material — it does not restrict the
+images.
+
+Sources: <https://openai.com/policies/row-terms-of-use/> and
+<https://openai.com/policies/services-agreement/>, both effective 2026-01-01,
+retrieved manually 2026-08-30 (both return HTTP 403 to automated fetch).
+
+### Bytedance / Seedream — no terms found, and that is disqualifying as it stands
+
+Searched 2026-08-30. BytePlus publishes general ModelArk Terms and Conditions
+and **"Specific Terms for the BytePlus Video Generation Model Services"** — but
+no equivalent specific terms for the **image** models. Citing the video terms
+for Seedream would be reasoning by analogy, which is exactly what the discipline
+at the top of this file forbids.
+
+**The reseller does not help.** OpenRouter's terms punt upstream rather than
+covering it: §6.1 — *"Your ownership rights in the Output are set forth in the
+Model Terms for each Model you use"* — and §5.1 — *"By accessing or using any
+Model through the Service, you agree ... to comply with the applicable terms for
+each Model."* So buying through OpenRouter binds us to Bytedance terms we cannot
+read, which is worse than buying direct, not better. OpenRouter also adds its own
+bar on *"developing a competing service"* (§7) and states *"Where possible,
+OpenRouter has opted out of model training with the Models it uses."*
+
+**Two ways forward, in order of preference:**
+
+1. **Register directly at BytePlus ModelArk.** The binding terms are presented
+   at signup; accept them, save the document, and quote it here. This keeps
+   Seedream, which appears in four of NTIRE 2026's five held-out splits and is
+   the most benchmark-representative provider on the list.
+2. **Fall back to Recraft**, the reserve named in `docs/03` §2.1. Lineage-clean,
+   slightly cheaper ($0.03535 raster / $0.0440 inpaint, vendor page ✓), terms
+   published and readable — but it appears in none of NTIRE's held-out splits,
+   so the eval set moves away from the benchmark's composition.
+
+Until one of those lands, **Seedream fails `docs/03` §5.4** and must not be
+purchased.
 
 ### Not purchased, and why
 
@@ -265,7 +334,8 @@ capability are confirmed ($0.04/image, 1K/2K/4K, up to 10 images per request,
   on those terms, **not** on lineage — see `03a` §1.1, where the lineage
   argument does not survive contact with FLUX.2's from-scratch VAE.
 * **Recraft** — reserve only. Lineage-clean and slightly cheaper than Seedream,
-  but appears in none of NTIRE 2026's held-out splits. Terms unread.
+  but appears in none of NTIRE 2026's held-out splits. Terms published but not
+  yet read; read them if Seedream's cannot be obtained.
 
 ## Receipts on disk
 
