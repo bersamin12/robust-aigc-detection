@@ -68,12 +68,12 @@ methods separately regardless — `method` and `synthesis` are on every row.
 
 | family | model | licence | lineage | share |
 | --- | --- | --- | --- | --- |
-| `sd21_self_cond` | SD2.1-inpainting | OpenRAIL++-M | `sd_vae` | .25 |
+| `sd15_self_cond` | SD1.5-inpainting | OpenRAIL-M | `sd_vae` | .25 |
 | `sdxl_self_cond` | SDXL-inpainting-0.1 | OpenRAIL++-M | `sdxl_vae` | .25 |
 | `flux_schnell_img2img` | FLUX.1-schnell | Apache-2.0 | `flux_vae` | .20 |
-| `sd21_inpaint_box` | SD2.1-inpainting | OpenRAIL++-M | `sd_vae` | .15 |
+| `sd15_inpaint_box` | SD1.5-inpainting | OpenRAIL-M | `sd_vae` | .15 |
 | `sdxl_inpaint_box` | SDXL-inpainting-0.1 | OpenRAIL++-M | `sdxl_vae` | .10 |
-| `sd21_vae_recon` | SD2.1 VAE | OpenRAIL++-M | `sd_vae` | .05 |
+| `sd15_vae_recon` | SD1.5 VAE | OpenRAIL-M | `sd_vae` | .05 |
 | `flux2_klein4b_ref_image` | FLUX.2-klein-**4B** | Apache-2.0 | `flux2_vae` | .20 |
 
 A *family* is a (model, method) pair — §3.3's rule. `lineage` is the decoder and
@@ -245,11 +245,24 @@ images** — 12B forces CPU offload on a 16 GB card. Decide on measured numbers.
   before the geometry fix would only reproduce this.
 
 * `docs/02` §2's SDXL-Turbo row is wrong and unfixed.
-* **SD2.1-inpainting is not merely unverified, it is unreachable.** Every
-  `stabilityai/*` repo answers **HTTP 401** anonymously on both the metadata API
-  and `resolve/` (checked 2026-08-30). It is 45% of the declared suite and is
-  **not** marked `gated`, so §1's token check does not demand a token and the run
-  401s partway in. `black-forest-labs/FLUX.1-schnell` is also 401 (`gated: auto`)
+* **The SD2 checkpoint is gone, and the suite has moved to SD 1.5.** Two
+  separate errors were in the old row. First the name: there has **never been an
+  SD 2.1 inpainting checkpoint** — Stability shipped 2.0-inpainting and no 2.1
+  equivalent, confirmed by the open requests for one on the Hub — so the `sd21`
+  key and the "SD2.1" label were wrong regardless. Second, and fatal, the repo is
+  not reachable: **401** anonymously on the page and on `resolve/`, and **404**
+  from `model_info()` with a **valid token**. A 404 under authentication is not a
+  gate anyone can accept terms for. It cost one run 0.32 GPU-hours before the
+  registry's own "not on the Hub" assertion stopped it.
+  `sd_vae` was that model's lineage alone, and losing a lineage would break §10's
+  held-out design, so the three rows now use
+  `stable-diffusion-v1-5/stable-diffusion-inpainting`: same lineage, same three
+  methods, ungated, licence tag verified against the Hub as
+  `creativeml-openrail-m`, and the diffusers docs' own recommended inpainting
+  checkpoint. **The cost is real** — 45% of the corpus now records SD 1.5, an
+  older and weaker generator than SD 2.0. The `sd21_inpaint` entry is kept and
+  marked `unreachable=True` rather than deleted, for the same reason klein-9B is
+  kept refused. `black-forest-labs/FLUX.1-schnell` is also 401 (`gated: auto`)
   -- test `resolve/`, not the metadata API, which answers anonymously either way.
   `diffusers/stable-diffusion-xl-1.0-inpainting-0.1` and
   `black-forest-labs/FLUX.2-klein-4B` both return 206 and need no token, so the
