@@ -103,14 +103,31 @@ cd "$(dirname "$0")/.."
 DATA=/mnt/berstorage/techjam/experiments/data
 MANIFEST=$DATA/manifest_union.parquet
 EVAL_MANIFEST=$DATA/eval_manifest_union.parquet
-# REBASED, and that is not a detail. `benchmark_manifest.parquet` froze its
-# `path` column under an older layout ($ROOT/track5/data/demo/...) which no
-# longer holds any images -- track5 still exists as a code directory, so the
-# failure is a per-file FileNotFoundError deep inside a digest pass, not a
-# missing-directory error anyone would notice early. 0 of 400 sampled paths
-# resolve there; 400 of 400 resolve in the rebased copy. `build_eval_manifest`
-# has no --root, so the rebased FILE is the rebasing mechanism.
-BENCH=$DATA/demo/benchmark_manifest_rebased.parquet
+# REBASED ONTO $DATA, and both halves of that matter.
+#
+# `benchmark_manifest.parquet` froze its `path` column under an older layout
+# ($ROOT/track5/data/demo/...) which holds no images any more -- track5 still
+# exists as a CODE directory, so the failure is a per-file FileNotFoundError
+# deep inside a digest pass rather than anything anyone notices early. 0 of
+# 400 sampled paths resolve there. `build_eval_manifest` has no --root, so the
+# rebased FILE is the rebasing mechanism.
+#
+# `benchmark_manifest_rebased.parquet` sitting beside it is NOT the right one,
+# and this cost a second failed run. Its paths go through
+# $ROOT/aigcdet/data/demo/..., which is a SYMLINK to ../experiments/data --
+# same inode, so every path resolves and any existence check passes. But
+# `write_manifest` derives rel_path from `derive_root`, the deepest directory
+# containing every image, and the union half arrives by its physical path. Two
+# spellings of one directory have no common prefix below $ROOT, so the root
+# rises to $ROOT and rel_path becomes `experiments/data/normalized_union/...`
+# and `aigcdet/data/demo/...`. Staging with `--root $DATA` then looks for
+# $DATA/experiments/data/... and finds nothing.
+#
+# So the invariant is not "the paths resolve", it is "the paths are under
+# $DATA" -- which is what makes derive_root land on $DATA and rel_path come
+# out as `normalized_union/...` and `demo/...`, the two prefixes step 3a is
+# written against. The preflight checks that, not existence.
+BENCH=$DATA/demo/benchmark_manifest_union.parquet
 PROBE=$DATA/probe/manifest_union_probe.parquet
 EVAL_PROBE=$DATA/probe/eval_manifest_union_probe.parquet
 # On the NVMe (/dev/nvme0n1p2), which is a different spindle from $DATA.
@@ -135,17 +152,28 @@ preflight() {
   for f in "$BENCH" configs/rungs/*.yaml; do
     [ -f "$f" ] || { log "PREFLIGHT: missing $f"; bad=1; }
   done
-  python - "$BENCH" <<'PY' || bad=1
+  python - "$BENCH" "$DATA" <<'PY' || bad=1
 import os, sys
 import pandas as pd
 df = pd.read_parquet(sys.argv[1])
+data = os.path.realpath(sys.argv[2])
 sample = df["path"].head(200)
 missing = [p for p in sample if not os.path.exists(p)]
 if missing:
     print(f"PREFLIGHT: {len(missing)}/{len(sample)} benchmark paths do not "
           f"resolve, e.g. {missing[0]}")
     sys.exit(1)
-print(f"preflight: benchmark manifest OK ({len(df)} rows, 200 sampled resolve)")
+# Existence is not enough -- a symlinked spelling resolves and still breaks
+# derive_root. Compare the LITERAL path, not realpath: derive_root works on
+# the strings in the column.
+outside = [p for p in sample if not os.path.abspath(p).startswith(data + os.sep)]
+if outside:
+    print(f"PREFLIGHT: {len(outside)}/{len(sample)} benchmark paths sit "
+          f"outside {data}, so derive_root will rise above it and rel_path "
+          f"will not start at `demo/`. e.g. {outside[0]}")
+    sys.exit(1)
+print(f"preflight: benchmark manifest OK ({len(df)} rows; 200 sampled resolve "
+      f"and sit under {data})")
 PY
   [ "$bad" = 0 ] || { log "PREFLIGHT FAILED -- not waiting on the build"; exit 1; }
 }
