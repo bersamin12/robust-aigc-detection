@@ -1,0 +1,54 @@
+{
+  "heldout_generators": [
+    "SDwithAdaptor_controlnet",
+    "VQGAN"
+  ],
+  "seed": 20260827,
+  "leaked_dropped": 0,
+  "unhashable_dropped": 0,
+  "normalize_skipped": 13,
+  "restricted_dropped": {},
+  "restriction_reasons": {},
+  "max_per_generator": {},
+  "capped_dropped": {},
+  "max_real_per_source": {
+    "coco_train2017": 46800
+  },
+  "capped_real_dropped": {
+    "coco_train2017": 71487
+  },
+  "min_short_side": 200,
+  "below_short_side_dropped": {
+    "wildfake/BigGAN": 1260,
+    "coco_train2017/real": 85,
+    "wildfake/SDwithAdaptor_lycris": 25,
+    "wildfake/SDwithAdaptor_lora": 23
+  },
+  "excluded_subpath_dropped": {
+    "wildfake/real/real_afhq/": 8000,
+    "wildfake/real/real_celebahq/": 8000,
+    "wildfake/real/real_church/": 8000,
+    "wildfake/real/real_ffhq/": 8000,
+    "wildfake/real/real_imagenet/": 8000
+  },
+  "preset": {
+    "name": "coco_crop",
+    "note": "COCO train2017 replaces WildFake's five non-commercial authentic subsets; real_laion5b and SID_Set stay so the authentic side keeps three sources. Paired with crop standardisation and dihedral augmentation at Stage A. Reverses the section 4.1(2) COCO bar for this stream only -- read every benchmark number against the per-source real breakdown from stratified_auc.py --stratify-by source.",
+    "max_per_generator": {},
+    "max_real_per_source": {
+      "coco_train2017": 46800
+    },
+    "min_short_side": 200,
+    "exclude_subpaths": [
+      "wildfake/real/real_ffhq",
+      "wildfake/real/real_celebahq",
+      "wildfake/real/real_afhq",
+      "wildfake/real/real_imagenet",
+      "wildfake/real/real_church"
+    ],
+    "heldout_generators": [
+      "SDwithAdaptor_controlnet",
+      "VQGAN"
+    ]
+  }
+}

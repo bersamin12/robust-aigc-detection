@@ -14,6 +14,7 @@ Every row of the frozen manifest carries its source's licence string from
 | WildFake — generated buckets | Apache-2.0 | ModelScope hub metadata, `https://modelscope.cn/api/v1/datasets/hy2628982280/WildFake` → `"License":"Apache License 2.0"` | Yes — the authors' own images, covered by the compilation licence |
 | WildFake — `real/` bucket | Apache-2.0 on the compilation; organiser-listed | Same ModelScope record; the organisers' rules slide (29 Aug) names WildFake as an approved dataset | Under the competition rules, yes. The re-published subsets' own terms (table below) are non-commercial — anyone taking this beyond the competition must read them |
 | COCO val2017 | CC BY 4.0 (images under Flickr terms) | https://cocodataset.org/#termsofuse | Yes, with attribution |
+| COCO train2017 | CC BY 4.0 (images under Flickr terms) | https://cocodataset.org/#termsofuse | Yes, with attribution |
 | DALL·E Advanced (demo half) | Competition brief terms | TikTok TechJam Track 5 brief | Benchmark only; never trained on (spec §4.1) |
 
 ## SID_Set
@@ -92,6 +93,67 @@ reappearing would make the next rebuild disagree with every bank on disk.
 organiser-listed datasets. Its authentic side is 85% WildFake's re-published subsets,
 whose upstream terms are non-commercial; that is permitted by the competition's rules as
 the organisers stated them, and is a constraint on any use beyond the competition.
+
+## COCO train2017 as a training source — a rule reversed, and the control that replaces it
+
+Registered 2026-08-30 as `coco_train2017`, used by
+`configs/datasets/coco_crop.yaml` and by nothing else.
+
+**The licence is not the issue.** COCO is CC BY 4.0 and the obligation is
+attribution, satisfied here and in the README. The issue is a rule this
+project wrote for itself.
+
+`src/aigcdet/data/wildfake.py` (`_COCO_FORBIDDEN`) bars COCO-derived reals
+from training **entirely** — not merely deduplicated against the benchmark —
+and says why:
+
+> train2017/test2017/val2017 are one photographic distribution, so training on
+> any of them would let the demo-set score measure distribution memorisation
+> instead of generalisation.
+
+The organisers' scored benchmark's authentic half **is** COCO val2017. That
+argument is sound and has not been retracted.
+
+**What was traded for what.** The alternative on offer was WildFake's
+authentic half: 55,000 images, 40,000 of them re-published from FFHQ,
+CelebA-HQ, AFHQ, ImageNet and LSUN, whose upstream terms are non-commercial
+(table above), and every one of those 40,000 stored at exactly short side 200.
+So the choice was between an authentic class that is licence-encumbered and
+band-limited, and one that is permissively licensed and photographic but
+overlaps the benchmark. The `coco_crop` stream takes the second; the frozen
+stream keeps the first; both exist, and they are compared.
+
+**What replaces the rule.** A registry entry cannot detect memorisation, so
+nothing is claimed for it. The control is a measurement:
+
+```bash
+python scripts/stratified_auc.py --stratify-by source \
+    --checkpoint <rung> --bank <bank> --manifest data/manifest_coco_crop.parquet
+```
+
+It fixes one threshold at 1% false positive rate over **all** authentic rows —
+the same operating point spec §6.4's selection rule uses — and then reports
+that threshold's false positive rate separately for `coco_train2017`,
+`wildfake` (LAION) and `sid_set` reals. A model reading generation artefacts
+has roughly the same rate on all three. A model reading "is this a COCO
+photograph" has a far lower rate on COCO than on the other two, while the
+benchmark looks excellent. **The spread between those rates is the number that
+must be published beside any headline from this stream**, and a headline
+quoted without it is not interpretable.
+
+Two things were deliberately NOT relaxed:
+
+- `coco_val2017` keeps `exclude_from_training=True`. Spec §4.1(2) forbids
+  training on the scored benchmark itself, and that is untouched.
+  `tests/data/test_sources.py` asserts the two halves as a PAIR, so a future
+  change that makes them agree in either direction fails.
+- The `wildfake.py` COCO markers stay exactly as they are. They bar
+  WildFake's own re-published COCO copy, which would now duplicate ours.
+
+**The dedupe guard does not help here and is not being relied on.** COCO
+train2017 and val2017 are disjoint image sets, so `find_leaks` at Hamming
+distance 4 catches essentially nothing. The risk is distribution memorisation,
+which a perceptual hash cannot measure.
 
 ## Receipts on disk
 

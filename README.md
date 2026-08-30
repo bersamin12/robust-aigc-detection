@@ -143,6 +143,49 @@ The manifest is **frozen on write**. Feature banks index it positionally, so
 re-splitting after banks exist silently misaligns labels against cached
 features — `FeatureBank.verify_against_manifest` exists to make that loud.
 
+#### Corpus presets
+
+A frozen manifest records the numbers it was built with but not which decision
+they were. `configs/datasets/*.yaml` makes the composition a file, the way
+`configs/rungs/*.yaml` already does for the model, and copies its name and
+note into `docs/splits.json` so a bank on disk can be traced back to the
+corpus it came from:
+
+```bash
+python scripts/build_dataset.py --preset configs/datasets/max_data.yaml \
+       --raw data/raw --out data/normalized_max_data \
+       --demo-dir data/demo --manifest data/manifest_max_data.parquet
+```
+
+Two ship. `max_data` adds the 38,629 SID_Set images acquired after the freeze
+and drops the 1,308 images below the canonicalisation band — all of them
+generated — for the lowest worst-case low-level confound of any composition
+swept (0.660 against the frozen manifest's 0.672) and 28% more rows.
+`era_forward` thins WildFake until the modern-era generators are 55.7% of the
+trained fakes rather than 15.3%, and pays 0.023 of confound for it. Both pin
+the frozen manifest's held-out pair, so each comparison moves one variable.
+
+A third, `coco_crop`, is a separate experiment stream rather than another
+point on the same curve: it swaps WildFake's five non-commercial authentic
+subsets for COCO train2017 photographs, replaces band-limit standardisation
+with a random 200px crop at native resolution, and adds dihedral (flip +
+90-degree rotation) augmentation per view. Every one of those is opt-in and
+recorded in the feature bank's config, so a `coco_crop` bank can never be
+resumed from, merged with or fused against a frozen-stream bank.
+
+It also reverses this project's own bar on training with COCO-derived reals,
+because the organisers' benchmark's authentic half is COCO val2017 and
+training on train2017 risks measuring distribution memorisation. That reversal
+is recorded in `docs/dataset_licences.md`, and the control that replaces the
+rule is `scripts/stratified_auc.py --stratify-by source`, which reports the
+false positive rate per authentic source at one threshold. **No headline from
+that stream is interpretable without it.**
+
+`docs/dataset_presets.md` has the measurements, including the sweep showing
+that balancing the two authentic *sources* against each other cannot help —
+they leak through different channels and no mix lowers both — and the licence
+audit that rules out the modern-generator datasets (OpenFake, Defactify).
+
 ### 2. Stage A — extract the feature bank (GPU)
 
 Single machine:

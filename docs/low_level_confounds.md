@@ -184,3 +184,48 @@ cap at or above 3,500 touches them. The only family a cap binds on is
 diversity completely intact and stops the one pseudo-generator family that
 would otherwise dominate -- which is what the README already specifies, now
 with evidence behind it rather than intuition.
+
+---
+
+## Update, 2026-08-30: source balancing is not the lever; index balancing still is
+
+`augment/canonical.py` ends its list of residues with "Addressing it needs
+source-balanced sampling", and this file's §"The lever" reads as though
+balancing on the *source* and balancing on the *index* were the same move.
+They are not, and a sweep now separates them. Full method and table in
+`docs/dataset_presets.md`.
+
+Splitting the AUCs by source shows the two authentic sources leak through
+**different channels**:
+
+| Signal | pooled | wildfake only | sid_set only |
+| --- | --- | --- | --- |
+| `jpeg_quality` | 0.5532 | 0.5414 | **0.6212** |
+| `laplacian_var` | 0.6721 | **0.6944** | 0.5548 |
+| `noise_floor` | 0.6374 | 0.6214 | **0.7314** |
+| short side | 0.5992 | 0.6525 | 0.5047 |
+
+Every pooled figure sits below the worse of the two singles: each source
+dilutes the other. So rebalancing the two against each other only chooses
+which channel dominates. Across 36 compositions, capping WildFake drops
+`laplacian_var` from 0.641 to 0.604 and raises `noise_floor` from 0.660 to
+0.696 — **no mix lowers both**, and the worst-case confound is minimised by
+capping nothing at all.
+
+Two revisions follow.
+
+1. **`--max-per-generator` and any source cap should not be justified by the
+   confound.** They buy generator-era coverage (SID_Set is the only modern-era
+   generated data we hold) and pay confound for it. `configs/datasets/era_forward.yaml`
+   makes that trade explicitly; `configs/datasets/max_data.yaml` declines it.
+2. **The balanced-index filter is unaffected and still unbuilt.** Stratifying
+   `laplacian_var` and discarding within strata breaks a statistic's link to
+   the label; it does not shift which source dominates. It remains free of GPU
+   cost — it is a filter on the `indices` array `PairedSampler` already takes,
+   over a bank that already exists.
+
+One row-level intervention *is* free and is now shipped: 1,308 images sit
+below `CANON_BAND_SIDE` (200), and **all 1,308 are generated** — 1,260 BigGAN
+at 128px. Canonicalisation cannot raise them to the common ceiling, and index
+balancing cannot pair them off, because the authentic class has no support
+down there at all. Both presets drop them via `min_short_side: 200`.

@@ -268,3 +268,68 @@ pool (`docs/low_level_confounds.md`), and a tower pooling spatial standard
 deviations is the one most likely to lean on it. Treat a clean CNN AUC as
 provisional until the balanced-index filter is applied, and compare the
 stratified number.
+
+## Publishing a corpus as a Kaggle Dataset
+
+Nothing in this repo automated this and nothing recorded it either, so the two
+Datasets the fleet reads were reproducible only from memory. The procedure:
+
+```bash
+cat > data/normalized_coco_crop/dataset-metadata.json <<'JSON'
+{
+  "title": "TechJam Track5 AIGC Train COCO crop",
+  "id": "justinbersamin/techjam-aigc-train-coco-crop",
+  "licenses": [{"name": "other"}]
+}
+JSON
+
+set -a; . ~/.kaggle/env; set +a       # never echo this file
+kaggle datasets create -p data/normalized_coco_crop -r tar -t
+```
+
+**The manifest must be INSIDE the published directory**, named exactly
+`manifest.parquet`. `build_dataset --manifest` writes it wherever you point,
+and the notebooks glob `{DATASET_SLUG}*/manifest.parquet` — so a tree without
+it uploads happily and then fails at cell 12, after the Dataset exists. Copy
+it in before publishing:
+
+```bash
+cp data/manifest_coco_crop.parquet data/normalized_coco_crop/manifest.parquet
+```
+
+**Both flags below are load-bearing and neither is the default.**
+
+- `-r tar`. The CLI's default `--dir-mode` is **`skip`**, which ignores
+  subdirectories entirely — it would upload `manifest.parquet` and none of the
+  images, and succeed. `tar` rather than `zip` because PNGs are already
+  compressed, so zip spends CPU on nothing.
+- `-t` (`--keep-tabular`). The CLI converts tabular files to CSV by default.
+  `manifest.parquet` would arrive as CSV, `read_manifest` would fail on the
+  Kaggle side, and the failure would be an hour into a session.
+
+Datasets are created **private**. To share one with the fleet:
+
+```bash
+kaggle datasets metadata -p /tmp/dsmeta <slug>   # then edit, or use the web UI
+```
+
+or flip it in the Dataset's settings page. Prefer doing this deliberately:
+the tree carries WildFake's re-published subsets, whose upstream terms are
+non-commercial (`docs/dataset_licences.md`).
+
+**Updating an existing Dataset** is `kaggle datasets version -p <dir> -m "..."`,
+not `create` — `create` on an existing slug fails.
+
+### Attaching the right corpus
+
+`DATASET_SLUG` in cell 2 of the Stage A notebooks selects the stream, and both
+globs derive from it. The glob is a **prefix**, so `techjam-aigc-train` also
+matches `techjam-aigc-train-coco-crop`. Attaching both at once is the mistake
+that costs a session: the manifest of one stream would be read against the
+images of both. The attach cell now refuses when more than one manifest
+matches, but the cheap fix is to attach only the stream you are running.
+
+The two streams are separate corpora with different fingerprints. A bank built
+against one can never be resumed from, merged with, or fused against a bank
+built from the other — `manifest_sha256` and, since the crop policy landed,
+`canon_policy` in the bank config both enforce it.
