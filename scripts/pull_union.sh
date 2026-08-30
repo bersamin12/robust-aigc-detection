@@ -56,8 +56,22 @@ RETRY_WAIT="${RETRY_WAIT:-120}"
 log() { echo "[$(date +%H:%M:%S)] $*"; }
 die() { echo "FATAL: $*" >&2; exit 1; }
 
-[ -f "$HOME/.kaggle/kaggle.json" ] || die "no ~/.kaggle/kaggle.json"
-chmod 600 "$HOME/.kaggle/kaggle.json"
+kaggle_creds_present() {
+  # TWO FORMS, because both are in use. `kaggle.json` is what "Create New
+  # Token" downloads; KAGGLE_USERNAME/KAGGLE_KEY is what this project's own
+  # ~/.kaggle/env uses and what a rented pod is easiest to configure with.
+  # Requiring only the file turned the env-var form into a confusing refusal.
+  [ -f "$HOME/.kaggle/kaggle.json" ] && { chmod 600 "$HOME/.kaggle/kaggle.json"; return 0; }
+  [ -n "${KAGGLE_USERNAME:-}" ] && [ -n "${KAGGLE_KEY:-}" ] && return 0
+  return 1
+}
+KAGGLE_HELP='no Kaggle credentials. Either write ~/.kaggle/kaggle.json
+     ({"username":"...","key":"..."}, chmod 600) or export KAGGLE_USERNAME and
+     KAGGLE_KEY. The probe and union Datasets are PRIVATE -- they carry NTIRE
+     rows, which may not be published. Use a token created for THIS pod and
+     revoke it when you destroy the pod: a rented host has root on the machine.'
+
+kaggle_creds_present || die "$KAGGLE_HELP"
 command -v kaggle >/dev/null || "$PY_BIN" -m pip install -q kaggle
 mkdir -p "$TRAIN" "$BENCH" "$EVAL_ROOT"
 

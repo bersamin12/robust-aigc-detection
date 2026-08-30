@@ -43,6 +43,21 @@ PY_BIN="${PY_BIN:-$(command -v python || command -v python3)}"
 log() { echo "[$(date +%H:%M:%S)] $*"; }
 die() { echo "FATAL: $*" >&2; exit 1; }
 
+kaggle_creds_present() {
+  # TWO FORMS, because both are in use. `kaggle.json` is what "Create New
+  # Token" downloads; KAGGLE_USERNAME/KAGGLE_KEY is what this project's own
+  # ~/.kaggle/env uses and what a rented pod is easiest to configure with.
+  # Requiring only the file turned the env-var form into a confusing refusal.
+  [ -f "$HOME/.kaggle/kaggle.json" ] && { chmod 600 "$HOME/.kaggle/kaggle.json"; return 0; }
+  [ -n "${KAGGLE_USERNAME:-}" ] && [ -n "${KAGGLE_KEY:-}" ] && return 0
+  return 1
+}
+KAGGLE_HELP='no Kaggle credentials. Either write ~/.kaggle/kaggle.json
+     ({"username":"...","key":"..."}, chmod 600) or export KAGGLE_USERNAME and
+     KAGGLE_KEY. The probe and union Datasets are PRIVATE -- they carry NTIRE
+     rows, which may not be published. Use a token created for THIS pod and
+     revoke it when you destroy the pod: a rented host has root on the machine.'
+
 # ---------------------------------------------------------------- 1. hardware
 log "hardware"
 command -v nvidia-smi >/dev/null || die "no nvidia-smi; this is not a GPU pod"
@@ -152,11 +167,7 @@ if [ -f "$DATA_DIR/manifest_union_probe.parquet" ]; then
   log "corpus already present at $DATA_DIR"
 else
   log "pulling $SLUG into $DATA_DIR"
-  [ -f "$HOME/.kaggle/kaggle.json" ] || die \
-    "no ~/.kaggle/kaggle.json. The probe Dataset is PRIVATE (it carries NTIRE
-     rows, which may not be published). Create a token for this pod and revoke
-     it when you destroy the pod."
-  chmod 600 "$HOME/.kaggle/kaggle.json"
+  kaggle_creds_present || die "$KAGGLE_HELP"
   "$PY_BIN" -m pip install -q kaggle
   mkdir -p "$DATA_DIR"
   kaggle datasets download -d "$SLUG" -p "$DATA_DIR" --unzip || die "pull failed"
