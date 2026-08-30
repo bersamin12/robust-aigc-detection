@@ -72,6 +72,21 @@ if [ ! -f "$EVAL_PROBE" ]; then
       --budget val_internal=2000 --budget heldout_generator=1500 --budget benchmark=500
 fi
 
+# ---- 3b. the content-blind control, on CPU, beside the GPU arms ---------
+# Crop's cost is a CONTENT confound, and no proxy in gate_confounds.py can see
+# it: a 200x200 window is a whole frame for a 200px WildFake image and a
+# detail for an 800px NTIRE photograph, so field of view tracks source, and
+# two of the union's sources are authentic-only. This runs the 16x16
+# thumbnail control over the CANONICALISED view -- the thing the model
+# actually receives -- for both policies on identical rows, because the
+# number is only meaningful as a difference. Pure CPU, so it costs no wall
+# clock against the GPU arms.
+log "content-blind control (CPU, both policies) in the background"
+python -u scripts/content_blind_probe.py --manifest "$PROBE" \
+    --out docs/content_blind_probe_union.json --workers 12 \
+    > logs/content_blind_probe.log 2>&1 &
+PID_CONTROL=$!
+
 # ---- 4. both arms, concurrently -----------------------------------------
 arm () {
   local NAME=$1 MODE=$2; shift 2
@@ -108,6 +123,8 @@ FAIL=0
 wait $PID_CROP || { log "CROP ARM FAILED (see logs/probe_crop.log)"; FAIL=1; }
 wait $PID_BAND || { log "BAND ARM FAILED (see logs/probe_band.log)"; FAIL=1; }
 
+wait $PID_CONTROL || log "content-blind control FAILED (see logs/content_blind_probe.log)"
+
 # ---- 5. the verdict -----------------------------------------------------
 log "=============== CROP vs BAND ==============="
 python - <<'PY'
@@ -122,5 +139,26 @@ print()
 print("Read the two on `heldout_robust_tpr_at_1pct` AT THE SAME RUNG. Not clean")
 print("AUC: crop's whole claim is about DEGRADED generalisation, and clean AUC")
 print("is the one condition where it is least likely to show.")
+
+# The control does not decide the arm; it qualifies it. A crop win alongside a
+# materially higher content-blind AUC is a win bought with a shortcut, and the
+# number to publish beside it -- not a reason to discard the arm unread.
+p = "docs/content_blind_probe_union.json"
+if os.path.exists(p):
+    c = json.load(open(p))
+    print()
+    print("--- content-blind control (16x16 AFTER standardisation) ---")
+    for m in ("crop", "band"):
+        if m in c:
+            pooled = c[m]["pooled"]
+            auc = pooled.get("auc", pooled.get("auc_unverified_branch_provenance"))
+            print(f"  {m:5s} pooled AUC {auc:.4f}   {pooled['verdict']}")
+    if "crop" in c and "band" in c:
+        d = c["crop"]["pooled"]["auc"] - c["band"]["pooled"]["auc"]
+        print(f"  crop - band = {d:+.4f}"
+              + ("   <-- crop bought its gain with a content shortcut"
+                 if d > 0.03 else ""))
+else:
+    print("\n(content-blind control produced no output -- see logs/content_blind_probe.log)")
 PY
 exit $FAIL
