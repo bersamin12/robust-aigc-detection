@@ -37,6 +37,20 @@ class ClassifierHead(nn.Module):
             nn.Linear(dim_in, hidden), nn.GELU(), nn.LayerNorm(hidden))
         if use_film:
             self.film = nn.Linear(cond_dim, hidden * 2)
+            # Identity at initialisation. With default `nn.Linear` init this
+            # layer emits random gamma/beta, so `(1 + gamma) * h + beta`
+            # applies an arbitrary affine to a freshly LayerNorm-ed `h` before
+            # a single gradient step -- and FiLM's output is NOT renormalised.
+            # Measured cost of not doing this (rung a7_norecon, 2026-08-30):
+            # the consistency term starts at con=44.6 instead of a3's 0.032,
+            # 1400x larger, and runs away to 1.5e8 over 30 epochs while
+            # `cls` pins to ln(2) -- a classifier collapsed to constant output
+            # at val_auc 0.5031. Zeroing the projection makes the block an
+            # exact pass-through at step 0, so A7 starts from its own base
+            # rung rather than from a random perturbation of it, which is what
+            # makes "does FiLM help?" a question about FiLM.
+            nn.init.zeros_(self.film.weight)
+            nn.init.zeros_(self.film.bias)
         self.out = nn.Sequential(nn.Linear(hidden, hidden // 2), nn.GELU(),
                                  nn.Linear(hidden // 2, 1))
 

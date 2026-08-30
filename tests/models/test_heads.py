@@ -31,6 +31,14 @@ def test_degradation_head_output_depends_on_input():
 
 
 def test_film_changes_the_hidden_state_and_plain_head_ignores_cond():
+    """FiLM is WIRED to `cond` -- asserted on a TRAINED projection.
+
+    The projection is zero-initialised (see `test_film_is_the_identity_at_
+    initialisation`), so at step 0 it is a pass-through and `cond` provably
+    cannot matter. Filling the weights here is what keeps this test about the
+    wiring rather than about the initialisation; without it the assertion
+    below would be testing that the zero-init is absent.
+    """
     # fork_rng(devices=[]) forks only the CPU RNG (never touches CUDA, so no
     # GPU process starts) and restores it on exit, so the manual_seed below
     # cannot leak into later tests' unseeded randomness.
@@ -39,11 +47,49 @@ def test_film_changes_the_hidden_state_and_plain_head_ignores_cond():
         f = torch.randn(3, 32)
         cond = torch.randn(3, 256)
         film = ClassifierHead(dim_in=32, use_film=True)
+        with torch.no_grad():          # stand in for a trained projection
+            film.film.weight.normal_(0.0, 0.1)
+            film.film.bias.normal_(0.0, 0.1)
         a = film(f, cond)["hidden"]
         b = film(f, torch.zeros_like(cond))["hidden"]
         assert not torch.allclose(a, b)
         plain = ClassifierHead(dim_in=32, use_film=False)
         assert torch.allclose(plain(f, cond)["hidden"], plain(f)["hidden"])
+
+
+def test_film_is_the_identity_at_initialisation():
+    """A freshly built FiLM head must return EXACTLY the un-conditioned hidden
+    state, for any `cond`.
+
+    Default `nn.Linear` init emits random gamma/beta, and FiLM's output is not
+    renormalised, so an untrained block applies an arbitrary affine to a
+    LayerNorm-ed `h`. Rung a7_norecon measured the cost on 2026-08-30: the
+    consistency term opened at con=44.6 against a3's 0.032 and ran away to
+    1.5e8, collapsing the classifier to constant output (val_auc 0.5031). With
+    the projection zeroed, A7 starts from its base rung exactly, so the rung
+    measures FiLM instead of measuring a random perturbation.
+    """
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(0)
+        f = torch.randn(4, 32)
+        film = ClassifierHead(dim_in=32, use_film=True)
+        plain_h = film(f, None)["hidden"]
+        for scale in (1.0, 100.0):     # no cond magnitude may perturb it
+            cond = torch.randn(4, 256) * scale
+            assert torch.equal(film(f, cond)["hidden"], plain_h)
+
+
+def test_film_leaves_the_identity_once_it_is_trained():
+    """The zero-init must be a STARTING point, not a dead branch: the film
+    projection has to receive gradient, or A7 is A3 with extra parameters and
+    a negative result would be unfalsifiable."""
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(0)
+        head = ClassifierHead(dim_in=32, use_film=True)
+        out = head(torch.randn(4, 32), torch.randn(4, 256))
+        out["logit"].sum().backward()
+        assert head.film.weight.grad is not None
+        assert head.film.weight.grad.abs().sum() > 0
 
 
 def test_detector_without_recon_matches_feature_width():
