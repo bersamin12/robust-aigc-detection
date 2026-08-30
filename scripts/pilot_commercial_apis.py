@@ -84,11 +84,36 @@ IDEOGRAM_URL = "https://api.ideogram.ai/v1/ideogram-v4/generate"
 #: adapter below asks for a tall bucket for this reason, not for aesthetics.
 ASPECT_RATIO = "2:3"
 
+#: Ideogram v4 selects geometry with a resolution enum rather than an aspect
+#: ratio, and rejects anything outside it: 1024x1536 comes back HTTP 400 with
+#: the permitted list, which starts at 2048x2048. 1664x2496 is exactly 2:3,
+#: matching ASPECT_RATIO, and clears every real's short side with room to spare.
+IDEOGRAM_RESOLUTION = "1664x2496"
+
 #: Mid tier, deliberately. `docs/03` §3.4: the cheap tier does not merely cost
 #: less, it produces different artefacts, so buying it would benchmark the
 #: detector against cheap-tier output rather than against what the graded
 #: benchmark contains.
 QUALITY = "medium"
+
+#: `output_format: png` is a request, not a promise. Google returns JPEG for it,
+#: and a JPEG saved as `.png` is a lie about the one property this whole task
+#: measures -- whether an image has been through a JPEG encoder. The extension
+#: follows the returned media type instead.
+_EXT = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
+
+
+def raw_path_for(raw_dir: str, image_id: str, media_type: str = "") -> str:
+    """Where this image's bytes go, and where resume looks for them.
+
+    Resume must accept ANY extension: the provider decides the format, so a run
+    resumed after a provider changed it would otherwise re-buy every image.
+    """
+    for ext in _EXT.values():
+        existing = os.path.join(raw_dir, image_id + ext)
+        if os.path.exists(existing):
+            return existing
+    return os.path.join(raw_dir, image_id + _EXT.get(media_type, ".png"))
 
 
 @dataclass(frozen=True)
@@ -105,6 +130,11 @@ class Provider:
     model: str
     est_price: float        # per image, for the dry-run estimate only
     note: str = ""
+    #: Providers disagree about what they will render. Seedream refuses any
+    #: request under 3,686,400 output pixels -- "1K" at 2:3 is 684x1024 =
+    #: 700,416 and comes back HTTP 400 -- so it is asked for 2K while the rest
+    #: stay at 1K. Measured against the live API 2026-08-30.
+    resolution: str = "1K"
 
 
 #: Four providers, matching NTIRE 2026's held-out composition (`docs/03` §2.1).
@@ -118,7 +148,9 @@ PROVIDERS: tuple[Provider, ...] = (
              "SynthID on every image, no opt-out -- flag its row (§5.7)"),
     Provider("bytedance_seedream_45", "openrouter",
              "bytedance-seed/seedream-4.5", 0.040,
-             "terms not published for the image models -- see dataset_licences.md"),
+             "2K forced: it rejects anything under 3.69 Mpx. "
+             "Terms not published for the image models -- see dataset_licences.md",
+             resolution="2K"),
     Provider("ideogram_40_turbo", "ideogram", "V_4_TURBO", 0.030,
              "edit endpoints share the per-image rate"),
 )
@@ -189,6 +221,29 @@ class Result:
     billed: bool = True     # assume a refusal was billed unless we know better
 
 
+def _post_multipart(url: str, fields: dict, headers: dict,
+                    timeout: int = 180) -> tuple[int, bytes]:
+    """POST `fields` as multipart/form-data.
+
+    Ideogram's v4 generate endpoint documents multipart, not JSON. Written by
+    hand rather than pulled in as a dependency: it is fifteen lines and this
+    repo installs nothing it does not need.
+    """
+    boundary = "----aigcdet" + os.urandom(8).hex()
+    parts = []
+    for k, v in fields.items():
+        parts.append(f"--{boundary}\r\nContent-Disposition: form-data; "
+                     f'name="{k}"\r\n\r\n{v}\r\n')
+    body = ("".join(parts) + f"--{boundary}--\r\n").encode("utf-8")
+    req = urllib.request.Request(url, data=body, method="POST", headers={
+        "Content-Type": f"multipart/form-data; boundary={boundary}", **headers})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+
+
 def _post(url: str, payload: dict, headers: dict, timeout: int = 180) -> tuple[int, bytes]:
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=body, method="POST",
@@ -200,7 +255,7 @@ def _post(url: str, payload: dict, headers: dict, timeout: int = 180) -> tuple[i
         return e.code, e.read()
 
 
-def call_openrouter(model: str, prompt: str, key: str) -> Result:
+def call_openrouter(model: str, prompt: str, key: str, resolution: str = "1K") -> Result:
     """POST /api/v1/images. Returns base64 bytes at `data[0].b64_json`.
 
     `usage.cost` is the provider's own accounting for the request and is
@@ -209,7 +264,7 @@ def call_openrouter(model: str, prompt: str, key: str) -> Result:
     """
     status, raw = _post(OPENROUTER_URL, {
         "model": model, "prompt": prompt, "n": 1,
-        "resolution": "1K", "aspect_ratio": ASPECT_RATIO,
+        "resolution": resolution, "aspect_ratio": ASPECT_RATIO,
         "quality": QUALITY, "output_format": "png",
     }, {"Authorization": f"Bearer {key}"})
     try:
@@ -230,11 +285,25 @@ def call_openrouter(model: str, prompt: str, key: str) -> Result:
                   (body.get("usage") or {}).get("cost"))
 
 
-def call_ideogram(model: str, prompt: str, key: str) -> Result:
-    """Ideogram is not on OpenRouter, so it keeps its own adapter and key."""
-    status, raw = _post(IDEOGRAM_URL, {
-        "prompt": prompt, "rendering_speed": "TURBO",
-        "aspect_ratio": ASPECT_RATIO.replace(":", "x"), "num_images": 1,
+def call_ideogram(model: str, prompt: str, key: str, resolution: str = "1K") -> Result:
+    """Ideogram is not on OpenRouter, so it keeps its own adapter and key.
+
+    Three corrections from the live API and the v4 reference, 2026-08-30:
+
+    - The field is `text_prompt`, not `prompt`. Sending `prompt` returns
+      HTTP 400 "Supply one of `text_prompt` or `json_prompt`."
+    - The endpoint takes **multipart/form-data**, not JSON.
+    - v4 documents no `aspect_ratio` or `num_images`; portrait is selected with
+      the `resolution` enum instead.
+
+    NOT FULLY VERIFIED. The account had no balance when this was written, so
+    the shape got as far as HTTP 402 rather than an image. Top the account up
+    and run a one-image wire test before trusting it in a bulk run.
+    """
+    status, raw = _post_multipart(IDEOGRAM_URL, {
+        "text_prompt": prompt,
+        "rendering_speed": "TURBO",     # FLASH is documented as returning 400
+        "resolution": IDEOGRAM_RESOLUTION,
     }, {"Api-Key": key})
     try:
         body = json.loads(raw)
@@ -404,16 +473,17 @@ def main(argv=None):
         print(f"\n  {p.family} ...", flush=True)
 
         for i, pair in enumerate(pairs):
-            raw_path = os.path.join(raw_dir, f"{pair['image_id']}.png")
-            if os.path.exists(raw_path):        # resume: never re-buy
-                ok += 1
+            if os.path.exists(raw_path_for(raw_dir, pair["image_id"])):
+                ok += 1                          # resume: never re-buy
                 continue
-            res = call(p.model, pair["prompt"], key)
+            res = call(p.model, pair["prompt"], key, p.resolution)
             rec = {"family": p.family, "model": p.model, "image_id": pair["image_id"],
                    "ok": res.ok, "cost": res.cost, "reason": res.reason,
                    "billed": res.billed if not res.ok else True,
                    "prompt": pair["prompt"], "ts": time.time()}
             if res.ok:
+                raw_path = raw_path_for(raw_dir, pair["image_id"], res.media_type)
+                rec["media_type"] = res.media_type
                 tmp = raw_path + ".part"
                 with open(tmp, "wb") as fh:
                     fh.write(res.data)

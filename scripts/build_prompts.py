@@ -100,10 +100,16 @@ UA = "Mozilla/5.0 (compatible; aigcdet-research/1.0)"
 NARR_URL = ("https://storage.googleapis.com/localized-narratives/annotations/"
             "open_images_validation_localized_narratives.jsonl")
 
-#: Deliberately not any of the four generators' labs (§1 above). Cheap, vision
-#: capable, and neutral across the comparison. Verify the slug at
-#: openrouter.ai/models before a real run -- these move.
-DEFAULT_CAPTIONER = "qwen/qwen3.5-flash"
+#: Deliberately not any of the four generators' labs (§1 above): a dedicated
+#: vision-language model from a fifth lab, so the prompt distribution is a
+#: constant across §5.2's per-provider comparison rather than a variable.
+#:
+#: Verified live 2026-08-30 at $0.000093/image with a 512px input. Slugs move:
+#: `qwen/qwen3.5-flash` was rejected outright ("not a valid model ID") and
+#: `qwen/qwen3.7-flash`, though real and cheaper, returns an empty
+#: `choices[0].message` for this request shape. List what is actually available
+#: with `GET https://openrouter.ai/api/v1/models` before changing this.
+DEFAULT_CAPTIONER = "qwen/qwen3-vl-8b-instruct"
 
 #: Sent at 512px. Captioning does not need more, and input tokens scale with
 #: pixels, so this is most of the cost control.

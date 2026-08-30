@@ -43,6 +43,20 @@ from PIL import Image
 
 META_URL = ("https://storage.googleapis.com/openimages/v6/"
             "oidv6-train-images-with-labels-with-rotation.csv")
+
+#: The validation split's metadata: same columns, same licences, **15 MB
+#: against 2.7 GB**, over ~41k images of which ~40k are CC BY 2.0.
+#:
+#: Two reasons a pilot should prefer it. It is a 15 MB download rather than a
+#: 2.7 GB one for a few dozen images. And task 03's eval reals must not be
+#: reals the detector trained on (`docs/03` §5.5) -- drawing the pilot from
+#: validation while task 02 harvests from train makes the two disjoint by
+#: construction rather than by bookkeeping.
+#:
+#: Too small for the real corpus: ~5% of candidates survive the portrait
+#: filter, so it tops out near 1,900 images. Use the default for 60k.
+VALIDATION_META_URL = ("https://storage.googleapis.com/openimages/2018_04/"
+                       "validation/validation-images-with-rotation.csv")
 CC_BY_2 = "https://creativecommons.org/licenses/by/2.0/"
 UA = "Mozilla/5.0 (compatible; aigcdet-research/1.0)"
 
@@ -52,19 +66,39 @@ _seen = 0
 _fail = 0
 
 
-def fetch_metadata(path: str) -> str:
-    if os.path.exists(path) and os.path.getsize(path) > 1_000_000_000:
-        print(f"metadata already present: {path}", flush=True)
+def fetch_metadata(path: str, url: str = META_URL, min_bytes: int = 1_000_000_000) -> str:
+    """Download `url` to `path`, skipping a copy that is already complete.
+
+    `min_bytes` is what "complete" means, and it has to track the URL: the
+    train metadata is 2.7 GB and validation is 15 MB, so a single hardcoded
+    floor would either re-download the big one forever or accept a truncated
+    small one. Writes through `.part` and renames -- an interrupted download
+    otherwise leaves a short file that the size check on the next run may
+    accept, and a silently truncated metadata file yields a silently truncated
+    harvest.
+    """
+    if os.path.exists(path) and os.path.getsize(path) >= min_bytes:
+        print(f"metadata already present: {path} "
+              f"({os.path.getsize(path) / 1e6:.0f} MB)", flush=True)
         return path
     print(f"downloading metadata -> {path}", flush=True)
-    req = urllib.request.Request(META_URL, headers={"User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=120) as r, open(path, "wb") as f:
-        while True:
-            chunk = r.read(1 << 22)
-            if not chunk:
-                break
-            f.write(chunk)
-    print(f"metadata done: {os.path.getsize(path) / 1e9:.2f} GB", flush=True)
+    tmp = path + ".part"
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r, open(tmp, "wb") as f:
+            while True:
+                chunk = r.read(1 << 22)
+                if not chunk:
+                    break
+                f.write(chunk)
+        if os.path.getsize(tmp) < min_bytes:
+            raise OSError(f"metadata truncated: {os.path.getsize(tmp)} < {min_bytes} bytes")
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
+    print(f"metadata done: {os.path.getsize(path) / 1e6:.0f} MB", flush=True)
     return path
 
 
@@ -135,11 +169,22 @@ def main(argv=None):
     ap.add_argument("--min-short", type=int, default=400)
     ap.add_argument("--threads", type=int, default=48)
     ap.add_argument("--limit-rows", type=int, default=0)
+    ap.add_argument("--split", choices=("train", "validation"), default="train",
+                    help="which Open Images metadata to walk. `validation` is "
+                         "15 MB against train's 2.7 GB and tops out near 1,900 "
+                         "portrait images -- right for a pilot, too small for "
+                         "the corpus. It also keeps task 03's eval reals "
+                         "disjoint from task 02's training reals (docs/03 §5.5).")
     a = ap.parse_args(argv)
 
     img_dir = os.path.join(a.out, "portrait")
     os.makedirs(img_dir, exist_ok=True)
-    meta = fetch_metadata(os.path.join(a.out, "oidv6-train-with-rotation.csv"))
+    if a.split == "validation":
+        meta = fetch_metadata(os.path.join(a.out, "validation-with-rotation.csv"),
+                              VALIDATION_META_URL, 10_000_000)
+    else:
+        meta = fetch_metadata(os.path.join(a.out, "oidv6-train-with-rotation.csv"),
+                              META_URL, 1_000_000_000)
 
     att = open(os.path.join(a.out, "attribution.csv"), "w", newline="",
                encoding="utf-8")
