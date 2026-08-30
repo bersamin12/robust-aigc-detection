@@ -1,0 +1,598 @@
+{
+  "bank": "data/banks/eval_dinov3l",
+  "checkpoint": "outputs/rungs/a2/checkpoint.pt",
+  "backbone": "dinov3l",
+  "n_views_scored": 506640,
+  "presence": {
+    "jpeg": {
+      "base_rate": 0.45,
+      "roc_auc": 0.9197489268910103,
+      "ap": 0.911323838542638
+    },
+    "blur": {
+      "base_rate": 0.15,
+      "roc_auc": 0.7692243909236551,
+      "ap": 0.523102767813016
+    },
+    "resize": {
+      "base_rate": 0.25,
+      "roc_auc": 0.6020253558143922,
+      "ap": 0.3569243892885159
+    },
+    "noise": {
+      "base_rate": 0.2,
+      "roc_auc": 0.9726012258820385,
+      "ap": 0.92738377622748
+    },
+    "jitter": {
+      "base_rate": 0.1,
+      "roc_auc": 0.6934590310760992,
+      "ap": 0.22863499229382567
+    },
+    "crop": {
+      "base_rate": 0.1,
+      "roc_auc": 0.8175338440956836,
+      "ap": 0.39041882813914486
+    }
+  },
+  "severity": {
+    "jpeg": {
+      "n_present": 227988,
+      "mae": 0.17770205438137054,
+      "mae_predicting_the_mean": 0.23280422389507294,
+      "pearson_r": 0.5972330590909449
+    },
+    "blur": {
+      "n_present": 75996,
+      "mae": 0.17571042478084564,
+      "mae_predicting_the_mean": 0.2777777910232544,
+      "pearson_r": 0.7036189335675338
+    },
+    "resize": {
+      "n_present": 126660,
+      "mae": 0.2245480716228485,
+      "mae_predicting_the_mean": 0.15999998152256012,
+      "pearson_r": 0.5104573586976344
+    },
+    "noise": {
+      "n_present": 101328,
+      "mae": 0.15183058381080627,
+      "mae_predicting_the_mean": 0.22499999403953552,
+      "pearson_r": 0.7552303688174604
+    },
+    "jitter": {
+      "n_present": 50664,
+      "mae": 0.18609267473220825,
+      "mae_predicting_the_mean": 0.0,
+      "pearson_r": null
+    },
+    "crop": {
+      "n_present": 50664,
+      "mae": 0.31810832023620605,
+      "mae_predicting_the_mean": 0.0,
+      "pearson_r": null
+    }
+  },
+  "per_condition": {
+    "clean": {
+      "jpeg": {
+        "predicted": 0.1725754588842392,
+        "truly_present": false
+      },
+      "blur": {
+        "predicted": 0.31053391098976135,
+        "truly_present": false
+      },
+      "resize": {
+        "predicted": 0.38237565755844116,
+        "truly_present": false
+      },
+      "noise": {
+        "predicted": 0.09088302403688431,
+        "truly_present": false
+      },
+      "jitter": {
+        "predicted": 0.4112180769443512,
+        "truly_present": false
+      },
+      "crop": {
+        "predicted": 0.2557753622531891,
+        "truly_present": false
+      }
+    },
+    "jpeg_q90": {
+      "jpeg": {
+        "predicted": 0.37360379099845886,
+        "truly_present": true
+      },
+      "blur": {
+        "predicted": 0.3050071895122528,
+        "truly_present": false
+      },
+      "resize": {
+        "predicted": 0.34827637672424316,
+        "truly_present": false
+      },
+      "noise": {
+        "predicted": 0.10624821484088898,
+        "truly_present": false
+      },
+      "jitter": {
+        "predicted": 0.3593463897705078,
+        "truly_present": false
+      },
+      "crop": {
+        "predicted": 0.29023855924606323,
+        "truly_present": false
+      }
+    },
+    "jpeg_q70": {
+      "jpeg": {
+        "predicted": 0.7210789918899536,
+        "truly_present": true
+      },
+      "blur": {
+        "predicted": 0.2779366970062256,
+        "truly_present": false
+      },
+      "resize": {
+        "predicted": 0.311301052570343,
+        "truly_present": false
+      },
+      "noise": {
+        "predicted": 0.07685212045907974,
+        "truly_present": false
+      },
+      "jitter": {
+        "predicted": 0.3200516998767853,
+        "truly_present": false
+      },
+      "crop": {
+        "predicted": 0.28509917855262756,
+        "truly_present": false
+      }
+    },
+    "jpeg_q50": {
+      "jpeg": {
+        "predicted": 0.8295624852180481,
+        "truly_present": true
+      },
+      "blur": {
+        "predicted": 0.2602793574333191,
+        "truly_present": false
+      },
+      "resize": {
+        "predicted": 0.2960803806781769,
+        "truly_present": false
+      },
+      "noise": {
+        "predicted": 0.0817161351442337,
+        "truly_present": false
+      },
+      "jitter": {
+        "predicted": 0.3047376275062561,
+        "truly_present": false
+      },
+      "crop": {
+        "predicted": 0.2746639549732208,
+        "truly_present": false
+      }
+    },
+    "jpeg_q30": {
+      "jpeg": {
+        "predicted": 0.8275970220565796,
+        "truly_present": true
+      },
+      "blur": {
+        "predicted": 0.25080054998397827,
+        "truly_present": false
+      },
+      "resize": {
+        "predicted": 0.3005162477493286,
+        "truly_present": false
+      },
+      "noise": {
+        "predicted": 0.15422752499580383,
+        "truly_present": false
+      },
+      "jitter": {
+        "predicted": 0.2998007833957672,
+        "truly_present": false
+      },
+      "crop": {
+        "predicted": 0.27570244669914246,
+        "truly_present": false
+      }
+    },
+    "blur_s0.5": {
+      "jpeg": {
+        "predicted": 0.1816311925649643,
+        "truly_present": false
+      },
+      "blur": {
+        "predicted": 0.3533380627632141,
+        "truly_present": true
+      },
+      "resize": {
+        "predicted": 0.3689906597137451,
+        "truly_present": false
+      },
+      "noise": {
+        "predicted": 0.07410088181495667,
+        "truly_present": false
+      },
+      "jitter": {
+        "predicted": 0.4075021743774414,
+        "truly_present": false
+      },
+      "crop": {
+        "predicted": 0.2494787573814392,
+        "truly_present": false
+      }
+    },
+    "blur_s1.0": {
+      "jpeg": {
+        "predicted": 0.18518583476543427,
+        "truly_present": false
+      },
+      "blur": {
+        "predicted": 0.4505281150341034,
+        "truly_present": true
+      },
+      "resize": {
+        "predicted": 0.3561024069786072,
+        "truly_present": false
+      },
+      "noise": {
+        "predicted": 0.07782366126775742,
+        "truly_present": false
+      },
+      "jitter": {
+        "predicted": 0.3905709385871887,
+        "truly_present": false
+      },
+      "crop": {
+        "predicted": 0.24150796234607697,
+        "truly_present": false
+      }
+    },
+    "blur_s2.0": {
+      "jpeg": {
+        "predicted": 0.15642622113227844,
+        "truly_present": false
+      },
+      "blur": {
+        "predicted": 0.7695975303649902,
+        "truly_present": true
+      },
+      "resize": {
+        "predicted": 0.3441725969314575,
+        "truly_present": false
+      },
+      "noise": {
+        "predicted": 0.05178355798125267,
+        "truly_present": false
+      },
+      "jitter": {
+        "predicted": 0.3454180061817169,
+        "truly_present": false
+      },
+      "crop": {
+        "predicted": 0.2638914883136749,
+        "truly_present": false
+      }
+    },
+    "resize_0.5": {
+      "jpeg": {
+        "predicted": 0.16751915216445923,
+        "truly_present": false
+      },
+      "blur": {
+        "predicted": 0.2848895490169525,
+        "truly_present": false
+      },
+      "resize": {
+        "predicted": 0.3922034800052643,
+        "truly_present": true
+      },
+      "noise": {
+        "predicted": 0.10666468739509583,
+        "truly_present": false
+      },
+      "jitter": {
+        "predicted": 0.41149309277534485,
+        "truly_present": false
+      },
+      "crop": {
+        "predicted": 0.26427438855171204,
+        "truly_present": false
+      }
+    },
+    "resize_0.25": {
+      "jpeg": {
+        "predicted": 0.1348821520805359,
+        "truly_present": false
+      },
+      "blur": {
+        "predicted": 0.30927208065986633,
+        "truly_present": false
+      },
+      "resize": {
+        "predicted": 0.4664950370788574,
+        "truly_present": true
+      },
+      "noise": {
+        "predicted": 0.13052600622177124,
+        "truly_present": false
+      },
+      "jitter": {
+        "predicted": 0.4040290117263794,
+        "truly_present": false
+      },
+      "crop": {
+        "predicted": 0.4122468829154968,
+        "truly_present": false
+      }
+    },
+    "noise_s0.02": {
+      "jpeg": {
+        "predicted": 0.21988989412784576,
+        "truly_present": false
+      },
+      "blur": {
+        "predicted": 0.24756622314453125,
+        "truly_present": false
+      },
+      "resize": {
+        "predicted": 0.3282279670238495,
+        "truly_present": false
+      },
+      "noise": {
+        "predicted": 0.7339810132980347,
+        "truly_present": true
+      },
+      "jitter": {
+        "predicted": 0.32151225209236145,
+        "truly_present": false
+      },
+      "crop": {
+        "predicted": 0.25950753688812256,
+        "truly_present": false
+      }
+    },
+    "noise_s0.05": {
+      "jpeg": {
+        "predicted": 0.21642930805683136,
+        "truly_present": false
+      },
+      "blur": {
+        "predicted": 0.23503275215625763,
+        "truly_present": false
+      },
+      "resize": {
+        "predicted": 0.2703154683113098,
+        "truly_present": false
+      },
+      "noise": {
+        "predicted": 0.9399311542510986,
+        "truly_present": true
+      },
+      "jitter": {
+        "predicted": 0.29323655366897583,
+        "truly_present": false
+      },
+      "crop": {
+        "predicted": 0.2290446162223816,
+        "truly_present": false
+      }
+    },
+    "noise_s0.1": {
+      "jpeg": {
+        "predicted": 0.2218879908323288,
+        "truly_present": false
+      },
+      "blur": {
+        "predicted": 0.22800502181053162,
+        "truly_present": false
+      },
+      "resize": {
+        "predicted": 0.22158361971378326,
+        "truly_present": false
+      },
+      "noise": {
+        "predicted": 0.9868077635765076,
+        "truly_present": true
+      },
+      "jitter": {
+        "predicted": 0.29136139154434204,
+        "truly_present": false
+      },
+      "crop": {
+        "predicted": 0.22911310195922852,
+        "truly_present": false
+      }
+    },
+    "jitter_20": {
+      "jpeg": {
+        "predicted": 0.13555829226970673,
+        "truly_present": false
+      },
+      "blur": {
+        "predicted": 0.2926791310310364,
+        "truly_present": false
+      },
+      "resize": {
+        "predicted": 0.38459518551826477,
+        "truly_present": false
+      },
+      "noise": {
+        "predicted": 0.09113617986440659,
+        "truly_present": false
+      },
+      "jitter": {
+        "predicted": 0.4669184684753418,
+        "truly_present": true
+      },
+      "crop": {
+        "predicted": 0.2676933705806732,
+        "truly_present": false
+      }
+    },
+    "crop_80": {
+      "jpeg": {
+        "predicted": 0.21038244664669037,
+        "truly_present": false
+      },
+      "blur": {
+        "predicted": 0.2890317738056183,
+        "truly_present": false
+      },
+      "resize": {
+        "predicted": 0.37342920899391174,
+        "truly_present": false
+      },
+      "noise": {
+        "predicted": 0.11281432211399078,
+        "truly_present": false
+      },
+      "jitter": {
+        "predicted": 0.3506316542625427,
+        "truly_present": false
+      },
+      "crop": {
+        "predicted": 0.6207175254821777,
+        "truly_present": true
+      }
+    },
+    "social_repost": {
+      "jpeg": {
+        "predicted": 0.7443549633026123,
+        "truly_present": true
+      },
+      "blur": {
+        "predicted": 0.2799707055091858,
+        "truly_present": false
+      },
+      "resize": {
+        "predicted": 0.3141739070415497,
+        "truly_present": true
+      },
+      "noise": {
+        "predicted": 0.08454534411430359,
+        "truly_present": false
+      },
+      "jitter": {
+        "predicted": 0.3102671802043915,
+        "truly_present": false
+      },
+      "crop": {
+        "predicted": 0.2994905114173889,
+        "truly_present": false
+      }
+    },
+    "messaging_app": {
+      "jpeg": {
+        "predicted": 0.804514467716217,
+        "truly_present": true
+      },
+      "blur": {
+        "predicted": 0.38249799609184265,
+        "truly_present": false
+      },
+      "resize": {
+        "predicted": 0.33610525727272034,
+        "truly_present": true
+      },
+      "noise": {
+        "predicted": 0.15682080388069153,
+        "truly_present": false
+      },
+      "jitter": {
+        "predicted": 0.2726552188396454,
+        "truly_present": false
+      },
+      "crop": {
+        "predicted": 0.4034309387207031,
+        "truly_present": false
+      }
+    },
+    "screenshot": {
+      "jpeg": {
+        "predicted": 0.7999092936515808,
+        "truly_present": true
+      },
+      "blur": {
+        "predicted": 0.2777159810066223,
+        "truly_present": false
+      },
+      "resize": {
+        "predicted": 0.2954115867614746,
+        "truly_present": true
+      },
+      "noise": {
+        "predicted": 0.08993016928434372,
+        "truly_present": false
+      },
+      "jitter": {
+        "predicted": 0.2673281133174896,
+        "truly_present": false
+      },
+      "crop": {
+        "predicted": 0.5797744393348694,
+        "truly_present": true
+      }
+    },
+    "filtered_upload": {
+      "jpeg": {
+        "predicted": 0.6307949423789978,
+        "truly_present": true
+      },
+      "blur": {
+        "predicted": 0.2826268970966339,
+        "truly_present": false
+      },
+      "resize": {
+        "predicted": 0.31779181957244873,
+        "truly_present": false
+      },
+      "noise": {
+        "predicted": 0.06837871670722961,
+        "truly_present": false
+      },
+      "jitter": {
+        "predicted": 0.3661123216152191,
+        "truly_present": true
+      },
+      "crop": {
+        "predicted": 0.29144221544265747,
+        "truly_present": false
+      }
+    },
+    "low_light_share": {
+      "jpeg": {
+        "predicted": 0.856834888458252,
+        "truly_present": true
+      },
+      "blur": {
+        "predicted": 0.20876236259937286,
+        "truly_present": false
+      },
+      "resize": {
+        "predicted": 0.2200874388217926,
+        "truly_present": false
+      },
+      "noise": {
+        "predicted": 0.7863513827323914,
+        "truly_present": true
+      },
+      "jitter": {
+        "predicted": 0.2458527535200119,
+        "truly_present": false
+      },
+      "crop": {
+        "predicted": 0.23582659661769867,
+        "truly_present": false
+      }
+    }
+  }
+}

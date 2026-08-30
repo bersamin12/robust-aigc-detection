@@ -197,6 +197,106 @@ not the score.
 **Do not "fix" this by wiring the heads together.** That is A7, and it is a
 separate rung for a reason.
 
+### Does the head it trains actually work? — measured 2026-08-30
+
+A2's entire justification is that it feeds calibration, EQI and the dashboard.
+Nobody had checked whether the head can do that. Scored on `eval_dinov3l`
+(25,332 images x 20 conditions = 506,640 views) exactly the way
+`degradation_loss` trains it: presence as a per-family binary readout,
+severity smooth-L1 **masked to families actually present**, because an absent
+family's severity target is meaningless.
+
+**Presence — it works on two families of six.**
+
+| family | base rate | ROC AUC | AP |
+|---|---|---|---|
+| noise | 0.20 | **0.9726** | 0.9274 |
+| jpeg | 0.45 | **0.9197** | 0.9113 |
+| crop | 0.10 | 0.8175 | 0.3904 |
+| blur | 0.15 | 0.7692 | 0.5231 |
+| jitter | 0.10 | 0.6935 | 0.2286 |
+| resize | 0.25 | **0.6020** | 0.3569 |
+
+**Severity — read against the trivial "always predict the mean" baseline.**
+
+| family | MAE | mean-baseline | |
+|---|---|---|---|
+| noise | 0.152 | 0.225 | beats it |
+| blur | 0.176 | 0.278 | beats it |
+| jpeg | 0.178 | 0.233 | beats it |
+| resize | 0.225 | 0.160 | **worse than a constant** |
+| jitter | 0.186 | 0.000 | off-scale by 0.19 |
+| crop | 0.318 | 0.000 | off-scale by 0.32 |
+
+`jitter_20` and `crop_80` are the only severities of their families in
+`EVAL_GRID`, so those targets are constant and the grid cannot measure
+severity *tracking* for them at all — only that the head's output sits at the
+wrong value.
+
+**Dose-response, mean predicted presence per condition.**
+
+```
+noise    clean 0.09 -> 0.73 -> 0.94 -> 0.99          excellent
+jpeg     clean 0.17 -> 0.37 -> 0.72 -> 0.83 -> 0.83  good, saturates at q50
+blur     clean 0.31 -> 0.35 -> 0.45 -> 0.77          only fires at s2.0
+crop     clean 0.26 -> 0.62                          directional
+resize   clean 0.38 -> 0.39 -> 0.47                  flat, invisible
+jitter   clean 0.41 -> 0.47                          flat
+```
+
+Two things to carry forward. **It hallucinates damage on clean images** — 0.41
+jitter, 0.38 resize, 0.31 blur where the truth is 0. And **resize is close to
+undetectable for a mechanical reason, not a training one**: band
+standardisation band-limits to 200 px and upscales to 512, which IS a resize,
+so a `resize_0.5` applied beforehand is largely erased before the backbone
+ever sees it. That predicts resize becomes detectable under `--canon-mode
+crop`, which does not resample the pixels it keeps — testable on the existing
+`coco_crop` banks at no extraction cost.
+
+**Verdict: passes, unevenly.** Enough to justify building the EQI-on/EQI-off
+comparison, because EQI is FITTED — a logistic regression over the head's
+outputs (`calibrate/eqi.py`) — so it will learn to weight noise and jpeg and
+discount resize and jitter, and the clean-image offset is per-family and
+near-constant, which a fitted calibrator absorbs. Expect a modest abstention
+gain concentrated on the JPEG and noise conditions and none on resize or
+jitter. Not nothing, not transformative.
+
+Reproduce, or run it against any other rung with `use_degradation: true`
+(A3, A4, A7 — the head is trained identically in all of them):
+
+```bash
+python scripts/degradation_head_report.py \
+    --bank data/banks/eval_dinov3l \
+    --checkpoint outputs/rungs/a2/checkpoint.pt \
+    --out docs/degradation_head_a2_dinov3l.json
+```
+
+CPU-only and about a minute; it reads the degradation branch alone, so it
+needs no eval manifest, no labels and no classifier.
+
+### The ladder cannot score this rung, and never could
+
+Every metric `run_ablation.py` offers is rank- or threshold-invariant. The
+AUCs are rank-based; `tpr_at_1pct` sets its threshold at a *quantile* of
+authentic scores, so it is rank-based too; `acc_oracle` picks its threshold
+post hoc; and `acc_fixed` uses one fixed threshold that a shrink-toward-0.5
+can never cross. A confidence rescaling is invisible to all four.
+
+Worse than invisible, in one case. A degradation-CONDITIONAL rescaling is not
+a monotone transform of the score — it depends on per-sample evidence — so it
+does reshuffle cross-sample ranks, and AUC would move. It would move DOWN,
+because the head de-ranks confident predictions on degraded images and that is
+exactly what AUC pays for. **A correctly working degradation head should make
+the ladder look worse.** So "wire it into the ablation" is the wrong fix.
+
+Measure it with `eval/metrics.py` instead, where all four already exist and
+none are used: `expected_calibration_error` (stratified by condition — the
+claim is per-condition, and a pooled number hides it), `brier`,
+`risk_coverage` and `accuracy_at_coverage`. And make the comparison EQI-on vs
+EQI-off at one fixed rung, not A1 vs A2 — same frozen classifier, one
+variable. A ladder rung was never the right vehicle for a module that
+deliberately does not touch the classifier.
+
 ---
 
 ## A3 — + clean/degraded consistency  ← current headline
@@ -324,6 +424,15 @@ be retrained. A0–A4 are unaffected — only A7 sets `use_film`.
 
 **Outstanding:** re-measure on DINOv3, where A7 was previously unusable. It is
 in the chained fusion run.
+
+**Until then, `docs/robustness_table.md`'s DINOv3 A7 row is STALE — do not
+cite it.** It reads clean 0.5485 / selection 0.0296, which is the PRE-fix
+collapse, and it is the only rung in that table whose checkpoint predates the
+fix. Verified 2026-08-30: `outputs/rungs/a7_norecon/checkpoint.pt` contains no
+`film_norm` tensor, while `outputs/rungs_convnextt/a7_norecon/checkpoint.pt`
+does. Anyone reading that row cold will conclude FiLM destroys the model on
+DINOv3; what it actually records is the bug above, on the one backbone that
+has not been re-run since.
 
 ---
 
