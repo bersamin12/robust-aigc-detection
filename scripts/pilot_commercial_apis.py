@@ -260,29 +260,44 @@ ADAPTERS = {"openrouter": call_openrouter, "ideogram": call_ideogram}
 KEY_ENV = {"openrouter": "OPENROUTER_API_KEY", "ideogram": "IDEOGRAM_API_KEY"}
 
 
-def load_pairs(reals_dir: str, attribution: str, n: int) -> list[dict]:
-    """(ImageID, real_path, prompt) for rows whose narrative survives §3.5.
+def load_pairs(reals_dir: str, prompts_csv: str, n: int) -> list[dict]:
+    """(ImageID, real_path, prompt) from `scripts/build_prompts.py`'s output.
 
-    Refused rows are dropped here, before any spend, and counted -- a prompt we
-    would not send is not a refusal to charge to the provider's rate.
+    A `prompt` column is used as written -- `build_prompts` already ran §3.5
+    over it, whether it came from a narrative or a captioner. A file carrying
+    only raw `caption` (an older `attribution.csv`) is accepted and sanitised
+    here instead, so the pilot still runs before prompts have been built.
+
+    Refused rows are dropped before any spend and counted separately: a prompt
+    we declined to send is not a provider refusal and must not inflate the
+    retry budget §3.4 derives from this run.
     """
-    with open(attribution, newline="", encoding="utf-8") as fh:
+    with open(prompts_csv, newline="", encoding="utf-8") as fh:
         rows = list(csv.DictReader(fh))
-    out, skipped = [], 0
+    out, skipped, missing = [], 0, 0
     for r in rows:
-        iid = r.get("ImageID") or r.get("image_id")
+        iid = r.get("image_id") or r.get("ImageID")
         real = os.path.join(reals_dir, f"{iid}.jpg")
-        if not iid or not os.path.exists(real):
+        if not iid:
             continue
-        prompt, why = sanitise(r.get("caption", ""))
-        if why:
+        if not os.path.exists(real):
+            missing += 1
+            continue
+        prompt = (r.get("prompt") or "").strip()
+        if prompt:
+            why = ""                      # build_prompts already applied §3.5
+        else:
+            prompt, why = sanitise(r.get("narrative") or r.get("caption", ""))
+        if why or not prompt:
             skipped += 1
             continue
         out.append({"image_id": iid, "real": real, "prompt": prompt})
         if len(out) >= n:
             break
     if skipped:
-        print(f"  {skipped} narratives refused locally by §3.5 before any spend")
+        print(f"  {skipped} prompts refused locally by §3.5 before any spend")
+    if missing:
+        print(f"  {missing} rows had no matching real in {reals_dir}")
     return out
 
 
@@ -312,8 +327,9 @@ def main(argv=None):
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--reals", required=True, help="directory of <ImageID>.jpg reals")
-    ap.add_argument("--attribution", default=None,
-                    help="attribution.csv with ImageID and caption (default: <reals>/../attribution.csv)")
+    ap.add_argument("--prompts", default=None,
+                    help="prompts CSV from scripts/build_prompts.py (default: "
+                         "<reals>/../prompts.csv, falling back to attribution.csv)")
     ap.add_argument("--out", required=True)
     ap.add_argument("--n", type=int, default=50, help="images per provider (§3.2 says ~50)")
     ap.add_argument("--only", default="", help="comma-separated family names to run")
@@ -323,16 +339,25 @@ def main(argv=None):
                     help="skip the interactive confirmation (for non-interactive runs)")
     a = ap.parse_args(argv)
 
-    attribution = a.attribution or os.path.join(os.path.dirname(a.reals.rstrip("/")),
-                                                "attribution.csv")
+    parent = os.path.dirname(a.reals.rstrip("/"))
+    prompts_csv = a.prompts or next(
+        (p for p in (os.path.join(parent, "prompts.csv"),
+                     os.path.join(parent, "attribution.csv")) if os.path.exists(p)),
+        os.path.join(parent, "prompts.csv"))
+    if not os.path.exists(prompts_csv):
+        raise SystemExit(
+            f"no prompt source at {prompts_csv}. Build one first:\n"
+            f"  python scripts/build_prompts.py --reals {a.reals} "
+            f"--out {os.path.join(parent, 'prompts.csv')} --source both")
     providers = [p for p in PROVIDERS
                  if not a.only or p.family in {s.strip() for s in a.only.split(",")}]
     if not providers:
         raise SystemExit(f"--only matched nothing. Known: {[p.family for p in PROVIDERS]}")
 
-    pairs = load_pairs(a.reals, attribution, a.n)
+    pairs = load_pairs(a.reals, prompts_csv, a.n)
     if not pairs:
-        raise SystemExit(f"no usable pairs from {attribution}")
+        raise SystemExit(f"no usable pairs from {prompts_csv}")
+    print(f"  prompts from {prompts_csv}")
 
     print(f"\n  {len(pairs)} pairs x {len(providers)} providers "
           f"= {len(pairs) * len(providers)} images\n")
