@@ -280,7 +280,7 @@ manifest, same eval subsample, same seed, same backbone.
 
 | Dataset | Why |
 | --- | --- |
-| `techjam-aigc-train-coco-crop` | the images (64 GB, shared by both arms) |
+| ~~`techjam-aigc-train-coco-crop`~~ | **deleted 2026-08-30** — see Storage below. This crop-vs-band probe was superseded by the union probe (`probe_crop` / `probe_band`, images on `techjam-aigc-probe-union`), which asks the same question on the corpus that ships. Re-uploading 60 GB to re-run this one buys nothing. |
 | `techjam-aigc-probe-manifests` | the 20,000-row probe manifest |
 | `techjam-aigc-eval-manifest-coco-crop` + `techjam-aigc-benchmark` | the eval grid |
 
@@ -372,16 +372,32 @@ values so a session can check its mount against what was frozen without
 re-reading 128 GB.
 
 **Storage.** Private datasets are capped at 200 GB in total for the account,
-and the union is 128 GB of it. `techjam-aigc-train` (25.5 GB, the frozen
-stream's corpus) was deleted on 2026-08-30 to fit — its banks remain published
-as `techjam-aigc-banks` and the corpus is still on local disk, so the frozen
-stream's results stand; only re-extracting it on Kaggle now costs a re-upload.
+and the union's five image Datasets are 121 GiB of it. Two older corpora were
+deleted on 2026-08-30 to fit, in that order:
+
+| Deleted | Size | What it cost |
+| --- | --- | --- |
+| `techjam-aigc-train` | 25.5 GB | the frozen stream's corpus. Its banks are still published as `techjam-aigc-banks` and the tree is still on local disk, so every result it produced (dinov3l a5 0.8611, siglip2l a5 0.8773) stands — only *re-extracting* on Kaggle now costs a re-upload. |
+| `techjam-aigc-train-coco-crop` | 63.9 GB | nothing measurable. No bank was ever extracted from it, on Kaggle or locally, so it published no results to lose. The 60 GB tree and its manifest are on local disk; its 2 MB eval-manifest Dataset was left in place. |
+
+The second deletion was forced, not tidying: 92 GB held plus 121 GiB incoming
+is 213 GB against a 200 GB cap, so `ntire` (62 GiB, the last upload) could not
+have landed without it. Anything that quotes a comfortable margin before that
+arithmetic was checked is quoting an estimate — the sources came in larger than
+projected, and the cap is the kind of limit that fails at the end of the
+longest transfer.
+
 Measured upload rate to Kaggle is 22 MB/s on a single stream (192 Mbps),
-consistent across two transfers hours apart, so the 128 GB is ~1 h 40 of
-transfer plus ~25 min of archiving — provided the archiver has the disk to
-itself. It must: with `build_dataset` reading the same spinning disk the
-archiver drops to 7 MB/s and takes the build down with it, and no `ionice`
-class fixes that because the contention is seek time, not bandwidth.
+consistent across two transfers hours apart, so the 121 GiB is ~1 h 35 of
+transfer plus ~25 min of archiving — **provided the archiver has the disk to
+itself**, which is a throughput constraint and not a safety one. Normalisation
+finishing makes the tree safe to archive; it does not make it fast. Measured:
+`open_images` archived and uploaded beside the build's *audit* phase at 4.7
+MiB/s end-to-end (9.3 GiB in 2002 s), because the audit is a serial pass over
+all 150 GiB of the raw tree at 245 seeks/s and an interleaved sequential read
+gets every other seek. No `ionice` class fixes it — the contention is seek
+time, not bandwidth. `chain_union_upload.sh` therefore waits for the build
+process to *exit*, which is the faster order: ~2 h rather than ~7 h.
 
 **`N_SHARDS` is pinned at 8, and the notebook will not derive it.** The
 derivation can only see the 20 GiB working quota, and at dim 1024 the whole
