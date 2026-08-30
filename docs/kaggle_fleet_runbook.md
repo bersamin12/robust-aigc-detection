@@ -340,9 +340,18 @@ own terms.
 
 ## The full union extraction (`kaggle_all_experiments.ipynb`, stream `union`)
 
-The shipping corpus: 376,744 rows over NTIRE, WildFake, SID_Set, COCO
-train2017 and Open Images V7. This is the run the fleet exists for — the
-probe and the two ancestor streams are all smaller things that feed it.
+The shipping corpus: **375,358 rows** over NTIRE, WildFake, SID_Set, COCO
+train2017 and Open Images V7, frozen 2026-08-30 with `manifest_sha256`
+`3cca88d94fbb573bb229f3ffe9a9370e2c5def42c78758c05275f421be23c406`. A bank
+whose config reports a different fingerprint was built against a different
+manifest and is not comparable with anyone else's. This is the run the fleet
+exists for — the probe and the two ancestor streams are all smaller things
+that feed it.
+
+375,358 and not the 376,744 this section used to quote: the scan found
+376,756, then 14 unreadable images and 1,384 below the 200 px band floor came
+out. Splits are train 331,257 / val_internal 37,101 / heldout_generator 7,000,
+the last being SDwithAdaptor_controlnet and VQGAN at 3,500 each.
 
 **Attach six Datasets, not one.** Five carry images, one carries manifests.
 

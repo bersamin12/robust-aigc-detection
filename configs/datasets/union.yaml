@@ -18,17 +18,27 @@
 # Every cap below is therefore an UPPER BOUND for the search to allocate
 # within, not a decision about the final corpus.
 #
-# COMPOSITION (rows available -> rows kept)
-#             AUTHENTIC                     GENERATED
-#   ntire      54,001 -> 54,001 (all)        95,999 -> 95,999 (all)
-#   wildfake   55,000 -> 40,000              62,988 -> 62,988 (all)
-#   sid_set    29,318 -> 29,318 (all)        29,438 -> 29,438 (all)
-#   coco      118,287 -> 40,000                   --
-#   open_img   60,000 -> 25,000                   --
-#             ------------------            ------------------
-#              316,606 -> 188,319            188,425 -> 188,425
+# COMPOSITION (available -> capped -> FROZEN). The third column is measured,
+# 2026-08-30; the first two were the projection this file was written against.
+#             AUTHENTIC                        GENERATED
+#   ntire      54,001 -> 54,001 -> 54,000       95,999 -> 95,999 -> 95,999
+#   wildfake   55,000 -> 40,000 -> 40,000       62,988 -> 62,988 -> 61,680
+#   sid_set    29,318 -> 29,318 -> 29,317       29,438 -> 29,438 -> 29,438
+#   coco      118,287 -> 40,000 -> 39,924            --
+#   open_img   60,000 -> 25,000 -> 25,000            --
+#             ---------------------------      ---------------------------
+#              316,606 -> 188,319 -> 188,241    188,425 -> 188,425 -> 187,117
 #
-# 376,744 rows, balanced to within 106. NTIRE's and SID_Set's authentic halves
+# 375,358 rows, balanced to within 1,124, fingerprint
+# 3cca88d94fbb573bb229f3ffe9a9370e2c5def42c78758c05275f421be23c406.
+#
+# The projection said 376,744 and it was wrong twice over, in opposite
+# directions. The scan actually found 376,756 (+12), and then the build
+# dropped 14 images that could not be read and 1,384 below `min_short_side`.
+# 1,260 of those 1,384 are BigGAN, which is bimodal at 128/200 and therefore
+# loses its ENTIRE 128 px mode -- a composition change, not a rounding error,
+# and the reason a row count over the raw tree is a projection and not a
+# result. Every number is in docs/union/splits.json. NTIRE's and SID_Set's authentic halves
 # are uncapped on purpose: they are the paired reals of those sources' own
 # fakes, and capping them would turn each into a fake-skewed source, which is
 # the mirror of the confound described under open_images below.
@@ -66,7 +76,7 @@
 name: union
 note: >
   Every licensed source in one frozen manifest -- NTIRE, WildFake, SID_Set,
-  COCO train2017 and Open Images V7 -- 376,744 rows balanced to within 106,
+  COCO train2017 and Open Images V7 -- 375,358 rows balanced to within 1,124,
   capped as upper bounds so dataset composition can be searched over cached
   features instead of guessed before extraction. NTIRE carries no generator
   attribution; COCO and Open Images carry no generated half. Read every
