@@ -37,8 +37,12 @@ Reads `portrait/*.jpg` + `attribution.csv` from
 | `self_cond` | the image, via an **all-zero mask** | none | 9-channel inpaint UNet |
 | `ref_image` | the image, as reference tokens | none | FLUX.2 klein |
 | `inpaint_box` | image + deterministic rectangle | none | 9-channel inpaint UNet |
-| `t2i_caption` | a Localized Narrative | yes | narratives on disk |
+| `img2img` | the image + noise at `strength` | optional | any latent model |
 | `vae_recon` | the image | none | any latent model |
+
+`t2i_caption` (prompt from a Localized Narrative) is **implemented but no longer
+in the suite** — see §3. It stays in `METHODS` because the code is correct and
+someone with captions for their reals should be able to use it.
 
 `self_cond` is the primary method. An inpainting UNet takes 9 channels — 4 noisy
 latent, **1 mask**, **4 masked-image latent**. An all-zero mask says "nothing is
@@ -47,9 +51,11 @@ becomes *regenerate this*. Prior art: B-Free (CVPR 2025) built 309k fakes over
 51k reals this way for this exact bias reason; DRCT (ICML 2024), TwinSynths
 (WACV 2025) are the same idea.
 
-`t2i_caption` is kept at ~20% deliberately: `self_cond` isolates the artifact,
-`t2i_caption` resembles what an adversary actually does. Score them separately —
-`method` and `synthesis` are on every row.
+**Every family in this suite is image-conditioned regeneration.** `self_cond`,
+`inpaint_box`, `img2img`, `ref_image` and `vae_recon` all say "here is a
+photograph, redraw it". Nothing here models an adversary who types a prompt and
+generates from scratch. §3 records why, and §9 records what it costs. Score
+methods separately regardless — `method` and `synthesis` are on every row.
 
 ### Default suite — 7 families, 4 models, 4 decoder lineages
 
@@ -57,7 +63,7 @@ becomes *regenerate this*. Prior art: B-Free (CVPR 2025) built 309k fakes over
 | --- | --- | --- | --- | --- |
 | `sd21_self_cond` | SD2.1-inpainting | OpenRAIL++-M | `sd_vae` | .25 |
 | `sdxl_self_cond` | SDXL-inpainting-0.1 | OpenRAIL++-M | `sdxl_vae` | .25 |
-| `flux_schnell_t2i_caption` | FLUX.1-schnell | Apache-2.0 | `flux_vae` | .20 |
+| `flux_schnell_img2img` | FLUX.1-schnell | Apache-2.0 | `flux_vae` | .20 |
 | `sd21_inpaint_box` | SD2.1-inpainting | OpenRAIL++-M | `sd_vae` | .15 |
 | `sdxl_inpaint_box` | SDXL-inpainting-0.1 | OpenRAIL++-M | `sdxl_vae` | .10 |
 | `sd21_vae_recon` | SD2.1 VAE | OpenRAIL++-M | `sd_vae` | .05 |
@@ -91,6 +97,22 @@ what a generator's output *looks like*. Quantising is refused for a related
 reason: a 4-bit model's traces are partly the compute budget's. Kaggle has only
 T4 (sm_75) and P100 (sm_60); neither has bf16. Such families are **skipped** and
 the shard block rebalances over the rest.
+
+**`t2i_caption` is removed, not shrunk.** Localized Narratives cover
+**5.60%** of Open Images train — 504,413 captions against 9,011,219 images — and
+**6.48%** of the CC BY 2.0 rows that carry a `Thumbnail300KURL`, which is the
+pool the harvest actually draws from (measured 2026-08-30 over 82,663 sampled
+candidates). So 60,000 portrait reals contain roughly **3,900** with a usable
+prompt, and the planned 12,000-row share was never reachable; reaching it would
+need ~185,000 reals harvested. Worse, a real without a narrative is not skipped:
+the notebook passes `prompt=""` and records `prompt_source="MISSING"`, so ~93.5%
+of the family would have been empty-prompt FLUX output labelled as
+prompt-conditioned synthesis. The share goes to `flux_schnell_img2img`, which
+needs no prompt, keeps the `flux_vae` lineage, and makes all 60,000 reals
+eligible. **The narrower alternative was considered and declined:** keep the
+family at ~3,000 rows with reals selected *from* the covered set, which would
+have preserved a measurable prompt-from-scratch arm. It was dropped for
+simplicity, and §9 states the cost.
 
 **Outputs are checked on their pixels.** A near-constant frame is a NaN latent
 or a safety-checker black image; a frame identical to its real means the
@@ -170,8 +192,15 @@ images** — 12B forces CPU offload on a 16 GB card. Decide on measured numbers.
   one pass. `FAKE_ENCODE_PASSES = 2` is the lever if section 10 says it shows.
 * **One geometry.** AR ≤ 0.7, short side ≥ 400. A detector trained only here
   has seen one scale.
-* **`self_cond` is not the threat model.** It is image-conditioned
-  regeneration; an adversary prompts from scratch. Hence `t2i_caption` at 20%.
+* **No family models the threat.** `self_cond` is image-conditioned
+  regeneration and so is every other family here; an adversary prompts from
+  scratch. `t2i_caption` was the 20% that covered this and it is **gone** (§3),
+  so the residual is no longer mitigated — it is simply open. A detector
+  trained on this corpus learns *was this regenerated from an existing
+  photograph*, which correlates with *is this synthetic* without being it.
+  Whether that transfers to prompted generation is now a question this corpus
+  **cannot answer about itself**; it needs an external prompted-synthesis eval
+  set. Do not report a number from this corpus as if it settled the point.
 
 ## 10. Downstream
 
