@@ -269,6 +269,75 @@ deviations is the one most likely to lean on it. Treat a clean CNN AUC as
 provisional until the balanced-index filter is applied, and compare the
 stratified number.
 
+## The crop-vs-band A/B (`kaggle_all_experiments.ipynb`, streams `probe_*`)
+
+Two Kaggle sessions, run **concurrently**, answering one question: does random
+cropping beat band-limit standardisation? Set `STREAM = "probe_crop"` in one
+and `STREAM = "probe_band"` in the other. Nothing else differs — same probe
+manifest, same eval subsample, same seed, same backbone.
+
+**Attach three Datasets to each session:**
+
+| Dataset | Why |
+| --- | --- |
+| `techjam-aigc-train-coco-crop` | the images (64 GB, shared by both arms) |
+| `techjam-aigc-probe-manifests` | the 20,000-row probe manifest |
+| `techjam-aigc-eval-manifest-coco-crop` + `techjam-aigc-benchmark` | the eval grid |
+
+**Budget.** ~45 min Stage A (20,000 rows) + ~35 min eval bank (4,000 rows ×
+20 conditions) + ~20 min ladder. Both arms in parallel: **~1.5 h to a verdict**,
+against ~26 h to run the same comparison at full corpus size.
+
+**Read the result off `heldout_robust_tpr_at_1pct`** in each arm's
+`selection.json`, at the same rung. Not clean AUC — the whole point of crop is
+what it does to *degraded* generalisation.
+
+### Three things that are held fixed on purpose
+
+- **`geometric=False` on both arms.** Dihedral augmentation needs a square
+  input, so it is crop-only. Enabling it on the crop arm tests two changes at
+  once and the number cannot say which one moved.
+- **The coco_crop corpus, not the frozen one.** 85% of the frozen corpus sits
+  at exactly 200 px short side, where a 200×200 crop is nearly the whole frame
+  and the two policies collapse into each other. coco_crop's images are
+  425–512 px, so the policies genuinely differ.
+- **The same probe manifest for both arms**, cut once by
+  `scripts/cut_probe_manifest.py` with the `uniform` sampler so it is a scale
+  model of the corpus. Re-cutting it per arm with a different seed would make
+  the comparison a comparison of two samples.
+
+The probe manifest is **not committed** — `data/` is a symlink to the artefact
+tree — so it is reproduced from the script and its seed rather than stored:
+
+```bash
+python scripts/cut_probe_manifest.py \
+    --manifest data/manifest_coco_crop.parquet \
+    --out data/probe/manifest_coco_crop_probe.parquet \
+    --budget train=16000 --budget val_internal=4000 \
+    --split train,val_internal
+```
+
+It must print `manifest_sha256
+9a60e22759aa98bd710798ace81ff26dcb7f3bee44fb688334882e87432170b1` and file
+sha256 `4fd2d1a7a39f11dd9771439dd6dd36ff175350b880598363d9f10e52436e8188`. A
+different digest means a different 20,000 rows, and the arm you run against it
+is not comparable with anyone else's — check the parent manifest before
+uploading it anywhere.
+
+### What a probe bank is not
+
+A probe manifest fingerprints differently from `manifest_coco_crop.parquet`,
+so a probe bank **cannot** verify against the real manifest, merge with a real
+shard, resume from one, or fuse against one. Every one of those refusals is
+correct. A probe is evidence about a policy; it is never a component of the
+shipping system. Do not publish one as a bank Dataset.
+
+Before spending even the 1.5 h, `scripts/gate_confounds.py` answers the cheaper
+half of the question on CPU in ~20 minutes: crop's stated justification is that
+it preserves native detail instead of box-filtering it away, so if it does not
+pull `laplacian_var` back toward the frozen 0.6721 baseline it has failed on its
+own terms.
+
 ## Publishing a corpus as a Kaggle Dataset
 
 Nothing in this repo automated this and nothing recorded it either, so the two
