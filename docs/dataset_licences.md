@@ -175,6 +175,98 @@ train2017 and val2017 are disjoint image sets, so `find_leaks` at Hamming
 distance 4 catches essentially nothing. The risk is distribution memorisation,
 which a perceptual hash cannot measure.
 
+## Commercial generator APIs (task 03) — terms, per provider
+
+`docs/03-commercial-apis-on-open-images.md` §3.3 asks four questions of each
+provider before a card is charged, and §5.4 makes the answers an acceptance
+criterion. Checked 2026-08-30. **Rows marked ⚠ are not yet verified at source
+and must not be cited until they are** — the discipline at the top of this file
+applies here exactly as it does to the datasets.
+
+| Provider | Commercial use of output | Redistribution | Watermark? | Trains on our submissions? |
+| --- | --- | --- | --- | --- |
+| **Google** (Gemini API) | Yes — Google disclaims ownership | No explicit bar found | **Yes — SynthID, no opt-out** | ⚠ not read |
+| **OpenAI** (`gpt-image-2`) | ⚠ believed yes (assignment clause) — **unverified, see below** | ⚠ not read | ⚠ not read (C2PA metadata suspected) | ⚠ not read |
+| **Ideogram** (4.0) | Permitted; no explicit IP assignment | Permitted, **but attribution is mandatory** | ⚠ not read | **No — committed in writing** |
+| **Bytedance** (Seedream 4.5, via OpenRouter) | ⚠ not read | ⚠ not read | ⚠ not read | ⚠ not read |
+
+### Google — Gemini API
+
+Read at <https://ai.google.dev/gemini-api/terms> and
+<https://ai.google.dev/gemini-api/docs/image-generation>, 2026-08-30.
+
+Ownership: **"Google won't claim ownership over that content."**
+
+Competing models: **"You may not use the Services to develop models that
+compete with the Services (e.g., Gemini API or Google AI Studio)."** A detector
+is not a competing *generator*; the reading is recorded rather than assumed.
+
+Watermarking, and this is the row that matters for the results table:
+**"All generated images include a SynthID watermark."** No opt-out is offered.
+DeepMind's page adds that the mark is embedded at creation, is *"imperceptible
+to humans"*, and is *"designed to stand up to modifications like cropping,
+adding filters, changing frame rates, or lossy compression"* — i.e. it is built
+to survive the same 20-condition grid these images are scored under. Cite the
+API doc, not the DeepMind page: only the former states universal application.
+
+Consequence: Google's rows carry a provider-specific synthetic signal that has
+nothing to do with generation artefacts. Brief §5.2 forbids pooling and §5.7
+requires the flag; both exist for this.
+
+### Ideogram — Developer API agreement
+
+Read at <https://ideogram.ai/legal/api-tos>, 2026-08-30.
+
+Does **not** train on us — §2.2: **"the Company agrees that it shall not use
+any User Input or User Output to train the Ideogram AI Model"**, with a narrow
+exception for flagged policy violations. This is the strongest commitment of
+the four and worth having on record.
+
+Competing products — §2.3.6(A) bars using User Input or User Output **"to
+develop any product, service, or technology that competes with the Company,
+the Ideogram AI Model, Ideogram API, or any of the Company's products"**.
+
+Attribution is an **obligation, not a courtesy** — §2.3.1(a) requires you
+**"identify on the Developer Application that any User Output generated…was
+created by the Ideogram AI Model"**. §2.3.6(H) separately encourages disclosing
+AI origin. Anything published from this provider carries that notice.
+
+Ownership: the agreement grants no explicit assignment of output IP, which is
+weaker than OpenAI's position. Absence of an assignment is not a grant. Keep
+Ideogram rows local until someone confirms the ownership position.
+
+### OpenAI — NOT YET VERIFIED, and a human has to do it
+
+`openai.com/policies/row-terms-of-use/` and `openai.com/policies/services-agreement/`
+both return **HTTP 403 to automated fetch**. They were not read at source, so
+nothing here may be cited yet.
+
+Secondary sources report OpenAI assigns **"all our right, title, and interest,
+if any, in and to Output"** to the user, and separately bars using Output to
+develop competing models. **Both are hearsay until someone opens the pages in a
+browser.** Paste the two clauses verbatim with the URL and the date, and delete
+this paragraph.
+
+### Bytedance / Seedream — NOT YET READ
+
+Seedream 4.5 is reached through a reseller (OpenRouter, fal), so **two** sets of
+terms bind: the reseller's and Bytedance's own. Neither has been read. Price and
+capability are confirmed ($0.04/image, 1K/2K/4K, up to 10 images per request,
+<https://openrouter.ai/bytedance-seed/seedream-4.5>) — terms are not.
+
+### Not purchased, and why
+
+* **Stability API** — serves SD 3.5, which task 02 puts in *training* by name.
+  Not held out for us at any price.
+* **Black Forest Labs** — outputs are usable commercially, but BFL takes a
+  *"perpetual, irrevocable, worldwide"* licence to inputs **and** outputs and
+  states it may train on them, and bars output from being used as synthetic
+  training data for a model of *"substantially similar functionality"*. Excluded
+  on those terms, **not** on lineage — see `03a` §1.1, where the lineage
+  argument does not survive contact with FLUX.2's from-scratch VAE.
+* **Recraft** — reserve only. Lineage-clean and slightly cheaper than Seedream,
+  but appears in none of NTIRE 2026's held-out splits. Terms unread.
+
 ## Receipts on disk
 
 `data/raw/LICENCES.json` and `data/demo/LICENCES.json` were written during acquisition,
