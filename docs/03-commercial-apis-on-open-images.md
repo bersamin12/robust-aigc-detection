@@ -47,6 +47,50 @@ diversity, not image count. Roughly 500–1,000 each. Prioritise families whose
 *decoder lineage* is absent from training — that is what makes them unseen.
 Two products from the same underlying model count as one family.
 
+### 2.1 Which providers — the reference is NTIRE 2026
+
+We are not the first to build this. The NTIRE 2026 challenge (arXiv 2604.11487)
+holds every proprietary API model out of training and uses it only in
+validation and test — the same design as this task. Their held-out
+composition is the best available proxy for what a graded benchmark contains,
+so it is the shopping list to match:
+
+| Split | Proprietary models held out (their † = via API) |
+|---|---|
+| Train | **none** — 20 open-source generators only |
+| Validation | Ideogram v3 Turbo, ImageGen-4 Fast |
+| Validation (hard) | Nano Banana, Seedream 4 |
+| Test (public) | Nano Banana Pro, FLUX-2 Max, ImageGen-4 Ultra, Seedream 5 Lite, Grok Imagine |
+| Test (private) | Nano Banana 2, GPT Image 1.5, ImageGen-4 Ultra, Seedream 5 Lite, Grok Imagine |
+
+Six vendors: **Google, OpenAI, Bytedance (Seedream), Ideogram, xAI (Grok),
+Black Forest Labs**. Their split sizes are 2.5K–10K at 1:1 real:fake across
+~10 generators, which is where §2's 2,000–5,000 figure sits.
+
+Read two things off that table:
+
+* **Recraft appears nowhere**, while **Seedream appears in four of the five
+  held-out splits** and costs $0.04/image. A provider set of OpenAI, Google,
+  Ideogram and Seedream matches the reference composition; substituting
+  Recraft moves away from it for no gain.
+* **FLUX.2 is held out while FLUX.1 is trained on.** NTIRE puts FLUX.1
+  Kontext Dev, Dev and Schnell in training and FLUX-2 Max in the test set. So
+  the field's flagship benchmark applies the *decoder weights* test, not the
+  *lab* test — which is the choice this section asks you to make explicitly.
+  Under that test FLUX.2 is eligible for us too.
+
+### 2.2 Do not put a fake and its own partner real in the same eval split
+
+NTIRE pairs generated to real images for *training*, and deliberately breaks
+the pairing for validation and test: *"we use only unique images without its
+paired counterpart to avoid potential advantage from selecting between multiple
+similar images."*
+
+Do the same. Use the pairing to **generate** and to apply §3.1's parity — that
+is what makes per-row encoder matching possible at all — then draw the eval
+set's real half from *different* photographs. You keep the parity and you do
+not hand the scorer a matched pair.
+
 **"Same lineage" needs a stated test, because the obvious cases are not the
 hard ones.** A successor model from the same lab can share the product name and
 the architecture family while shipping a latent space retrained from scratch
@@ -97,6 +141,27 @@ quality distribution as the reals** before it is stored.
 
 **That save path has to exist, and be proven on task 02's free images, before a
 card is charged.** If it does not clear, nothing below matters.
+
+**The task 02 solution does not transfer, and this is the part to think about.**
+`docs/03-ai-ov7-generation-plan.md` §3 clears this gate by never resampling at
+all — a local model is told to render at the real's exact dimensions, and the
+geometry is then centre-*cropped* to a multiple of 8. Measured `jpeg_quality`
+AUC **0.5031**. That works because the generator's output size is a parameter.
+
+An API's is not. Providers render into fixed buckets — 1024×1024, 1024×1536 —
+and hand you what they hand you, so *something* has to close the gap to a
+~427×640 real. Three options, and the pilot in §3.2 is what settles it:
+
+1. **Downscale** the API output onto the real's size. Simple, and it leaves the
+   resampling signature `docs/resolution_shortcut.md` describes.
+2. **Crop** a real-sized window out of the API output. No resample, so it
+   inherits task 02's cleanliness — but the eval set is then crops while the
+   graded benchmark holds whole frames.
+3. **Downscale both halves** equally. Rejected: re-encoding a real to match a
+   fake *"would add a compression generation to the authentic class"*, which
+   damages the half we know is clean.
+
+Measure 1 and 2 on the pilot's images and pick on the number, not on argument.
 
 ### 3.2 Pilot before the bulk buy
 
@@ -201,6 +266,12 @@ These rows are held out, so they **must not** be reachable by training.
    redistribution, watermarking, and whether the provider trains on submissions.
 5. A deduplication check against the training corpus. If any generated image
    is a near-duplicate of a training image, the held-out claim is void.
+   **This covers the reals too, not only the fakes.** Task 02 trains on 60,000
+   Open Images photographs; if this task's eval reals are drawn from that same
+   pool, the false-positive rate is measured partly on images the model has
+   already seen, and the headline flatters itself. Draw the eval real half from
+   `ImageID`s that appear in no training split, and assert it the same way
+   criterion 1 asserts the generated side.
 6. Encoder parity demonstrated, not assumed: `jpeg_quality` AUC on the §3.2
    pilot below ~0.60, reported in the writeup next to the TPR. A provider whose
    images went through a different save path than the reals is measuring its

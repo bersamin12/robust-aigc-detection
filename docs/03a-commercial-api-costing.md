@@ -7,7 +7,7 @@ off a vendor page (the page paywalls, 403s, or loads its prices by script) and
 must be confirmed before a card is charged. Every price here can move.
 
 **Headline: cost is not the blocker.** The held-out set the brief describes
-costs roughly **$115**, and about **$280** at the top of its 5,000-image range.
+costs roughly **$114**, and about **$285** at the top of its 5,000-image range.
 §1.1's price argument is sound but it is an argument against a *training*
 corpus — see §3. The two things that should actually gate this task are
 SynthID and encoder parity (§4); both are now written into the brief's §3.
@@ -96,18 +96,24 @@ table.
 | OpenAI | `gpt-image-2`, 1K **medium** | 0.053 | 500 | $26.50 | calculator ✓ (see tier note) |
 | Google | Gemini 3.1 Flash Image, 1K standard | 0.067 | 500 | $33.50 | vendor page ✓ |
 | Ideogram | 4.0 Turbo | 0.030 | 500 | $15.00 | *unconfirmed* — the pricing tab loads its rates by script; corroborated at three aggregators |
-| Recraft | V4.1 raster, 70/30 t2i / inpaint | 0.0379 | 500 | $18.97 | vendor page ✓ ($0.03535 raster, $0.0440 inpaint) |
-| | | | **2,000** | **$93.97** | |
-| Retry / refusal budget | +20%, see below | | | **+$18.79** | |
-| | | | | **≈ $113** | |
+| Bytedance | Seedream 4.5, 1K | 0.040 | 500 | $20.00 | OpenRouter ✓; Bytedance's own terms behind the reseller still unread |
+| | | | **2,000** | **$95.00** | |
+| Retry / refusal budget | +20%, see below | | | **+$19.00** | |
+| | | | | **≈ $114** | |
+
+**Recraft was dropped for Seedream** on the brief's §2.1 reasoning: Recraft
+appears in none of NTIRE 2026's held-out splits, Seedream appears in four of
+five. Recraft is slightly cheaper ($0.03535 raster / $0.0440 inpaint, vendor
+page ✓) and remains the reserve if a provider drops out — the swap is about
+matching the benchmark's composition, not price.
 
 Cheaper same-lineage substitutions, if the total needs to come down without
 dropping a provider: **Google batch tier** at $0.0335 (halves Google's line to
 $16.75), or **Gemini 3.1 Flash Lite Image** at $0.0336 standard / $0.0168 batch.
 Both keep Google's SynthID problem (§4.1) intact.
 
-At the top of the brief's range (5,000 images, 1,250 per provider): **≈ $235
-before retries, ≈ $282 with them.**
+At the top of the brief's range (5,000 images, 1,250 per provider): **≈ $238
+before retries, ≈ $285 with them.**
 
 **The quality tier is a 35× lever and it is not a pure cost knob.** `gpt-image-2`
 at 1024×1024 is **$0.006 low / $0.053 medium / $0.211 high**. Buying the low
@@ -182,7 +188,7 @@ now the brief's §3.1, ahead of everything else.
 
 ## 5. Go / no-go
 
-**Go, at the $113 baseline, conditional on four things landing first:**
+**Go, at the $114 baseline, conditional on four things landing first:**
 
 1. Encoder-parity save path written and proven on task 02's free images
    (brief §3.1).
@@ -193,11 +199,12 @@ now the brief's §3.1, ahead of everything else.
 4. The quality tier decided and written down. Defaulting to "cheapest" silently
    changes what the benchmark measures.
 
-Provider set: **OpenAI, Google (flagged for SynthID), Ideogram, Recraft.** Not
-Stability — the API serves SD 3.5, which task 02 puts in training by name. Not
-BFL either, but on its input/output licence and training-data bar (§2), *not*
-on the lineage argument, which §1.1 does not sustain. Seedream 4.5 ($0.04/image
-via OpenRouter) is the lineage-clean reserve if a provider drops out.
+Provider set: **OpenAI, Google (flagged for SynthID), Ideogram, Seedream** —
+four of the six vendors NTIRE 2026 holds out, which is the composition the
+brief's §2.1 argues for. Recraft is the reserve. Not Stability — the API serves
+SD 3.5, which task 02 puts in training by name. Not BFL either, but on its
+input/output licence and training-data bar (§2), *not* on the lineage argument,
+which §1.1 does not sustain.
 
 If the pilot fails gate 2, the brief's §6 fallback applies: an open-weight
 held-out lineage answers a weaker version of the same question for GPU time
