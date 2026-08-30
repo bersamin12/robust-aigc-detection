@@ -425,3 +425,47 @@ def stratified_subsample(meta_df: pd.DataFrame, n: int,
     if not picked:
         return np.empty(0, dtype=np.int64)
     return np.sort(np.concatenate(picked).astype(np.int64))
+
+
+def assert_heldout_not_trained(train_bank, eval_bank,
+                               excluded: Sequence[str] = ()) -> None:
+    """Refuse to score a held-out family the training bank actually trained on.
+
+    A lineage holdout is two halves that live in different files, and each is
+    silent without the other. `build_eval_manifest --extra-heldout-generators`
+    promotes a family's rows into the eval manifest's `heldout_generator`
+    split, so there is something to score; `RungConfig.train_exclude_generators`
+    drops the same family from the training rows, so the score means anything.
+    Do only the first and the head trained on precisely the family the headline
+    calls unseen -- and nothing about the resulting number looks wrong. It is
+    in range, it is plausible, and it is inflated.
+
+    Nothing else can catch this. `assert_banks_comparable` compares the two
+    banks' shape, backbone and manifest, all of which agree here. The metric
+    itself (`errors.heldout_robust_tpr`) builds its population from the eval
+    bank's split column alone, which is exactly the column that has been told
+    the family is held out.
+
+    So the check is a comparison ACROSS the two banks: every generator the eval
+    bank scores as held out, that the training bank also has rows for in
+    `train`, must appear in `excluded`.
+    """
+    ev, tr = eval_bank.meta, train_bank.meta
+    for name, meta in (("eval", ev), ("train", tr)):
+        for col in ("split", "generator"):
+            if col not in meta.columns:
+                raise ValueError(
+                    f"the {name} bank's meta has no {col!r} column, so a "
+                    "lineage holdout cannot be checked. Re-extract with a "
+                    "current BankWriter.")
+    scored = set(map(str, ev.loc[ev["split"] == "heldout_generator", "generator"]))
+    trained = set(map(str, tr.loc[tr["split"] == "train", "generator"]))
+    leaked = sorted((scored & trained) - {str(e) for e in excluded} - {""})
+    if leaked:
+        raise ValueError(
+            f"generator(s) {leaked} are scored as held out by the eval bank "
+            "and are also in the training bank's `train` split, and the rung "
+            "did not exclude them. The headline would be a score on families "
+            "the head trained on. Pass them as "
+            f"train_exclude_generators={tuple(leaked)!r}, or rebuild the eval "
+            "manifest without --extra-heldout-generators.")

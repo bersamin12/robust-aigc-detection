@@ -66,7 +66,12 @@ class RungConfig:
     #: selection metric is computed against, so thinning it would move the
     #: operating point and make two rungs incomparable for a reason that has
     #: nothing to do with the rung.
-    train_exclude_generators: tuple[str, ...] = ()
+    #:
+    #: A list, not a tuple, so `asdict(cfg)` round-trips through the
+    #: checkpoint's JSON unchanged -- a tuple comes back as a list and
+    #: `config_differences` would then report a spurious mismatch on every
+    #: resume.
+    train_exclude_generators: list[str] = field(default_factory=list)
 
 
 def manifest_rows_for_bank(bank: FeatureBank, manifest_df):

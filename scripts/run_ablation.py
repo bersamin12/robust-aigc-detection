@@ -72,7 +72,7 @@ from aigcdet.eval.fusion import (
     FIT_SPLITS_FOR_SELECTION, POPULATION_COLUMN,
     FusedEvalBank, assert_fusion_parents, fuse_scores, fused_splits,
 )
-from aigcdet.eval.grid import score_grid
+from aigcdet.eval.grid import assert_heldout_not_trained, score_grid
 from aigcdet.eval.report import (
     DEFAULT_BOOT_SEED, DEFAULT_N_BOOT, METRIC_COLUMNS, PROBABILITY_METRICS,
     THRESHOLD_METRICS, TIER_CONDITIONS, clean_validation_threshold,
@@ -113,9 +113,23 @@ def rung_paths(out_dir: str, name: str) -> tuple[str, str]:
 
 
 def load_rung_config(config_path: str, bank_dir: str, out_dir: str, device: str,
-                     manifest_path: str | None = None) -> RungConfig:
+                     manifest_path: str | None = None,
+                     train_exclude_generators=None) -> RungConfig:
     with open(config_path, encoding="utf-8") as f:
         raw = yaml.safe_load(f)
+    # A lineage holdout is a property of the RUN, not of any one rung: every
+    # rung in the table must train on the same rows or the table compares
+    # corpora rather than rungs. So the CLI value overrides whatever a rung
+    # file says, and a rung file that disagrees is reported rather than
+    # silently losing.
+    if train_exclude_generators:
+        was = raw.get("train_exclude_generators")
+        if was and sorted(map(str, was)) != sorted(map(str, train_exclude_generators)):
+            raise SystemExit(
+                f"{config_path} sets train_exclude_generators={list(was)} but "
+                f"the run passed {list(train_exclude_generators)}. One table "
+                "cannot hold rungs trained on different corpora.")
+        raw["train_exclude_generators"] = list(train_exclude_generators)
     return RungConfig(bank_dir=bank_dir, out_dir=out_dir, device=device,
                       manifest_path=manifest_path, **raw)
 
@@ -276,6 +290,12 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--bank", required=True, help="training feature bank")
     ap.add_argument("--eval-bank", required=True,
                     help="bank written by eval.grid.extract_eval_bank")
+    ap.add_argument("--train-exclude-generators", default="",
+                    help="comma-separated generator families to drop from "
+                         "EVERY rung's training rows. Use with "
+                         "build_eval_manifest --extra-heldout-generators to "
+                         "score a whole lineage as unseen; the two must name "
+                         "the same families or the run is refused.")
     ap.add_argument("--rungs", nargs="+", required=True, help="rung config YAMLs")
     ap.add_argument("--tier", required=True, choices=sorted(TIER_CONDITIONS))
     ap.add_argument("--out", default="docs/robustness_table.md")
@@ -353,7 +373,20 @@ def main(argv=None) -> dict:
     # bank alone, so an operator who points the ladder at a benchmark-only bank
     # should be told in the first millisecond, not after hours of GPU.
     check_selection_population(splits)
-    backbone = FeatureBank.open(a.bank).config.get("backbone")
+    train_bank = FeatureBank.open(a.bank)
+    backbone = train_bank.config.get("backbone")
+
+    # The other half of a lineage holdout, checked before the first rung
+    # trains. `build_eval_manifest --extra-heldout-generators` can promote a
+    # family into the eval bank's `heldout_generator` split so there is
+    # something to score; that only MEANS anything if the same family was kept
+    # out of training. Do one without the other and the headline is a score on
+    # families the head trained on, in range and plausible and inflated.
+    exclude = [g.strip() for g in a.train_exclude_generators.split(",")
+               if g.strip()]
+    assert_heldout_not_trained(train_bank, eval_bank, exclude)
+    if exclude:
+        print(f"excluding {exclude} from every rung's training rows")
 
     # Everything the fusion needs is validated BEFORE the first rung trains,
     # for the same reason the split coverage is: a second eval bank over
@@ -380,7 +413,8 @@ def main(argv=None) -> dict:
     # beside the scores rather than assumed to be the same list for all of them.
     per_rung, summary, banks, rung_splits = {}, {}, {}, {}
     for config_path in a.rungs:
-        cfg = load_rung_config(config_path, a.bank, a.out_dir, a.device, a.manifest)
+        cfg = load_rung_config(config_path, a.bank, a.out_dir, a.device,
+                               a.manifest, exclude)
         result, resumed = train_or_resume(cfg, force=a.force_retrain)
         if resumed:
             print(f"SKIP {cfg.name}: reusing the existing checkpoint at "
@@ -420,8 +454,14 @@ def main(argv=None) -> dict:
                   f"{FUSION_RUNG.upper()} was not evaluated in this run",
     }
     if fuse_eval_bank is not None:
+        # The partner head trains on a SECOND bank, so it needs the same
+        # exclusion and the same check. A5 fusing a clean head with a
+        # contaminated one is still contaminated, and the fused number carries
+        # no mark of which half did it.
+        assert_heldout_not_trained(FeatureBank.open(a.fuse_bank),
+                                   fuse_eval_bank, exclude)
         cfg2 = load_rung_config(fuse_base_config, a.fuse_bank, a.out_dir,
-                                a.device, a.manifest)
+                                a.device, a.manifest, exclude)
         cfg2.name = FUSION_PARTNER_NAME
         partner, partner_resumed = train_or_resume(cfg2, force=a.force_retrain)
         if partner_resumed:

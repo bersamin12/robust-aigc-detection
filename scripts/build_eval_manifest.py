@@ -47,6 +47,7 @@ from aigcdet.data.manifest import (
     read_manifest,
     write_manifest,
 )
+from aigcdet.data.sources import is_heldout_eligible
 
 #: The splits the ablation tier is defined over, minus `benchmark`, which comes
 #: from the other file. Kept in step with `extract_eval_bank.TIERS["ablation"]`.
@@ -104,6 +105,62 @@ def check_digests(frozen: pd.DataFrame, rebuilt: pd.DataFrame) -> None:
             "the files, or re-freeze the source manifest deliberately.")
 
 
+def promote_to_heldout(train_full: pd.DataFrame, families: tuple[str, ...]):
+    """Boolean mask over `train_full`: the `train` rows of `families`.
+
+    WHY THIS EXISTS. The manifest's held-out pair holds out
+    `SDwithAdaptor_controlnet` while `SDwithAdaptor_lora` and
+    `SDwithAdaptor_lycris` stay in TRAINING, and `VQGAN` while `VQVAE` and
+    `vqdm` stay in. An adapter changes the conditioning, not the decoder that
+    leaves the forensic trace, so the pinned pair asks an easier question than
+    its name suggests. Asking the harder one -- hold out the whole lineage --
+    needs the siblings on BOTH sides: excluded from training
+    (`RungConfig.train_exclude_generators`) and present in the eval manifest so
+    there is something to score. They are in `train`, so nothing puts them here
+    by default.
+
+    WHY IT IS SAFE TO RELABEL THEM. The eval manifest is already a NEW
+    manifest with its own identity, not a view of either input (see the module
+    docstring), so its split column is its own. What it is NOT safe to do is
+    score these rows against a rung that trained on them -- and nothing in
+    this file can see a rung. That coupling is checked at scoring time by
+    `eval.grid.assert_heldout_not_trained`, which refuses a table whose eval
+    bank holds a family the training bank also trained on.
+
+    A family that matches nothing raises. It would contribute zero rows, and
+    the resulting number would still be reported as a lineage-holdout score.
+    """
+    if not families:
+        return pd.Series(False, index=train_full.index)
+    ineligible = sorted(f for f in families if not is_heldout_eligible(f))
+    if ineligible:
+        raise SystemExit(
+            f"--extra-heldout-generators names {ineligible}, which are "
+            "dataset-level pseudo-generators. Holding one out removes an "
+            "entire source, so the score would measure dataset shift rather "
+            "than an unseen generator family (spec 4.6).")
+    already = sorted(set(families) & set(
+        train_full.loc[train_full["split"] == "heldout_generator", "generator"]))
+    if already:
+        raise SystemExit(
+            f"--extra-heldout-generators names {already}, which the manifest "
+            "ALREADY holds out. Naming them here would say the eval manifest "
+            "and the training manifest disagree about the split, when they "
+            "agree. Name only the siblings that are still in `train`.")
+    mask = ((train_full["split"] == "train")
+            & train_full["generator"].isin(list(families)))
+    missing = sorted(set(families) - set(train_full.loc[mask, "generator"]))
+    if missing:
+        present = sorted(set(train_full.loc[train_full["split"] == "train",
+                                            "generator"]) - {""})
+        raise SystemExit(
+            f"--extra-heldout-generators names {missing}, which no `train` row "
+            f"carries. The manifest's train split holds {present}. A name that "
+            "matches nothing contributes no rows, and the number would still "
+            "be reported as a lineage-holdout score.")
+    return mask
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description="Combine the training and benchmark manifests for the "
@@ -114,6 +171,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--splits", default=",".join(DEFAULT_SPLITS),
                     help="comma-separated splits to take from --manifest; "
                          "`benchmark` always comes from --benchmark-manifest")
+    ap.add_argument("--extra-heldout-generators", default="",
+                    help="comma-separated generator families to PROMOTE from "
+                         "the training manifest's `train` split into this "
+                         "manifest's `heldout_generator` split, so a whole "
+                         "lineage can be scored as unseen. The same families "
+                         "must be passed to the rung as "
+                         "train_exclude_generators, or the score is of a "
+                         "family the head trained on; "
+                         "eval.grid.assert_heldout_not_trained enforces that "
+                         "at scoring time.")
     ap.add_argument("--workers", type=int, default=8)
     a = ap.parse_args(argv)
 
@@ -128,7 +195,25 @@ def main(argv: list[str] | None = None) -> int:
             "is almost certainly the training manifest passed twice, which "
             "would double-count its rows in the eval bank.")
 
-    train = select(train, splits, "--manifest")
+    extra = tuple(g.strip() for g in a.extra_heldout_generators.split(",")
+                  if g.strip())
+    # One mask over the WHOLE training manifest rather than a concat of two
+    # selections, so the promoted rows keep the manifest's own row order --
+    # row order is the key space, and it must be a function of the inputs
+    # alone.
+    promote = promote_to_heldout(train, extra)
+    # `select` still owns the unknown-split guard; the promoted rows are added
+    # by INDEX and the result re-sorted, because a frozen manifest's index is
+    # its row order and row order is the key space. A concat of two selections
+    # would put the promoted rows after the benchmark boundary instead.
+    keep = sorted(select(train, splits, "--manifest").index
+                  .union(train.index[promote]))
+    promoted_here = train.index[promote]
+    train = train.loc[keep].copy()
+    if extra:
+        train.loc[promoted_here, "split"] = "heldout_generator"
+        print(f"promoted {len(promoted_here)} row(s) of {list(extra)} from "
+              "train to heldout_generator")
     check_no_overlap(train, bench)
 
     # Fixed order: the eval splits in the training manifest's own order, then

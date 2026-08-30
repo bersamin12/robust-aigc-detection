@@ -188,3 +188,82 @@ def test_refuses_when_an_image_appears_in_both_manifests(bem, tmp_path, two_mani
     with pytest.raises(SystemExit, match="both"):
         bem.main(["--manifest", tm2, "--benchmark-manifest", bm,
                   "--out", str(tmp_path / "m.parquet")])
+
+
+# --- the lineage holdout ----------------------------------------------------
+
+def test_extra_generators_are_promoted_from_train_to_heldout(bem, tmp_path,
+                                                             two_manifests):
+    """A lineage holdout needs the siblings on BOTH sides.
+
+    The manifest's pinned pair holds out `SDwithAdaptor_controlnet` while
+    `_lora` and `_lycris` stay in training -- same decoder, different adapter,
+    so "unseen generator" is an easier question than it sounds. Asking the
+    harder one means excluding the siblings from training AND having them in
+    the eval manifest to score. They sit in `train`, so nothing puts them here
+    by default and this flag is the only way in.
+    """
+    tm, bm, _ = two_manifests
+    out = str(tmp_path / "e.parquet")
+    bem.main(["--manifest", tm, "--benchmark-manifest", bm, "--out", out,
+              "--extra-heldout-generators", "g0"])
+
+    df = read_manifest(out)
+    counts = df["split"].value_counts().to_dict()
+    # g0 is the only family in `train` that is not already held out: train rows
+    # are g0,g1,g2,g0 and the heldout rows are g1,g2.
+    assert counts["heldout_generator"] == 4      # 2 already + 2 promoted
+    assert "train" not in set(df["split"])
+    promoted = df[(df["split"] == "heldout_generator") & (df["generator"] == "g0")]
+    assert len(promoted) == 2
+
+
+def test_promoted_rows_keep_the_manifest_row_order(bem, tmp_path, two_manifests):
+    """Row order IS the key space -- the index label keys every view's RNG. A
+    concat of two selections would append the promoted rows after the ones
+    they precede in the manifest, so the same corpus built with and without
+    the flag would disagree about which pixels a row has."""
+    tm, bm, _ = two_manifests
+    out = str(tmp_path / "e.parquet")
+    bem.main(["--manifest", tm, "--benchmark-manifest", bm, "--out", out,
+              "--extra-heldout-generators", "g0"])
+
+    df = read_manifest(out)
+    # Train-manifest row 0 (a `train` row of g0) precedes rows 4-8, so the
+    # promoted row must be FIRST, not appended after them.
+    non_bench = df[~df["rel_path"].str.startswith("demo/")]
+    assert non_bench.iloc[0]["generator"] == "g0"
+    assert non_bench.iloc[0]["split"] == "heldout_generator"
+
+
+def test_a_family_that_matches_no_train_row_raises(bem, tmp_path, two_manifests):
+    """It would contribute zero rows and the number would still be reported as
+    a lineage-holdout score."""
+    tm, bm, _ = two_manifests
+    with pytest.raises(SystemExit, match="matches nothing|no `train` row"):
+        bem.main(["--manifest", tm, "--benchmark-manifest", bm,
+                  "--out", str(tmp_path / "e.parquet"),
+                  "--extra-heldout-generators", "not_a_family"])
+
+
+def test_a_family_already_held_out_raises(bem, tmp_path, two_manifests):
+    """The fixture's heldout_generator rows carry g1 and g2. Naming one here
+    would claim the two manifests disagree about its split when they agree."""
+    tm, bm, _ = two_manifests
+    held = set(read_manifest(tm).query("split == 'heldout_generator'")["generator"])
+    name = sorted(held)[0]
+    with pytest.raises(SystemExit, match="ALREADY holds out"):
+        bem.main(["--manifest", tm, "--benchmark-manifest", bm,
+                  "--out", str(tmp_path / "e.parquet"),
+                  "--extra-heldout-generators", name])
+
+
+def test_without_the_flag_nothing_changes(bem, tmp_path, two_manifests):
+    """The default must be byte-identical to before, or every manifest already
+    frozen would need re-freezing."""
+    tm, bm, _ = two_manifests
+    a_out = str(tmp_path / "a.parquet")
+    bem.main(["--manifest", tm, "--benchmark-manifest", bm, "--out", a_out])
+    df = read_manifest(a_out)
+    assert df["split"].value_counts().to_dict() == {
+        "benchmark": 5, "val_internal": 3, "heldout_generator": 2}

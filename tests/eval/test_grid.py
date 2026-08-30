@@ -452,3 +452,71 @@ def test_stratified_subsample_ignores_the_frames_index_labels():
     idx = stratified_subsample(meta, 10, seed=4)
     assert idx.max() < len(meta)
     assert (meta.iloc[idx]["label"] == 1).sum() == 5
+
+
+# --- the lineage-holdout contamination guard --------------------------------
+
+def _bank_with(tmp_path, name, rows):
+    """`rows` is [(split, generator, label)]; features are irrelevant here."""
+    from aigcdet.features.bank import BankWriter
+    n, views, dim = len(rows), 2, 4
+    w = BankWriter(str(tmp_path / name), n, views, dim, "t", 0)
+    for i, (split, gen, label) in enumerate(rows):
+        w.write_image(i, {"path": f"/p{i}", "label": label, "generator": gen,
+                          "source": "s", "split": split},
+                      feats=np.zeros((views, dim), np.float32),
+                      presence=np.zeros((views, 6), np.float32),
+                      severity=np.zeros((views, 6), np.float32),
+                      proxies=np.zeros((views, 3), np.float32),
+                      recipes=["[]"] * views)
+    w.close()
+    return FeatureBank.open(str(tmp_path / name))
+
+
+def test_scoring_a_family_the_head_trained_on_is_refused(tmp_path):
+    """The failure this exists for is silent on every other check.
+
+    A lineage holdout is two halves in two files: promote the siblings into
+    the eval manifest's heldout split, and exclude them from training. Do only
+    the first and the head trained on exactly the family the headline calls
+    unseen -- and the number is in range, plausible, and inflated.
+    `assert_banks_comparable` cannot see it (shape, backbone and manifest all
+    agree), and the metric builds its population from the very split column
+    that was told the family is held out.
+    """
+    from aigcdet.eval.grid import assert_heldout_not_trained
+
+    train = _bank_with(tmp_path, "tr", [("train", "lin_a", 1),
+                                        ("train", "other", 1),
+                                        ("val_internal", "", 0)])
+    ev = _bank_with(tmp_path, "ev", [("heldout_generator", "lin_a", 1),
+                                     ("val_internal", "", 0)])
+    with pytest.raises(ValueError, match="lin_a"):
+        assert_heldout_not_trained(train, ev)
+    # Naming it as excluded is what makes the pair coherent.
+    assert_heldout_not_trained(train, ev, ["lin_a"])
+
+
+def test_a_genuinely_unseen_family_needs_no_exclusion(tmp_path):
+    """The manifest's own held-out families never appear in `train`, so the
+    default path must stay silent or every existing run would start failing."""
+    from aigcdet.eval.grid import assert_heldout_not_trained
+
+    train = _bank_with(tmp_path, "tr2", [("train", "other", 1),
+                                         ("val_internal", "", 0)])
+    ev = _bank_with(tmp_path, "ev2", [("heldout_generator", "VQGAN", 1),
+                                      ("val_internal", "", 0)])
+    assert_heldout_not_trained(train, ev)
+
+
+def test_authentic_rows_carry_no_generator_and_are_not_flagged(tmp_path):
+    """Authentic rows have generator "" in every real manifest, and "" is in
+    both banks' train and heldout sets. Treating it as a leaked family would
+    fail every honest run."""
+    from aigcdet.eval.grid import assert_heldout_not_trained
+
+    train = _bank_with(tmp_path, "tr3", [("train", "", 0), ("train", "x", 1),
+                                         ("val_internal", "", 0)])
+    ev = _bank_with(tmp_path, "ev3", [("heldout_generator", "", 0),
+                                      ("val_internal", "", 0)])
+    assert_heldout_not_trained(train, ev)
