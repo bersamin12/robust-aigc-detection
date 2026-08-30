@@ -58,3 +58,8 @@ scratch/
 
 # agent worktrees (transient, created by the Agent tool)
 .claude/worktrees/
+
+# --- Secrets: API keys are read from the environment, never committed ---
+.env
+*.env
+!.env.example

@@ -76,7 +76,9 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
-from aigcdet.data.encoder_parity import ParityError, save_matched_to_real
+from aigcdet.data.encoder_parity import (
+    GEOMETRIES, GEOMETRY_RESAMPLE, ParityError, save_matched_to_real,
+)
 from aigcdet.features.proxies import PROXY_NAMES, estimate_jpeg_quality, proxy_vector
 
 #: Read against the pixel-only `after` figure. Task 02 §5's own number.
@@ -156,12 +158,12 @@ def _measure(path: str) -> dict | None:
 
 
 def _one_pair(task):
-    """(stem, real, generated, out_dir) -> (stem, real row, before row, after row).
+    """(stem, real, generated, out_dir, geometry) -> rows for one pair.
 
     Module-level and taking a plain tuple so it can go to a process pool; the
     work is decode- and encode-bound and embarrassingly parallel.
     """
-    stem, real_path, gen_path, out_dir = task
+    stem, real_path, gen_path, out_dir, geometry = task
     real_row = _measure(real_path)
     before_row = _measure(gen_path)
     if real_row is None or before_row is None:
@@ -170,7 +172,7 @@ def _one_pair(task):
     try:
         with Image.open(gen_path) as im:
             im.load()
-            save_matched_to_real(im, dst, real_path)
+            save_matched_to_real(im, dst, real_path, geometry)
     except ParityError as e:
         return stem, real_row, before_row, None, str(e)
     except Exception as e:
@@ -192,6 +194,14 @@ def main(argv=None):
     ap.add_argument("--n", type=int, default=DEFAULT_N, help="pairs to sample")
     ap.add_argument("--seed", type=int, default=20260827)
     ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--geometry", choices=GEOMETRIES, default=GEOMETRY_RESAMPLE,
+                    help="how a generated image is landed on its partner's exact "
+                         "size. `resample` keeps the whole frame and pays a "
+                         "resampling signature; `crop` resamples nothing and pays "
+                         "field of view. docs/03 §3.1 says decide this on the "
+                         "number: run both over the same purchased images and "
+                         "compare. Irrelevant for local generation, which can "
+                         "simply render at the target size.")
     ap.add_argument("--max-auc", type=float, default=DEFAULT_MAX_AUC,
                     help="refuse (exit 1) if pixel-only jpeg_quality AUC after "
                          "parity exceeds this. Task 02 §5's own gate is 0.60.")
@@ -205,9 +215,9 @@ def main(argv=None):
         pairs = [pairs[i] for i in np.sort(rng.choice(len(pairs), a.n, replace=False))]
 
     os.makedirs(a.out, exist_ok=True)
-    print(f"pairs: {len(pairs)}  ->  {a.out}\n", flush=True)
+    print(f"pairs: {len(pairs)}  geometry={a.geometry}  ->  {a.out}\n", flush=True)
 
-    tasks = [(stem, r, g, a.out) for stem, r, g in pairs]
+    tasks = [(stem, r, g, a.out, a.geometry) for stem, r, g in pairs]
     if a.workers > 1:
         with ProcessPoolExecutor(max_workers=a.workers) as ex:
             results = list(ex.map(_one_pair, tasks, chunksize=8))
