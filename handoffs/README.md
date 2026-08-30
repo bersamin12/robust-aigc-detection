@@ -8,7 +8,7 @@ to know it worked, and what would make it a negative result worth reporting.
 |---|---|---|---|
 | 02 | [Open-weight generators on Open Images V7](02-open-weight-generators-on-open-images.md) | unassigned | the Open Images harvest finishing |
 | 03 | [Commercial APIs on Open Images V7](03-commercial-apis-on-open-images.md) | unassigned | a costing decision (§3.2) |
-| 08 | [The ablation rungs, one at a time](08-ablation-rungs.md) | unassigned | nothing — a bank and an eval bank are on disk |
+| 08 | [The ablation rungs, one at a time](08-ablation-rungs.md) | unassigned | nothing — needs the ~17 GB bank bundle, see its §0 |
 
 ## House rules these all inherit
 
@@ -25,6 +25,10 @@ never into the frozen one.
 **Report the negative result.** Every one of these tasks can come back "this
 did not work". That is a publishable outcome here and it is written into the
 acceptance criteria below. Do not quietly reshape a task until it succeeds.
+
+**The banks are the deliverable, not the images.** Anyone running rungs needs
+the cached feature banks (`justinbersamin/techjam-aigc-banks`, private), not
+the image corpus. Extraction is hours of GPU and has already been paid for.
 
 **Confounds before conclusions.** This corpus leaks the label through
 sharpness, noise floor and JPEG history. Any new image source gets

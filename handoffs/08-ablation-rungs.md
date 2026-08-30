@@ -11,6 +11,92 @@ thing to make a rung work, that is a new rung, not an edit to this one.
 
 ---
 
+## 0. Getting the data — read this first
+
+You cannot run anything without a **feature bank**. A bank is the cached
+output of a vision backbone over the whole corpus: every image, every
+augmented view, one embedding each. Producing one takes hours of GPU. They are
+already produced, so you should never have to.
+
+### The bundle
+
+Kaggle Dataset **`justinbersamin/techjam-aigc-banks`** (private — ask for it to
+be shared with your Kaggle username). ~17 GB.
+
+```
+banks/dinov3l/          2.9 GB   training bank, the headline ladder ran here
+banks/eval_dinov3l/     1.0 GB   the 20-condition evaluation grid
+banks/siglip2l/         2.9 GB   A5 fusion partner
+banks/eval_siglip2l/    1.0 GB
+banks/convnextt/        6.4 GB   the CNN paradigm (dim 2304, not 1024)
+banks/eval_convnextt/   2.3 GB
+outputs/rungs/           23 MB   trained checkpoints, DINOv3
+outputs/rungs_convnextt/ 42 MB   trained checkpoints, ConvNeXt
+manifest.parquet         11 MB   REQUIRED
+eval_manifest.parquet   3.0 MB   REQUIRED
+```
+
+**Minimum to be useful: `dinov3l` + `eval_dinov3l` + both manifests — 3.9 GB.**
+That unblocks A0, A1, A2, A3 and A7-norecon. Add `siglip2l` for A5.
+
+### What is inside a bank, and why it is not just a matrix
+
+| file | what it is |
+|---|---|
+| `feats.npy` | `(n_images, n_views, dim)` float16 — the embeddings |
+| `views.parquet` | which augmentation recipe produced each view |
+| `meta.parquet` | row → `rel_path`, `label`, `generator`, `source`, `split` |
+| `presence.npy` / `severity.npy` | degradation targets for the A2 head |
+| `proxies.npy` | low-level confound measurements per row |
+| `config.json` | backbone, dim, seed, and `manifest_sha256` |
+
+### The three things that will bite you
+
+**1. Banks are positional, and verified.** A bank does not store image paths
+for its rows — it stores row *indices* into the manifest, and a
+`manifest_sha256` fingerprint over the ordered `rel_path` column. Use a
+different manifest and it refuses to load. **Do not regenerate the manifest.**
+Ship the `manifest.parquet` in the bundle and use exactly that one. Every bank
+in the bundle carries
+`768eeff9713417128fa92fd6b0d2ed8634ebd10b1f923b391cecc4641ced2d00`; the eval
+banks carry `0e28afc…` for the eval manifest.
+
+**2. The training banks do not contain the held-out generators.** 131,116 rows
+= 117,784 train + 13,332 val_internal. The 7,000 held-out rows live only in
+the *eval* bank. That is deliberate — held-out data must be unreachable from
+training — but it means row counts will not match the manifest's 138,116 and
+that is correct, not corruption.
+
+**3. Preallocated files look finished when they are not.** The writer
+preallocates `feats.npy` at full size before writing anything, so file size
+proves nothing about completeness. Everything in this bundle is verified
+complete; if you ever extract your own, check the resume state, not `ls -la`.
+
+### You do not need a GPU
+
+Stage B is a ~2M parameter head over cached features. `--device cpu` works and
+a rung takes minutes. The GPU cost was paid once, during extraction.
+
+### Verify before you trust a number
+
+```python
+import json, numpy as np, pandas as pd
+d = "banks/dinov3l"
+c = json.load(open(f"{d}/config.json")); print(c)
+f = np.load(f"{d}/feats.npy", mmap_mode="r")
+print(f.shape, f.dtype)                       # (131116, 11, 1024) float16
+print("nan:", bool(np.isnan(f[0]).any()))     # must be False
+m = pd.read_parquet(f"{d}/meta.parquet")
+print(m["split"].value_counts())              # train 117784 / val_internal 13332
+```
+
+**`nan` must be False.** A backbone run in the wrong precision produces a bank
+of NaN that is the right shape and the right size and completely useless — it
+has happened on this project, and row count was the only post-condition being
+checked at the time.
+
+---
+
 ## How to run any rung
 
 Everything runs on a cached feature bank, so no GPU-heavy backbone work is
