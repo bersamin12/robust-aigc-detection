@@ -107,10 +107,12 @@ five. Recraft is slightly cheaper ($0.03535 raster / $0.0440 inpaint, vendor
 page ✓) and remains the reserve if a provider drops out — the swap is about
 matching the benchmark's composition, not price.
 
-⚠ **Seedream is not yet purchasable.** No terms document exists for BytePlus's
-*image* models — only for the video ones — and OpenRouter's terms bind us to the
-upstream model terms rather than replacing them. Until BytePlus's own terms are
-obtained at signup, this row fails the brief's §5.4 and Recraft takes its place.
+⚠ **Seedream is bought without a terms document, deliberately.** None exists for
+BytePlus's *image* models — only for the video ones — and OpenRouter's terms bind
+us to the upstream model terms rather than replacing them. The owner chose to
+keep the provider rather than lose the benchmark composition (2026-08-30); the
+row still fails the brief's §5.4 and the writeup must say so. Mitigation:
+**Seedream images stay local, never redistributed** — see `dataset_licences.md`.
 
 **Ideogram's mode column is simple, unusually.** Its published rates are per
 output image by model and tier, and the Generate / Remix / Edit / Reframe /

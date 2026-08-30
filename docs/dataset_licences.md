@@ -309,19 +309,28 @@ read, which is worse than buying direct, not better. OpenRouter also adds its ow
 bar on *"developing a competing service"* (§7) and states *"Where possible,
 OpenRouter has opted out of model training with the Models it uses."*
 
-**Two ways forward, in order of preference:**
+**Decision, 2026-08-30: buy Seedream anyway.** The project owner reviewed the
+above and chose to proceed without a terms document rather than lose the
+provider. That is a legitimate call — Seedream appears in four of NTIRE 2026's
+five held-out splits and is the single most benchmark-representative generator
+on the list, and dropping it for Recraft moves the eval set away from the
+composition the whole task is trying to approximate.
 
-1. **Register directly at BytePlus ModelArk.** The binding terms are presented
-   at signup; accept them, save the document, and quote it here. This keeps
-   Seedream, which appears in four of NTIRE 2026's five held-out splits and is
-   the most benchmark-representative provider on the list.
-2. **Fall back to Recraft**, the reserve named in `docs/03` §2.1. Lineage-clean,
-   slightly cheaper ($0.03535 raster / $0.0440 inpaint, vendor page ✓), terms
-   published and readable — but it appears in none of NTIRE's held-out splits,
-   so the eval set moves away from the benchmark's composition.
+Recorded rather than resolved, because the finding stands even though the
+decision overrides it: **this row does not satisfy `docs/03` §5.4**, and the
+writeup must say so rather than presenting four cleanly-licensed providers.
 
-Until one of those lands, **Seedream fails `docs/03` §5.4** and must not be
-purchased.
+**One mitigation, and it costs nothing.** Redistribution is the term we cannot
+check, so treat it as unpermitted: **Seedream rows stay local and never enter a
+shared Kaggle Dataset.** `docs/03` §3.3 already carries this pattern for a
+provider that grants commercial use but bars redistribution — the same handling
+applies to one whose position is simply unknown. Commercial *use* of the output
+is not the exposure here; publishing the images is.
+
+**Still worth ten minutes if anyone has them:** registering at BytePlus ModelArk
+puts the binding terms in front of you at signup. If that yields a document,
+quote it here and delete this note. Recraft remains the fallback if the terms
+turn out to bar the use.
 
 ### Not purchased, and why
 

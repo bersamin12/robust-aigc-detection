@@ -168,8 +168,46 @@ def crop_to_aspect(im: Image.Image, aspect: float) -> Image.Image:
     return im.crop((left, top, left + new_w, top + new_h))
 
 
-def conform(im: Image.Image, profile: EncodingProfile) -> Image.Image:
-    """Crop and resample `im` to the profile's exact geometry and mode.
+#: The two ways to land a generated image on its partner's exact geometry.
+#:
+#: They are not interchangeable, and `docs/03` §3.1 makes choosing between them
+#: a measured decision rather than an argued one:
+#:
+#: - RESAMPLE crops to the target aspect and then LANCZOS-downscales to the
+#:   target size. Keeps the whole frame, at the cost of a resampling signature
+#:   — the real was shrunk by whatever its source pipeline used, the fake by
+#:   LANCZOS, and different kernels leave different high-frequency structure
+#:   (`docs/resolution_shortcut.md`).
+#: - CROP takes a target-sized window and resamples nothing at all. This is
+#:   what `docs/03-ai-ov7-generation-plan.md` §3 does locally, where the
+#:   generator can simply be told to render at the target size. Against API
+#:   output it costs field of view instead: a 427x640 window out of a 1024x1536
+#:   frame is a fragment of the scene rather than the scene.
+#:
+#: Local generation dodges the choice by rendering at the target size. An API
+#: cannot — it renders into fixed buckets and hands you what it hands you.
+GEOMETRY_RESAMPLE = "resample"
+GEOMETRY_CROP = "crop"
+GEOMETRIES: tuple[str, ...] = (GEOMETRY_RESAMPLE, GEOMETRY_CROP)
+
+
+def crop_to_size(im: Image.Image, width: int, height: int) -> Image.Image:
+    """Centre-crop `im` to exactly `width` x `height`, resampling nothing.
+
+    Raises rather than upscaling, for the same reason `conform` does.
+    """
+    if im.width < width or im.height < height:
+        raise ParityError(
+            f"cannot crop {im.size} to {(width, height)}; generated image is "
+            "smaller than the real it is paired with"
+        )
+    left, top = (im.width - width) // 2, (im.height - height) // 2
+    return im.crop((left, top, left + width, top + height))
+
+
+def conform(im: Image.Image, profile: EncodingProfile,
+            geometry: str = GEOMETRY_RESAMPLE) -> Image.Image:
+    """Land `im` on the profile's exact geometry and mode, by `geometry`.
 
     Refuses to upscale. Inventing detail would fabricate the forensic evidence
     the corpus is being built to measure, and it is never necessary in
@@ -177,29 +215,35 @@ def conform(im: Image.Image, profile: EncodingProfile) -> Image.Image:
     are ~360-700px on the short side. An upscale means the pairing is wrong,
     so it raises instead of quietly interpolating.
     """
-    im = crop_to_aspect(im, profile.aspect)
-    if im.width < profile.width or im.height < profile.height:
-        raise ParityError(
-            f"would upscale {im.size} -> {(profile.width, profile.height)}; "
-            "generated image is smaller than the real it is paired with"
-        )
-    if im.size != (profile.width, profile.height):
-        im = im.resize((profile.width, profile.height), Image.LANCZOS)
-    # Mode last, so the resample runs on the richer representation.
+    if geometry not in GEOMETRIES:
+        raise ParityError(f"unknown geometry {geometry!r}; expected one of {GEOMETRIES}")
+    if geometry == GEOMETRY_CROP:
+        im = crop_to_size(im, profile.width, profile.height)
+    else:
+        im = crop_to_aspect(im, profile.aspect)
+        if im.width < profile.width or im.height < profile.height:
+            raise ParityError(
+                f"would upscale {im.size} -> {(profile.width, profile.height)}; "
+                "generated image is smaller than the real it is paired with"
+            )
+        if im.size != (profile.width, profile.height):
+            im = im.resize((profile.width, profile.height), Image.LANCZOS)
+    # Mode last, so any resample runs on the richer representation.
     target = "L" if profile.mode == "L" else "RGB"
     if im.mode != target:
         im = im.convert(target)
     return im
 
 
-def save_matched(im: Image.Image, dst: str, profile: EncodingProfile) -> None:
+def save_matched(im: Image.Image, dst: str, profile: EncodingProfile,
+                 geometry: str = GEOMETRY_RESAMPLE) -> None:
     """Write `im` to `dst` as a JPEG encoded exactly the way the real was.
 
     Writes through `dst + ".part"` and renames, matching `normalize.save_png`:
     the acquisition scripts resume by testing `os.path.exists(dst)`, so a
     truncated file that resume treats as done is worse than no file at all.
     """
-    im = conform(im, profile)
+    im = conform(im, profile, geometry)
     kwargs: dict = {
         "format": "JPEG",
         "qtables": profile.qtables,
@@ -222,12 +266,13 @@ def save_matched(im: Image.Image, dst: str, profile: EncodingProfile) -> None:
         raise
 
 
-def save_matched_to_real(im: Image.Image, dst: str, real_path: str) -> EncodingProfile:
+def save_matched_to_real(im: Image.Image, dst: str, real_path: str,
+                         geometry: str = GEOMETRY_RESAMPLE) -> EncodingProfile:
     """Convenience wrapper: read the paired real's profile and apply it.
 
     Returns the profile so an acquisition script can record what it used —
     the parity claim is only auditable if the settings are written down.
     """
     profile = read_profile(real_path)
-    save_matched(im, dst, profile)
+    save_matched(im, dst, profile, geometry)
     return profile
