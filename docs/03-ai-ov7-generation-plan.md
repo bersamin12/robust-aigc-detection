@@ -15,6 +15,13 @@ Every fake is generated **from a specific real**, and carries that real's
 `ImageID`. Content, pixel dimensions and JPEG encoder are held fixed across the
 pair, so what is left between them is the generator.
 
+> **As built on 2026-08-30 this was false, and fatally so.** The first smoke run
+> emitted 6 pairs and **6 of 6 had mismatched dimensions**: the fake is always a
+> multiple of 8 (`crop_box`, because the VAE downsamples by 8) while the real was
+> copied byte-for-byte at its original size, so `width % 8 == 0` separated the
+> classes at ~100% without touching a pixel. §3 records the fix. Nothing
+> generated before that fix is usable as a corpus.
+
 1 real : 1 fake. No real is used twice. §4's balance follows by construction.
 
 ## 2. What is built
@@ -80,6 +87,26 @@ finds; lifting the real's own 64 integers and its subsampling onto its fake
 leaves no distribution at all. Measured locally: `jpeg_quality` AUC **0.5031**
 against the 0.5532 baseline. Reals are copied **byte-for-byte** — re-encoding
 one to "match" would add a compression generation to the authentic class.
+
+**Reals are cropped losslessly, not copied verbatim.** "Copy the real
+byte-for-byte" and "the fake is a multiple of 8" cannot both hold: changing a
+JPEG's dimensions normally means re-encoding, and re-encoding the real is exactly
+what the byte-for-byte rule exists to prevent. Copying verbatim left the crop
+applied to the generator's input and never to the emitted real -- the leak above.
+
+`jpegtran -crop` resolves it. A crop on **MCU boundaries** rewrites no DCT
+coefficient, so the real gains no compression generation and the pair matches on
+geometry. Measured on the six smoke reals: **5 of 6 bit-exact**; the sixth, the
+only 4:2:0 file, differs on **0.137%** of pixels, all in the last two rows and
+columns, with the interior **bit-exact at max diff 0**. That residue is the
+decoder losing its chroma-upsampling context at the new edge, not a
+requantisation.
+
+It costs a little geometry. MCU is 16x16 for 4:2:0 and 8x8 for 4:4:4, and the
+smoke reals were **mixed** (5 of 6 at 4:4:4), so the crop must align to **16** to
+be safe for every file. That trims up to 15 px per axis rather than 7 --
+immaterial at ~420x640 -- and the crop **offset** must be MCU-aligned too, which
+the old `(w - cw) // 2` was not.
 
 **Nothing is ever resized.** A resample leaves a spectral signature
 (`docs/resolution_shortcut.md`). Geometry is centre-**cropped** to a multiple of
@@ -154,6 +181,13 @@ a thin family with `FAMILIES`.
 
 ## 6. Budget (priors — section 12 replaces with measurement)
 
+**Measured 2026-08-30 on a Kaggle T4** (first real run, 6 images): `sdxl_self_cond`
+**4.32 s/img**, `sdxl_inpaint_box` **4.12 s/img** -- against a 14.0 s prior, so
+**3.2-3.4x faster than this table assumes**. If that 0.30x correction carries to
+the untested families, 60k falls from ~379 to **~129 T4-hours** and the "2.4
+weeks for five friends" conclusion below no longer holds. Only SDXL is measured;
+FLUX and klein remain priors.
+
 | | T4-hours | `N_SHARDS` for 1-hour shards |
 | --- | --- | --- |
 | 60k **with** FLUX.1-schnell | ~357 | 431 |
@@ -179,9 +213,53 @@ images** — 12B forces CPU offload on a 16 GB card. Decide on measured numbers.
 
 ## 8. Open items
 
+**Findings from the first smoke run, 2026-08-30** (T4, 6 images, `ov7-smoke-sdxl`):
+
+* **`self_cond` passes §7's visual check.** Same scene, visibly redrawn; the
+  text degrades the way diffusion degrades text ("Play. laugh. grow." ->
+  "Ploy. lough. grow."). The all-zero mask is arriving as zeros. 0.0-0.5% of
+  pixels identical to the real.
+* **Dimensions leaked, 6 of 6 pairs.** See §1 and §3. This is the blocking one.
+* **`OUT_ROOT` is never resolved.** §1's parameter cell assigns
+  `os.path.join(HERE, "aigc_pairs")` and then overwrites it with `None` on the
+  next line, commented "resolved in section 0" -- but section 0 is an *earlier*
+  cell and nothing reassigns it. Every output went to a directory literally
+  named `None/`, and the closing instruction to "publish
+  /kaggle/working/aigc_pairs as a Dataset" names a path that does not exist.
+* **`inpaint_box` containment is loose.** Change concentrates inside the box
+  (mean |diff| 33-34 inside vs 3-11 outside) but leaks: **1.4%** of outside
+  pixels visibly changed on one image, **21.3%** on the other. At
+  `strength=0.99` the unmasked region is not hard-composited. `synthesis="partial"`
+  is approximately, not strictly, true. n=2, so the rate is uncharacterised.
+* **`inpaint_box` runs with an empty prompt**, which is right for `self_cond`
+  (nothing is missing) but leaves the model no guidance for the 40% of frame it
+  must invent -- one smoke image filled with pale mush where the subjects were.
+* **The gate failed**, and not obviously by chance: `jpeg_quality` AUC
+  **0.0000** -- perfect inverse separation -- for *both* families, despite
+  `qtables_copied=True` on every row. Joint probability under chance is ~0.2%.
+  **Hypothesis:** this is the dimension leak in disguise. The crop offset
+  `(w - cw) // 2` was arbitrary, so each fake's fresh 8x8 DCT grid sat at a
+  different phase from its real's preserved grid, and copying quantisation
+  tables cannot fix a phase difference. §3's MCU-aligned crop should remove it.
+  **Unresolved at n=6** -- the gate is specified for 2,000, and re-running it
+  before the geometry fix would only reproduce this.
+
 * `docs/02` §2's SDXL-Turbo row is wrong and unfixed.
-* SD2.1-inpainting's `openrail++` tag is asserted from belief, not verified —
-  its HF page returned 401 twice. The runtime Hub check will settle it.
+* **SD2.1-inpainting is not merely unverified, it is unreachable.** Every
+  `stabilityai/*` repo answers **HTTP 401** anonymously on both the metadata API
+  and `resolve/` (checked 2026-08-30). It is 45% of the declared suite and is
+  **not** marked `gated`, so §1's token check does not demand a token and the run
+  401s partway in. `black-forest-labs/FLUX.1-schnell` is also 401 (`gated: auto`)
+  -- test `resolve/`, not the metadata API, which answers anonymously either way.
+  `diffusers/stable-diffusion-xl-1.0-inpainting-0.1` and
+  `black-forest-labs/FLUX.2-klein-4B` both return 206 and need no token, so the
+  registry's `gated=True` on klein-4B is wrong.
+* **Kaggle's P100 cannot run this notebook at all.** `torch 2.10.0+cu128` ships
+  no Pascal (sm_60) kernels, so every CUDA op raises
+  `cudaErrorNoKernelImageForDevice`. This is not the bf16 issue -- it is total.
+  A shard that lands on a P100 dies after paying the tar extract and the model
+  download. Pin the device: `"machine_shape": "NvidiaTeslaT4"` in the kernel
+  metadata. `DEVICE_FACTOR`'s `"P100": 1.2` now describes an unusable device.
 * `scripts/acquire_open_images_portrait.py` is on
   `feat/robust-aigc-detection`, not `master`.
 * Nothing generated yet. Every throughput number here is a prior.
