@@ -1,0 +1,171 @@
+{
+  "rule": "the rung among A3/A4/A5/A6 with the highest mean TPR @ 1% FPR over the degraded conditions, computed on val_internal authentic images vs heldout_generator generated images (spec \u00a76.4). Fixed before any result existed; not clean AUC, not val_auc, not the external benchmark.",
+  "metric": "heldout_robust_tpr_at_1pct",
+  "target_fpr": 0.01,
+  "population": "val_internal authentic images vs heldout_generator generated images",
+  "splits": [
+    "val_internal",
+    "heldout_generator"
+  ],
+  "eligible_rungs": [
+    "a3",
+    "a4",
+    "a5",
+    "a6"
+  ],
+  "headline": "a3",
+  "headline_error": null,
+  "candidates": {
+    "a3": 0.48819548872180457
+  },
+  "excluded_as_ineligible": {
+    "a0": 0.42440601503759395,
+    "a1": 0.49672932330827063,
+    "a2": 0.49672932330827063,
+    "a7_norecon": 0.5588796992481203
+  },
+  "summary": {
+    "a0": {
+      "heldout_robust_tpr_at_1pct": 0.42440601503759395,
+      "target_fpr": 0.01,
+      "population": "val_internal authentic images vs heldout_generator generated images",
+      "splits": [
+        "val_internal",
+        "heldout_generator"
+      ],
+      "val_auc_clean_view_only": 0.9897015959107776,
+      "val_auc_mean_views": 0.9070221557518692,
+      "resumed_from_checkpoint": false,
+      "config": "configs/rungs/a0.yaml"
+    },
+    "a1": {
+      "heldout_robust_tpr_at_1pct": 0.49672932330827063,
+      "target_fpr": 0.01,
+      "population": "val_internal authentic images vs heldout_generator generated images",
+      "splits": [
+        "val_internal",
+        "heldout_generator"
+      ],
+      "val_auc_clean_view_only": 0.988621023937255,
+      "val_auc_mean_views": 0.9793281886439528,
+      "resumed_from_checkpoint": false,
+      "config": "configs/rungs/a1.yaml"
+    },
+    "a2": {
+      "heldout_robust_tpr_at_1pct": 0.49672932330827063,
+      "target_fpr": 0.01,
+      "population": "val_internal authentic images vs heldout_generator generated images",
+      "splits": [
+        "val_internal",
+        "heldout_generator"
+      ],
+      "val_auc_clean_view_only": 0.988621023937255,
+      "val_auc_mean_views": 0.9793281886439528,
+      "resumed_from_checkpoint": false,
+      "config": "configs/rungs/a2.yaml"
+    },
+    "a3": {
+      "heldout_robust_tpr_at_1pct": 0.48819548872180457,
+      "target_fpr": 0.01,
+      "population": "val_internal authentic images vs heldout_generator generated images",
+      "splits": [
+        "val_internal",
+        "heldout_generator"
+      ],
+      "val_auc_clean_view_only": 0.9832567382430634,
+      "val_auc_mean_views": 0.975429738930244,
+      "resumed_from_checkpoint": false,
+      "config": "configs/rungs/a3.yaml"
+    },
+    "a7_norecon": {
+      "heldout_robust_tpr_at_1pct": 0.5588796992481203,
+      "target_fpr": 0.01,
+      "population": "val_internal authentic images vs heldout_generator generated images",
+      "splits": [
+        "val_internal",
+        "heldout_generator"
+      ],
+      "val_auc_clean_view_only": 0.9899685093861383,
+      "val_auc_mean_views": 0.9833583089887654,
+      "resumed_from_checkpoint": false,
+      "config": "configs/rungs/a7_norecon.yaml"
+    }
+  },
+  "table": "/mnt/berstorage/techjam/aigcdet/docs/robustness_table_convnextt.md",
+  "heatmap": "/mnt/berstorage/techjam/aigcdet/docs/robustness_heatmap_convnextt.png",
+  "tier": "ablation",
+  "table_metric": "auc",
+  "challenge_score": {
+    "weights": {
+      "clean": 0.5,
+      "robust": 0.5
+    },
+    "robust_conditions": [
+      "jpeg_q90",
+      "jpeg_q70",
+      "jpeg_q50",
+      "jpeg_q30",
+      "blur_s0.5",
+      "blur_s1.0",
+      "blur_s2.0",
+      "resize_0.5",
+      "resize_0.25",
+      "noise_s0.02",
+      "noise_s0.05",
+      "noise_s0.1",
+      "jitter_20",
+      "crop_80"
+    ],
+    "per_rung": {
+      "a0": {
+        "auc_clean": 0.9526519624954886,
+        "auc_robust": 0.8779506364394983,
+        "challenge_score": 0.9153012994674934
+      },
+      "a1": {
+        "auc_clean": 0.9467165396991493,
+        "auc_robust": 0.9372694036557615,
+        "challenge_score": 0.9419929716774553
+      },
+      "a2": {
+        "auc_clean": 0.9467165396991493,
+        "auc_robust": 0.9372694036557615,
+        "challenge_score": 0.9419929716774553
+      },
+      "a3": {
+        "auc_clean": 0.951870500739153,
+        "auc_robust": 0.9432662369440761,
+        "challenge_score": 0.9475683688416146
+      },
+      "a7_norecon": {
+        "auc_clean": 0.9629185832943823,
+        "auc_robust": 0.953349830114962,
+        "challenge_score": 0.9581342067046721
+      }
+    },
+    "best": "a7_norecon"
+  },
+  "fusion": {
+    "rung": "a5",
+    "run": false,
+    "reason": "--fuse-bank/--fuse-eval-bank were not given, so rung A5 was not evaluated in this run"
+  },
+  "tta": {
+    "rung": "a6",
+    "requested": false,
+    "scored_here": false,
+    "views": [
+      "identity",
+      "hflip",
+      "scale_0.75",
+      "scale_1.25",
+      "jpeg_95",
+      "blur_0.3",
+      "hflip_scale_0.75",
+      "hflip_jpeg_95"
+    ],
+    "cost_multiplier": 8,
+    "tier": "ablation",
+    "reason": "rung A6 is test-time augmentation: it is applied to images at inference, not to the cached eval bank, so this script records its cost and tier and produces no row"
+  }
+}
