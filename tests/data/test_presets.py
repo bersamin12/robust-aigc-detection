@@ -177,7 +177,8 @@ def test_the_record_carries_every_knob():
                    "max_real_per_source": {"wildfake": 4},
                    "min_short_side": 200,
                    "exclude_subpaths": ["wildfake/real/real_ffhq"],
-                   "heldout_generators": ["VQGAN"]}
+                   "heldout_generators": ["VQGAN"],
+                   "heldout_groups": []}
 
 
 # --------------------------------------------------------------------------
@@ -287,3 +288,68 @@ def test_a_backslash_path_is_normalised_to_posix():
 
 def test_no_exclusion_means_no_prefixes():
     assert _ok().excluded_prefixes == []
+
+
+# --- heldout_groups: lineages that must travel together ---------------------
+#
+# The frozen manifest's random draw held out SDwithAdaptor_controlnet while
+# keeping its lora and lycris siblings in training, and VQGAN while keeping
+# VQVAE and vqdm. An adapter changes the conditioning, not the decoder that
+# leaves the trace, so those held-out scores measure a much easier question
+# than their name implies. This field is how a preset says so.
+
+def _p(**kw):
+    return DatasetPreset(name="t", note="n", **kw)
+
+
+def test_groups_flatten_into_heldout_generators():
+    """Everything downstream reads one flat list, so the grouping must not
+    require assign_splits, splits.json or the bank to learn a new shape."""
+    p = _p(heldout_groups=[["VQGAN", "VQVAE", "vqdm"]])
+    assert p.heldout_generators == ["VQGAN", "VQVAE", "vqdm"]
+
+
+def test_groups_merge_with_an_explicit_heldout_list_without_duplicating():
+    p = _p(heldout_generators=["VQGAN"], heldout_groups=[["VQGAN", "VQVAE"]])
+    assert p.heldout_generators == ["VQGAN", "VQVAE"]
+
+
+def test_the_record_keeps_the_grouping_the_flat_list_cannot_express():
+    """splits.json must be able to say WHY those families travel together;
+    a flat list of six names cannot distinguish two lineages from six
+    unrelated picks."""
+    groups = [["SDwithAdaptor_controlnet", "SDwithAdaptor_lora"],
+              ["VQGAN", "VQVAE"]]
+    rec = _p(heldout_groups=groups).as_record()
+    assert rec["heldout_groups"] == groups
+    assert len(rec["heldout_generators"]) == 4
+
+
+def test_a_bare_string_is_refused_rather_than_iterated_as_characters():
+    with pytest.raises(ValueError, match="LISTS"):
+        _p(heldout_groups=["VQGAN"])
+
+
+def test_a_lineage_of_one_is_refused():
+    """Otherwise the field means two different things and a reader cannot
+    tell a lineage from a single pick."""
+    with pytest.raises(ValueError, match="fewer than two"):
+        _p(heldout_groups=[["VQGAN"]])
+
+
+def test_a_family_cannot_belong_to_two_lineages():
+    with pytest.raises(ValueError, match="two heldout_groups"):
+        _p(heldout_groups=[["VQGAN", "VQVAE"], ["VQVAE", "vqdm"]])
+
+
+def test_a_pseudo_generator_is_refused_inside_a_group_too():
+    """The flat field already refuses this; the group path must not be a way
+    round it, or holding out a whole SOURCE becomes spellable again."""
+    with pytest.raises(ValueError, match="pseudo-generator"):
+        _p(heldout_groups=[["sid_set", "VQGAN"]])
+
+
+def test_no_groups_leaves_the_flat_field_exactly_as_given():
+    p = _p(heldout_generators=["VQGAN", "SDwithAdaptor_controlnet"])
+    assert p.heldout_generators == ["VQGAN", "SDwithAdaptor_controlnet"]
+    assert p.as_record()["heldout_groups"] == []

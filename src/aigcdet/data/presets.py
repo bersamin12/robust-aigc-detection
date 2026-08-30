@@ -93,6 +93,22 @@ class DatasetPreset:
     exclude_subpaths: list[str] = field(default_factory=list)
     #: Pin the held-out families instead of drawing them from the seed.
     heldout_generators: list[str] = field(default_factory=list)
+    #: Held-out LINEAGES, each a list of families that share a decoder and so
+    #: must be held out together or not at all.
+    #:
+    #: The frozen manifest's pair was drawn at random and landed on
+    #: `SDwithAdaptor_controlnet` and `VQGAN`, while
+    #: `SDwithAdaptor_lora`/`SDwithAdaptor_lycris` and `VQVAE`/`vqdm` stayed in
+    #: training. An adapter changes the conditioning, not the decoder that
+    #: leaves the forensic trace, so "unseen generator" there means "unseen
+    #: adapter on a decoder the model was trained on" -- which is a much easier
+    #: question than the name suggests, and inflates the headline.
+    #:
+    #: Flattened into `heldout_generators` at validation time, so everything
+    #: downstream -- `assign_splits`, `splits.json`, the bank's split column --
+    #: sees one list of families and needs no changes. This field records WHY
+    #: those families travel together, which a flat list cannot.
+    heldout_groups: list[list[str]] = field(default_factory=list)
 
     def __post_init__(self):
         if not self.name.strip():
@@ -169,6 +185,41 @@ class DatasetPreset:
                     f"(known: {sorted(SOURCES)}). An exclusion under a source "
                     "that does not exist excludes nothing while every image it "
                     "was meant to name flows through.")
+        for grp in self.heldout_groups:
+            if isinstance(grp, str) or not isinstance(grp, (list, tuple)):
+                raise ValueError(
+                    f"preset {self.name!r}: heldout_groups must be a list of "
+                    f"LISTS of family names, got {grp!r}. A bare string would "
+                    "silently iterate as characters.")
+            if len(grp) < 2:
+                raise ValueError(
+                    f"preset {self.name!r}: heldout_groups entry {list(grp)!r} "
+                    "has fewer than two families. A lineage of one is just a "
+                    "heldout_generators entry; use that field, so the grouping "
+                    "here always means 'these share a decoder'.")
+        # Flatten AFTER the per-group checks, so downstream code and
+        # splits.json see exactly one list of families.
+        grouped = [g for grp in self.heldout_groups for g in grp]
+        if grouped:
+            object.__setattr__(
+                self, "heldout_generators",
+                list(self.heldout_generators) + [
+                    g for g in grouped if g not in self.heldout_generators])
+        ineligible_grouped = sorted(g for g in grouped
+                                    if not is_heldout_eligible(g))
+        if ineligible_grouped:
+            raise ValueError(
+                f"preset {self.name!r}: heldout_groups names "
+                f"{ineligible_grouped}, which are dataset-level "
+                "pseudo-generators (or empty).")
+        seen_groups: dict[str, int] = {}
+        for i, grp in enumerate(self.heldout_groups):
+            for g in grp:
+                if g in seen_groups and seen_groups[g] != i:
+                    raise ValueError(
+                        f"preset {self.name!r}: {g!r} appears in two "
+                        "heldout_groups. A family belongs to one lineage.")
+                seen_groups[g] = i
         dupes = sorted({g for g in self.heldout_generators
                         if self.heldout_generators.count(g) > 1})
         if dupes:
@@ -212,6 +263,7 @@ class DatasetPreset:
             "min_short_side": self.min_short_side,
             "exclude_subpaths": list(self.exclude_subpaths),
             "heldout_generators": list(self.heldout_generators),
+            "heldout_groups": [list(g) for g in self.heldout_groups],
         }
 
 
