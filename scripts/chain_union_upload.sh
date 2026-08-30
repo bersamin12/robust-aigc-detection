@@ -18,9 +18,23 @@
 # the next one alphabetically has appeared; the last one is done when the
 # build process exits.
 #
-# Uploads run one at a time on purpose. Each `--dir-mode zip` materialises a
-# full-size archive in TMPDIR before sending, so two at once is two archives
-# and two streams competing for the same uplink.
+# Uploads run one at a time, LAST, and at idle I/O priority. The corpus volume
+# is a spinning disk, and that is the whole reason this section exists:
+# measured 2026-08-30, `build_dataset` alone holds sda at 99% utilisation with
+# 222 ms average read latency. Adding two archivers took the read latency to
+# 319 ms, dropped normalisation from 73 img/s to 40, and got the first archive
+# to 954 MB in 22 minutes -- a 7-hour projection for one 18 GiB source. Three
+# sequential readers on one head do not share; they seek.
+#
+# So the chain waits for the build AND for the crop-vs-band probe to finish
+# before it archives anything, and runs under `ionice -c3` (idle class) so any
+# later reader still takes priority. The probe is the time-critical job; the
+# uploads are not.
+#
+# `--dir-mode tar`, not zip. The tree is PNGs, which are already deflate
+# compressed: zip spends CPU re-compressing incompressible bytes for no size
+# saving. tar is a straight sequential write, which is also the access pattern
+# this disk is least bad at.
 set -u
 BUILD_PID="${1:?usage: chain_union_upload.sh <build_pid>}"
 NORM="${2:-/mnt/berstorage/techjam/experiments/data/normalized_union}"
@@ -32,6 +46,15 @@ mkdir -p "$TMPDIR"
 SOURCES=(coco_train2017 ntire open_images sid_set wildfake)
 
 log() { echo "[$(date +%H:%M:%S)] $*"; }
+
+wait_for_quiet_disk() {
+  # The probe script owns the disk (and the GPU) as soon as the build exits.
+  # Wait it out rather than seeking against it.
+  while pgrep -f "run_crop_vs_band_probe.sh" > /dev/null 2>&1; do
+    sleep 120
+  done
+  log "probe finished; disk is quiet"
+}
 
 wait_for_source_done() {
   local idx=$1 name=${SOURCES[$1]} next=""
@@ -69,17 +92,26 @@ JSON
   fi
   log "$name: uploading as $slug ($(du -sh --apparent-size "$stage" | cut -f1))"
   set -a; . ~/.kaggle/env; set +a
-  if kaggle datasets create -p "$stage" --dir-mode zip >> "logs/upload_union_$name.log" 2>&1; then
+  # `|| return 1` matters: without it this function returned 0 on a failed
+  # upload and the caller wrote a .done marker for a Dataset that does not
+  # exist, so a re-run would skip it forever.
+  if ionice -c3 nice -n 19 kaggle datasets create -p "$stage" --dir-mode tar \
+        >> "logs/upload_union_$name.log" 2>&1; then
     log "$name: upload command returned 0"
   else
     log "$name: upload FAILED -- see logs/upload_union_$name.log"
+    return 1
   fi
 }
 
-for i in "${!SOURCES[@]}"; do
-  name="${SOURCES[$i]}"
+# Every source must be normalised AND the probe must be done before the first
+# archive starts. Waiting per-source here would put an archiver back beside the
+# build, which is the thing that was measured to be a mistake.
+for i in "${!SOURCES[@]}"; do wait_for_source_done "$i"; done
+wait_for_quiet_disk
+
+for name in "${SOURCES[@]}"; do
   if [ -f "logs/upload_union_$name.done" ]; then log "$name: already published"; continue; fi
-  wait_for_source_done "$i"
   upload_source "$name" && touch "logs/upload_union_$name.done"
 done
 log "all sources published (or attempted); check logs/upload_union_*.log"
