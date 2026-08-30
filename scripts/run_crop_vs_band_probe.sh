@@ -103,6 +103,14 @@ cd "$(dirname "$0")/.."
 DATA=/mnt/berstorage/techjam/experiments/data
 MANIFEST=$DATA/manifest_union.parquet
 EVAL_MANIFEST=$DATA/eval_manifest_union.parquet
+# REBASED, and that is not a detail. `benchmark_manifest.parquet` froze its
+# `path` column under an older layout ($ROOT/track5/data/demo/...) which no
+# longer holds any images -- track5 still exists as a code directory, so the
+# failure is a per-file FileNotFoundError deep inside a digest pass, not a
+# missing-directory error anyone would notice early. 0 of 400 sampled paths
+# resolve there; 400 of 400 resolve in the rebased copy. `build_eval_manifest`
+# has no --root, so the rebased FILE is the rebasing mechanism.
+BENCH=$DATA/demo/benchmark_manifest_rebased.parquet
 PROBE=$DATA/probe/manifest_union_probe.parquet
 EVAL_PROBE=$DATA/probe/eval_manifest_union_probe.parquet
 # On the NVMe (/dev/nvme0n1p2), which is a different spindle from $DATA.
@@ -115,6 +123,33 @@ RUNGS="configs/rungs/a0.yaml configs/rungs/a1.yaml configs/rungs/a2.yaml configs
 BUILD_PID="${1:-}"
 
 log() { echo "[$(date +%H:%M:%S)] $*"; }
+
+# ---- 0. preflight, BEFORE the wait --------------------------------------
+# Everything below step 1 is gated on a build that takes five hours, so an
+# input that is wrong at launch stays undiscovered for five hours and then
+# fails in seconds. That is exactly what happened on 2026-08-30: the run
+# waited from 19:16 to 23:28 and died immediately on a benchmark manifest
+# whose paths had been dead the whole time. Check the cheap things first.
+preflight() {
+  local bad=0
+  for f in "$BENCH" configs/rungs/*.yaml; do
+    [ -f "$f" ] || { log "PREFLIGHT: missing $f"; bad=1; }
+  done
+  python - "$BENCH" <<'PY' || bad=1
+import os, sys
+import pandas as pd
+df = pd.read_parquet(sys.argv[1])
+sample = df["path"].head(200)
+missing = [p for p in sample if not os.path.exists(p)]
+if missing:
+    print(f"PREFLIGHT: {len(missing)}/{len(sample)} benchmark paths do not "
+          f"resolve, e.g. {missing[0]}")
+    sys.exit(1)
+print(f"preflight: benchmark manifest OK ({len(df)} rows, 200 sampled resolve)")
+PY
+  [ "$bad" = 0 ] || { log "PREFLIGHT FAILED -- not waiting on the build"; exit 1; }
+}
+preflight
 
 # ---- 1. wait for the manifest to freeze ---------------------------------
 if [ -n "$BUILD_PID" ]; then
@@ -131,7 +166,7 @@ if [ ! -f "$EVAL_MANIFEST" ]; then
   log "building the union eval manifest"
   python scripts/build_eval_manifest.py \
       --manifest "$MANIFEST" \
-      --benchmark-manifest "$DATA/demo/benchmark_manifest.parquet" \
+      --benchmark-manifest "$BENCH" \
       --out "$EVAL_MANIFEST"
 fi
 
