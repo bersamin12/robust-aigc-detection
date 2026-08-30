@@ -65,6 +65,12 @@ DEFAULT_ARMS=(dinov2l:band dinov2l:crop dinov2regl:band siglipso400m:band)
 ARMS=("${@:-}")
 [ -z "${ARMS[0]:-}" ] && ARMS=("${DEFAULT_ARMS[@]}")
 
+# Debian/Ubuntu images since 3.11 often ship `python3` and no `python` at all,
+# and a bare `python` there is "command not found" three lines into a script on
+# a box billed by the hour. Resolve it once.
+PY_BIN="${PY_BIN:-$(command -v python || command -v python3)}"
+[ -n "$PY_BIN" ] || { echo 'FATAL: no python or python3 on PATH' >&2; exit 1; }
+
 NGPU=$(nvidia-smi -L 2>/dev/null | wc -l)
 [ "$NGPU" -ge 1 ] || { echo "FATAL: no GPUs" >&2; exit 1; }
 NCPU=$(nproc)
@@ -73,6 +79,13 @@ NCPU=$(nproc)
 # a Kaggle session has 4 cores, not because 4 is right.
 WORKERS="${WORKERS:-$(( (NCPU / NGPU) - 2 ))}"
 [ "$WORKERS" -lt 2 ] && WORKERS=2
+# ...but capped. A 320-core box gives 78 per arm by that formula, and 4 x 78 is
+# 312 spawned processes each importing numpy and cv2 -- real memory and real
+# spawn cost for throughput that flattens long before it, since a 4090 is fed
+# by far fewer decoders than that. Raise it with WORKERS= if the smoke run's
+# measured rate says the cards are starving.
+WORKER_CAP="${WORKER_CAP:-32}"
+[ "$WORKERS" -gt "$WORKER_CAP" ] && WORKERS=$WORKER_CAP
 BATCH="${BATCH:-32}"
 LIMIT="${LIMIT:-}"          # set it to smoke the chain; unset for the real run
 
@@ -88,7 +101,7 @@ fi
 mkdir -p logs docs data/banks outputs
 
 bank_done() {   # a bank is complete when its config's row count is reached
-  python - "$1" <<'PY' 2>/dev/null
+  "$PY_BIN" - "$1" <<'PY' 2>/dev/null
 import json, os, sys
 d = sys.argv[1]
 cfg = os.path.join(d, "config.json")
@@ -121,7 +134,7 @@ run_arm() {
   if bank_done "$bank"; then
     echo "[gpu $gpu] $tag: stage A already complete" | tee -a "$log"
   else
-    python -u scripts/extract_features.py --manifest "$MANIFEST" \
+    "$PY_BIN" -u scripts/extract_features.py --manifest "$MANIFEST" \
       --backbone "$backbone" --out "$bank" --split train,val_internal \
       --device cuda --batch-size "$BATCH" --workers "$WORKERS" --resume \
       --canon-mode "$mode" "${extra[@]}" \
@@ -130,7 +143,7 @@ run_arm() {
   fi
 
   # ---- the finite check. See the header.
-  python - "$bank" "$backbone" >> "$log" 2>&1 <<'PY' \
+  "$PY_BIN" - "$bank" "$backbone" >> "$log" 2>&1 <<'PY' \
       || { echo "[gpu $gpu] $tag: NON-FINITE BANK -- see $log"; return 1; }
 import os, sys
 import numpy as np
@@ -157,7 +170,7 @@ PY
   if bank_done "$ebank"; then
     echo "[gpu $gpu] $tag: eval bank already complete" | tee -a "$log"
   else
-    python -u scripts/extract_eval_bank.py --manifest "$EVAL_MANIFEST" \
+    "$PY_BIN" -u scripts/extract_eval_bank.py --manifest "$EVAL_MANIFEST" \
       --backbone "$backbone" --out "$ebank" --tier "$TIER" --root "$DATA_DIR" \
       --device cuda --batch-size "$BATCH" --checkpoint-every 200 --resume \
       --no-subsample --canon-mode "$mode" "${extra[@]}" \
@@ -175,7 +188,7 @@ PY
   else
     local cfgs=()
     for r in $RUNGS_LIST; do cfgs+=("configs/rungs/${r}.yaml"); done
-    python -u scripts/run_ablation.py --bank "$bank" --eval-bank "$ebank" \
+    "$PY_BIN" -u scripts/run_ablation.py --bank "$bank" --eval-bank "$ebank" \
       --rungs "${cfgs[@]}" --tier "$TIER" --device cuda \
       --out "docs/robustness_table_${tag}.md" --selection "$sel" \
       --heatmap "docs/robustness_heatmap_${tag}.png" \
@@ -212,7 +225,7 @@ if [ -n "$LIMIT" ]; then
   echo "Now re-run WITHOUT LIMIT for the real arms. The smoke banks are in"
   echo "data/banks/smoke_* and are not resumed from."
 else
-  python scripts/backbone_probe_table.py --out docs/backbone_probe_table.md || true
+  "$PY_BIN" scripts/backbone_probe_table.py --out docs/backbone_probe_table.md || true
 fi
 
 echo

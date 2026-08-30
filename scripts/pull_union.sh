@@ -44,6 +44,12 @@ BENCH_SLUG=justinbersamin/techjam-aigc-benchmark
 EXPECT_TRAIN_SHA=3cca88d94fbb573bb229f3ffe9a9370e2c5def42c78758c05275f421be23c406
 EXPECT_EVAL_SHA=b950e04aea1e09fcdd72d5918536b8796062f90de64f041df1b7c933c0d53cd7
 
+# Debian/Ubuntu images since 3.11 often ship `python3` and no `python` at all,
+# and a bare `python` there is "command not found" three lines into a script on
+# a box billed by the hour. Resolve it once.
+PY_BIN="${PY_BIN:-$(command -v python || command -v python3)}"
+[ -n "$PY_BIN" ] || { echo 'FATAL: no python or python3 on PATH' >&2; exit 1; }
+
 RETRIES="${RETRIES:-30}"          # 30 x 120s = up to an hour of waiting
 RETRY_WAIT="${RETRY_WAIT:-120}"
 
@@ -52,7 +58,7 @@ die() { echo "FATAL: $*" >&2; exit 1; }
 
 [ -f "$HOME/.kaggle/kaggle.json" ] || die "no ~/.kaggle/kaggle.json"
 chmod 600 "$HOME/.kaggle/kaggle.json"
-command -v kaggle >/dev/null || python -m pip install -q kaggle
+command -v kaggle >/dev/null || "$PY_BIN" -m pip install -q kaggle
 mkdir -p "$TRAIN" "$BENCH" "$EVAL_ROOT"
 
 avail_gib() { df -BG --output=avail "$1" | tail -1 | tr -dc '0-9'; }
@@ -107,7 +113,7 @@ log "size: $(du -sh --apparent-size "$TRAIN" 2>/dev/null | cut -f1)"
 
 # ---- prove it before any GPU is spent
 log "verifying"
-python - "$ROOT" "$TRAIN" "$EVAL_ROOT" "$EXPECT_TRAIN_SHA" "$EXPECT_EVAL_SHA" <<'PY' || exit 1
+"$PY_BIN" - "$ROOT" "$TRAIN" "$EVAL_ROOT" "$EXPECT_TRAIN_SHA" "$EXPECT_EVAL_SHA" <<'PY' || exit 1
 import os, sys
 import pandas as pd
 sys.path.insert(0, "src")

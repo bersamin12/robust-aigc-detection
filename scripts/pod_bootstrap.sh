@@ -34,6 +34,12 @@ MODELS=(
 # ungated ones. See docs/model_licences.md.
 GATED_MODELS=(facebook/dinov3-vitl16-pretrain-lvd1689m)
 
+# Debian/Ubuntu images since 3.11 often ship `python3` and no `python` at all,
+# and a bare `python` there is "command not found" three lines into a script on
+# a box billed by the hour. Resolve it once.
+PY_BIN="${PY_BIN:-$(command -v python || command -v python3)}"
+[ -n "$PY_BIN" ] || { echo 'FATAL: no python or python3 on PATH' >&2; exit 1; }
+
 log() { echo "[$(date +%H:%M:%S)] $*"; }
 die() { echo "FATAL: $*" >&2; exit 1; }
 
@@ -58,19 +64,19 @@ log "    ${PER_GPU} cores per GPU"
 
 # ------------------------------------------------------------- 2. environment
 log "installing"
-python -m pip install -q --upgrade pip
+"$PY_BIN" -m pip install -q --upgrade pip
 # --no-deps on the project itself: the pod's torch is driver-matched and must
 # not be replaced. Same rule as the Kaggle notebooks, same reason.
-python -m pip install -q --no-deps -e . || die "editable install failed"
+"$PY_BIN" -m pip install -q --no-deps -e . || die "editable install failed"
 # torch is recorded BEFORE and compared AFTER. timm and transformers both
 # declare a torch dependency, and a pip run that decides to "satisfy" it
 # replaces the pod's driver-matched build with a generic wheel -- which either
 # fails to see the GPUs at all or silently runs on CPU. It is the single most
 # expensive mistake available on a rented box, and it is silent.
-TORCH_BEFORE=$(python -c "import torch;print(torch.__version__)" 2>/dev/null)
-python -m pip install -q numpy pillow scipy opencv-python-headless pandas \
+TORCH_BEFORE=$("$PY_BIN" -c "import torch;print(torch.__version__)" 2>/dev/null)
+"$PY_BIN" -m pip install -q numpy pillow scipy opencv-python-headless pandas \
     pyarrow scikit-learn tqdm pyyaml transformers timm || die "deps failed"
-TORCH_AFTER=$(python -c "import torch;print(torch.__version__)" 2>/dev/null)
+TORCH_AFTER=$("$PY_BIN" -c "import torch;print(torch.__version__)" 2>/dev/null)
 if [ "$TORCH_BEFORE" != "$TORCH_AFTER" ]; then
   die "pip replaced torch: $TORCH_BEFORE -> $TORCH_AFTER.
      The pod's build was driver-matched and this one may not be. Reinstall the
@@ -78,7 +84,7 @@ if [ "$TORCH_BEFORE" != "$TORCH_AFTER" ]; then
 fi
 log "    torch unchanged at ${TORCH_BEFORE:-<none>}"
 
-python - <<'PY' || exit 1
+"$PY_BIN" - <<'PY' || exit 1
 import sys
 import torch
 print(f"    torch {torch.__version__}  cuda {torch.version.cuda}  "
@@ -98,7 +104,7 @@ PY
 
 # ---------------------------------------------------------- 3. warm the cache
 log "warming the model cache (${#MODELS[@]} ungated checkpoints)"
-python - "${MODELS[@]}" <<'PY'
+"$PY_BIN" - "${MODELS[@]}" <<'PY'
 import sys
 from transformers import AutoModel
 for m in sys.argv[1:]:
@@ -107,7 +113,7 @@ for m in sys.argv[1:]:
 PY
 if [ -n "${HF_TOKEN:-}" ]; then
   log "HF_TOKEN present; warming the gated checkpoint(s)"
-  python - "${GATED_MODELS[@]}" <<'PY'
+  "$PY_BIN" - "${GATED_MODELS[@]}" <<'PY'
 import sys
 from transformers import AutoModel
 for m in sys.argv[1:]:
@@ -135,7 +141,7 @@ else
      rows, which may not be published). Create a token for this pod and revoke
      it when you destroy the pod."
   chmod 600 "$HOME/.kaggle/kaggle.json"
-  python -m pip install -q kaggle
+  "$PY_BIN" -m pip install -q kaggle
   mkdir -p "$DATA_DIR"
   kaggle datasets download -d "$SLUG" -p "$DATA_DIR" --unzip || die "pull failed"
 fi
@@ -159,7 +165,7 @@ ls "$DATA_DIR" | sed 's/^/    /'
 # by an extract, a mount under a different name. 300 real rows per manifest,
 # before any GPU is spent.
 log "checking that both manifests resolve"
-python - "$DATA_DIR" <<'PY' || exit 1
+"$PY_BIN" - "$DATA_DIR" <<'PY' || exit 1
 import os, sys
 import pandas as pd
 root = sys.argv[1]
@@ -178,7 +184,7 @@ PY
 # they score the SAME 20,000 rows. Checked here so a wrong Dataset fails during
 # setup rather than after four arms have run.
 log "checking the manifest fingerprint"
-python - "$DATA_DIR" <<'PY' || exit 1
+"$PY_BIN" - "$DATA_DIR" <<'PY' || exit 1
 import os, sys
 import pandas as pd
 sys.path.insert(0, "src")
