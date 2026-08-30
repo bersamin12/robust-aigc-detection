@@ -93,39 +93,39 @@ table.
 
 | Provider | Model / tier | $/image | Images | Subtotal | Price source |
 |---|---|---:|---:|---:|---|
-| OpenAI | `gpt-image-2`, 1K **medium** | 0.053 | 500 | $26.50 | calculator ✓ (see tier note) |
-| Google | Gemini 3.1 Flash Image, 1K standard | 0.067 | 500 | $33.50 | vendor page ✓ |
-| Ideogram | 4.0 Turbo | 0.030 | 500 | $15.00 | vendor pricing page ✓ (4.0 Turbo $0.03 / Default $0.06 / Quality $0.10) |
-| Bytedance | Seedream 4.5, 1K | 0.040 | 500 | $20.00 | OpenRouter ✓; Bytedance's own terms behind the reseller still unread |
-| | | | **2,000** | **$95.00** | |
-| Retry / refusal budget | +20%, see below | | | **+$19.00** | |
-| | | | | **≈ $114** | |
+| OpenAI | `gpt-image-2`, 1K 2:3 medium | 0.0415 | 500 | $20.75 | **measured** — OpenRouter `usage.cost` |
+| Google | Gemini 3.1 Flash Image, 1K 2:3 | 0.0684 | 500 | $34.20 | **measured** — same |
+| Bytedance | Seedream 4.5, **2K** 2:3 | 0.0400 | 500 | $20.00 | **measured** — same |
+| Ideogram | 4.0 Turbo, 1664x2496 | 0.0300 | 500 | $15.00 | **measured** — vendor dashboard |
+| | | | **2,000** | **$89.95** | |
+| Retry / refusal budget | +15%, see below | | | **+$13.49** | |
+| | | | | **≈ $103** | |
 
-**Recraft was dropped for Seedream** on the brief's §2.1 reasoning: Recraft
-appears in none of NTIRE 2026's held-out splits, Seedream appears in four of
-five. Recraft is slightly cheaper ($0.03535 raster / $0.0440 inpaint, vendor
-page ✓) and remains the reserve if a provider drops out — the swap is about
-matching the benchmark's composition, not price.
+**Every price above is now measured against the live API, 2026-08-30**, from a
+$0.22 wire test — not a price list. Two corrections that came out of it:
 
-⚠ **Seedream is bought without a terms document, deliberately.** None exists for
-BytePlus's *image* models — only for the video ones — and OpenRouter's terms bind
-us to the upstream model terms rather than replacing them. The owner chose to
-keep the provider rather than lose the benchmark composition (2026-08-30); the
-row still fails the brief's §5.4 and the writeup must say so. Mitigation:
-**Seedream images stay local, never redistributed** — see `dataset_licences.md`.
+* **OpenAI is half what the calculator implied.** $0.0415 at 1024x1536 medium
+  against the $0.080 this table carried. It is the second-cheapest provider,
+  not the dearest.
+* **Seedream must be asked for 2K.** It refuses anything under 3,686,400 output
+  pixels, and 1K at 2:3 is 700,416 — HTTP 400. The $0.040 is the 2K price.
 
-**Ideogram's mode column is simple, unusually.** Its published rates are per
-output image by model and tier, and the Generate / Remix / Edit / Reframe /
-Replace Background endpoints all share that rate — so unlike Recraft, its
-inpainted 30% costs the same $0.03 as its text-to-image 70%.
+Ideogram reports no cost through its API; $0.03/image is read off the vendor
+dashboard, and it confirmed something worth stating: **a generation that fails
+to download is still billed.** Ideogram returns a CDN URL rather than bytes, and
+that CDN rejected our first fetch — so one of the two charges bought an image
+that was thrown away. `call_ideogram` now records a failed fetch as billed.
 
 Cheaper same-lineage substitutions, if the total needs to come down without
 dropping a provider: **Google batch tier** at $0.0335 (halves Google's line to
 $16.75), or **Gemini 3.1 Flash Lite Image** at $0.0336 standard / $0.0168 batch.
 Both keep Google's SynthID problem (§4.1) intact.
 
-At the top of the brief's range (5,000 images, 1,250 per provider): **≈ $238
-before retries, ≈ $285 with them.**
+At the top of the brief's range (5,000 images, 1,250 per provider): **≈ $225
+before retries, ≈ $259 with them.** The pilot itself is **≈ $9**.
+
+**The retry budget is cut from 20% to 15%, and it may fall further.** See below:
+the premise behind 20% does not survive contact with the harvest.
 
 **The quality tier is a 35× lever and it is not a pure cost knob.** `gpt-image-2`
 at 1024×1024 is **$0.006 low / $0.053 medium / $0.211 high**. Buying the low
@@ -140,13 +140,25 @@ charges $0.0440 for raster inpainting against $0.03535 for text-to-image, and
 edit endpoints elsewhere bill the input image on top of the output. Costing one
 price per provider under-counts the buy.
 
-**The retry budget is not a rounding error here, and it is a consequence of
-task 02's harvest.** Those reals are filtered to portrait aspect and short side
-≥ 400 — overwhelmingly photographs of people — so the Localized Narratives that
-pair with them describe people, while the brief's §3.5 bars prompting for
-identifiable individuals. Portrait prompts draw refusals at rates generic
-prompts do not, and some providers bill refused generations. 20% is a guess;
-the brief's §3.2 pilot exists to replace it with a measurement.
+**The retry budget's premise was wrong, and the number comes down.** This
+table used to argue: the reals are filtered to portrait aspect, therefore they
+are *"overwhelmingly photographs of people"*, therefore §3.5-compliant prompts
+draw refusals, therefore 20%.
+
+The first step does not hold. **"Portrait" is an aspect-ratio filter, not a
+subject filter** — `width/height <= 0.7`, which says nothing about content.
+Measured over a 60-image harvest (2026-08-30): **47% mention a person at all and
+only 7% are face-centric.** The rest are food, flowers, animals, machinery,
+fingernails. And in the wire test all four providers refused nothing.
+
+15% is carried as a margin rather than a prediction. The §3.2 pilot still
+replaces it with a measurement; the point is that the measurement is now likely
+to come in *under* the budget rather than over it.
+
+Separately, 6 of 60 prompts were refused **locally** by §3.5 before any spend —
+including a studio portrait of a man in military uniform wearing an Iron Cross.
+That is the rule working, and it is not a provider refusal: it costs nothing and
+must not be counted into the retry budget.
 
 **For contrast, the number §1.1 of the brief asks to re-derive:** a balanced
 training corpus matching task 02's 60,000 reals costs 60,000 × ~$0.038 ≈
