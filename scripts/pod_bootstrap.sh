@@ -64,7 +64,11 @@ log "    ${PER_GPU} cores per GPU"
 
 # ------------------------------------------------------------- 2. environment
 log "installing"
-"$PY_BIN" -m pip install -q --upgrade pip
+# NOT upgrading pip. On a Debian-managed interpreter that fails with "Cannot
+# uninstall pip 24.0, RECORD file not found" -- harmless, since nothing here
+# needs a newer pip, but it looks like a fatal error at the top of a log on a
+# box that is costing money per hour, and a scary line nobody needs is a cost
+# of its own at 2am.
 # --no-deps on the project itself: the pod's torch is driver-matched and must
 # not be replaced. Same rule as the Kaggle notebooks, same reason.
 "$PY_BIN" -m pip install -q --no-deps -e . || die "editable install failed"
