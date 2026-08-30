@@ -137,7 +137,10 @@ def test_both_halves_of_the_demo_benchmark_are_excluded_from_training():
 def test_dataset_level_pseudo_generators_are_not_heldout_eligible():
     # Holding out "sid_set" removes an entire SOURCE, which measures dataset
     # shift rather than unseen-generator generalisation (spec §4.6).
-    assert PSEUDO_GENERATORS == {"sid_set"}
+    # `ntire` joins for the same reason: NTIRE publishes no generator
+    # attribution, so holding it out would remove a whole SOURCE (and 96,000
+    # of the corpus's generated rows) rather than one generator family.
+    assert PSEUDO_GENERATORS == {"sid_set", "ntire"}
     assert not is_heldout_eligible("sid_set")
     assert not is_heldout_eligible("")       # authentic rows carry no generator
     assert is_heldout_eligible("sdxl")

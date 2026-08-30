@@ -1,0 +1,113 @@
+# THE UNION CORPUS: every licensed source we have, in one frozen manifest.
+#
+# WHY ONE MANIFEST AND NOT FIVE
+# A feature bank is bound to its manifest by `manifest_sha256`, a fingerprint
+# over each row's rel_path IN ROW ORDER. Extract NTIRE alone against an
+# NTIRE-only manifest, then add a source, and every row shifts position: the
+# fingerprint changes and the bank is orphaned. Not "re-extract the new rows"
+# -- re-extract all of them. So the union is frozen ONCE, up front, and
+# extraction order becomes free (`extract_features.py --shard I/N` takes
+# contiguous blocks; `merge_banks` puts them back).
+#
+# WHAT THIS BUYS: COMPOSITION BECOMES A SEARCH, NOT A GUESS
+# Nobody knows which mixture of these five sources trains the best detector.
+# Guessing it before extraction means paying for the guess. `meta.parquet`
+# carries `source`, `generator` and `rel_path` per row, so once the features
+# are cached, "how much of each dataset" is a row mask over a memmap and one
+# Stage B fit -- 3 to 5 minutes measured, against ~15 GPU-hours to re-extract.
+# Every cap below is therefore an UPPER BOUND for the search to allocate
+# within, not a decision about the final corpus.
+#
+# COMPOSITION (rows available -> rows kept)
+#             AUTHENTIC                     GENERATED
+#   ntire      54,001 -> 54,001 (all)        95,999 -> 95,999 (all)
+#   wildfake   55,000 -> 40,000              62,988 -> 62,988 (all)
+#   sid_set    29,318 -> 29,318 (all)        29,438 -> 29,438 (all)
+#   coco      118,287 -> 40,000                   --
+#   open_img   60,000 -> 25,000                   --
+#             ------------------            ------------------
+#              316,606 -> 188,319            188,425 -> 188,425
+#
+# 376,744 rows, balanced to within 106. NTIRE's and SID_Set's authentic halves
+# are uncapped on purpose: they are the paired reals of those sources' own
+# fakes, and capping them would turn each into a fake-skewed source, which is
+# the mirror of the confound described under open_images below.
+#
+# THREE THINGS TO BE HONEST ABOUT
+#
+# 1. NTIRE contributes MASS AND NO GENERATOR DIVERSITY. It publishes no
+#    generator attribution, so all 95,999 of its fakes carry the pseudo
+#    generator "ntire" and none can be held out. Section 4.6's protocol still
+#    rests entirely on WildFake's and SID_Set's attributed families, and the
+#    held-out pair below is unchanged from the frozen manifest so results stay
+#    comparable across streams.
+#
+# 2. TWO SOURCES ARE AUTHENTIC-ONLY. COCO and Open Images have no generated
+#    half, so a model can reach the right answer through "this looks like an
+#    Open Images photo, therefore real" -- which flatters every metric here
+#    and transfers to nothing. That is why `scripts/gate_confounds.py` runs
+#    before this corpus is trusted and `scripts/stratified_auc.py
+#    --stratify-by source` is reported beside any headline. The real fix is
+#    generating a fake half on these same images (handoff 02).
+#
+# 3. THE COCO BAR IS STILL REVERSED HERE. `data/wildfake.py:_COCO_FORBIDDEN`
+#    bars COCO reals from training because the organisers' benchmark real half
+#    IS COCO val2017. train2017 and val2017 are disjoint image sets, so this
+#    is not leakage; the risk is distribution memorisation, which pHash cannot
+#    measure. Same protection as the coco_crop stream: publish the per-source
+#    false positive rate next to the benchmark number.
+#
+# STANDARDISATION IS NOT SET HERE. `min_short_side: 200` equals the crop side,
+# so this corpus is legal under BOTH `--canon-mode band` and `--canon-mode
+# crop` and the policy stays a free choice at Stage A. Which one to use is
+# what the probe streams in `notebooks/kaggle_all_experiments.ipynb` decide --
+# cut a probe from THIS manifest with `scripts/cut_probe_manifest.py` and run
+# both arms before committing ~15 h of extraction to one of them.
+name: union
+note: >
+  Every licensed source in one frozen manifest -- NTIRE, WildFake, SID_Set,
+  COCO train2017 and Open Images V7 -- 376,744 rows balanced to within 106,
+  capped as upper bounds so dataset composition can be searched over cached
+  features instead of guessed before extraction. NTIRE carries no generator
+  attribution; COCO and Open Images carry no generated half. Read every
+  headline against stratified_auc.py --stratify-by source.
+
+# Nothing excluded. WildFake's five non-commercial authentic subsets stay in
+# (the 29 Aug rules slide names WildFake as approved, and the bar was lifted),
+# and they are searchable post-hoc anyway: `meta.parquet` carries `rel_path`,
+# so `wildfake/real/real_ffhq` is a prefix filter over a cached bank rather
+# than a rebuild. Excluding them HERE would be the one decision the search
+# could not undo.
+exclude_subpaths: []
+
+max_real_per_source:
+  # Upper bounds, chosen to balance the classes -- not judgements about which
+  # reals are best. That is what the search is for.
+  #
+  # wildfake 40,000 of 55,000: the dominant authentic source in the frozen
+  # manifest, where it supplied 55,000 of 65,049 rows and made the pooled
+  # low-level statistics very nearly its own. The cap is a seeded draw across
+  # the whole bucket, so no upstream subset is taken whole or dropped whole.
+  wildfake: 40000
+  # coco 40,000 of 118,287 and open_images 25,000 of 60,000: both are
+  # authentic-only, so every row of them widens the source-shortcut described
+  # above. Held to roughly a third of the authentic side between them.
+  coco_train2017: 40000
+  open_images: 25000
+
+# Generated is the scarce class here for the first time in this project --
+# 188,425 against 316,606 authentic -- so nothing is thinned. Capping families
+# would also cost the LOTO rung, which needs every family to survive.
+max_per_generator: {}
+
+# Equal to CANON_CROP_SIDE. Load-bearing in crop mode (a 200x200 window cannot
+# be cut from a shorter image, and `canonicalise` raises rather than upscaling
+# to reach it) and harmless in band mode, which is what keeps the policy an
+# open question after the manifest is frozen.
+min_short_side: 200
+
+# The frozen manifest's own pair, pinned rather than redrawn, so this corpus
+# differs from every other stream in composition and never in the split draw.
+# Both are WildFake families: NTIRE and SID_Set carry pseudo-generators and
+# are ineligible by construction.
+heldout_generators: [SDwithAdaptor_controlnet, VQGAN]

@@ -125,6 +125,67 @@ SOURCES: dict[str, SourceSpec] = {
         real_buckets=frozenset({"real"}),
         generator_buckets=True,
     ),
+    # NTIRE 2026 "Robust AI-Generated Image Detection in the Wild" training
+    # set. Three of six published shards are on disk: 150,000 images, 96,000
+    # generated and 54,000 authentic. The card states the shards share a
+    # distribution and may be used independently, so a partial download is a
+    # smaller corpus and not a skewed one.
+    #
+    # It does not ship in bucket layout -- every image sits in one `images/`
+    # directory with the class in a sibling `labels.csv` -- so it must be
+    # restaged into `real/` and `generated/` by `scripts/stage_ntire.py`
+    # before it can be ingested. That script hardlinks, so the restaging is
+    # free and the original tree is left alone.
+    #
+    # `generator_buckets=False` and a pseudo bucket, because NTIRE publishes
+    # no generator attribution at all. The consequence is worth stating
+    # plainly rather than discovering during a split: NTIRE contributes
+    # training MASS and no generator diversity. Its fakes cannot appear in a
+    # held-out generator family, so §4.6's protocol still rests entirely on
+    # WildFake's and SID_Set's attributed buckets.
+    #
+    # Label polarity was verified twice before any of this was built, because
+    # an inverted 150,000-row corpus does not fail loudly -- it trains, and it
+    # produces a confidently wrong detector. The card says "0 corresponds to a
+    # real image, and 1 to a generated one"; scoring 300 images per class with
+    # the dinov3l a3 head (2026-08-30) gave mean logits -10.63 for label 0 and
+    # +8.87 for label 1, AUC 0.9454 in the card's direction.
+    "ntire": SourceSpec(
+        name="ntire",
+        licence="NTIRE 2026 challenge training set — no `license:` tag on the HF "
+                "repo; terms are the challenge's own and must be accepted per HF "
+                "ACCOUNT. Usable for training locally and in a PRIVATE Kaggle "
+                "Dataset; do NOT publish an NTIRE-derived Dataset. "
+                "https://huggingface.co/datasets/deepfakesMSU/NTIRE-RobustAIGenDetection-train "
+                "See docs/dataset_licences.md",
+        real_buckets=frozenset({"real"}),
+        pseudo_bucket="generated",
+        generator_buckets=False,
+    ),
+    # Open Images V7 portrait-orientation photographs, harvested by
+    # `scripts/acquire_open_images_portrait.py` under a hard CC BY 2.0 filter
+    # with per-image attribution written to `attribution.csv`.
+    #
+    # Authentic only, and that is a confound to measure rather than a fact to
+    # note. A source with no generated half lets a model reach the right
+    # answer through "this looks like an Open Images photo, so it is real",
+    # which would flatter every metric here while transferring to nothing.
+    # Two things are meant to catch it: `scripts/gate_confounds.py` before the
+    # corpus is trusted, and `scripts/stratified_auc.py --stratify-by source`
+    # reporting the false positive rate per source beside any headline. The
+    # real fix is the generated half -- handoff 02 puts open-weight generators
+    # on these same prompts -- and until that lands this source should be
+    # treated as on probation.
+    "open_images": SourceSpec(
+        name="open_images",
+        licence="CC BY 2.0 — https://creativecommons.org/licenses/by/2.0/ ; only "
+                "rows whose Open Images V7 metadata declares exactly that licence "
+                "were kept, and per-image Author/Title/OriginalURL attribution is "
+                "recorded in attribution.csv. Attribution is REQUIRED on "
+                "redistribution. See docs/dataset_licences.md",
+        real_buckets=frozenset({"portrait"}),
+        generator_buckets=False,
+    ),
     # The authentic half of the organisers' demo benchmark. val2017/ is the
     # directory name inside the official zip — the mapping that C1 got wrong.
     # Authentic throughout, and excluded from training whatever any row claims.
