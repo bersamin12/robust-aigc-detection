@@ -81,12 +81,24 @@ TORCH_BEFORE=$("$PY_BIN" -c "import torch;print(torch.__version__)" 2>/dev/null)
 "$PY_BIN" -m pip install -q numpy pillow scipy opencv-python-headless pandas \
     pyarrow scikit-learn tqdm pyyaml transformers timm || die "deps failed"
 TORCH_AFTER=$("$PY_BIN" -c "import torch;print(torch.__version__)" 2>/dev/null)
-if [ "$TORCH_BEFORE" != "$TORCH_AFTER" ]; then
-  die "pip replaced torch: $TORCH_BEFORE -> $TORCH_AFTER.
-     The pod's build was driver-matched and this one may not be. Reinstall the
-     original ($TORCH_BEFORE) before running anything on the GPUs."
+if [ -z "$TORCH_AFTER" ]; then
+  die "torch is not importable after the install. Nothing here can run."
+elif [ -z "$TORCH_BEFORE" ]; then
+  # NOT a replacement -- there was nothing to replace. The image shipped no
+  # torch for this interpreter, so pip resolved one as a dependency of timm and
+  # transformers. That is usually fine, and the CUDA check below is what
+  # decides: a wheel built for the wrong CUDA imports cleanly and then sees no
+  # GPUs. Said out loud because "pip chose your torch" is worth knowing.
+  log "    ! no torch was installed for $PY_BIN; pip resolved $TORCH_AFTER"
+  log "      If this interpreter is not the one you meant, re-run with"
+  log "      PY_BIN=/path/to/python (e.g. \$CONDA_PREFIX/bin/python)."
+elif [ "$TORCH_BEFORE" != "$TORCH_AFTER" ]; then
+  die "pip REPLACED torch: $TORCH_BEFORE -> $TORCH_AFTER.
+     The image's build was driver-matched and this one may not be. Reinstall
+     $TORCH_BEFORE before running anything on the GPUs."
+else
+  log "    torch unchanged at $TORCH_BEFORE"
 fi
-log "    torch unchanged at ${TORCH_BEFORE:-<none>}"
 
 "$PY_BIN" - <<'PY' || exit 1
 import sys
