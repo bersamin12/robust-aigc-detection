@@ -79,6 +79,33 @@ def test_film_is_the_identity_at_initialisation():
             assert torch.equal(film(f, cond)["hidden"], plain_h)
 
 
+def test_film_renormalises_so_hidden_cannot_run_away():
+    """`hidden` must stay on the LayerNorm scale for ANY gamma/beta.
+
+    A3's consistency term is an MSE over `hidden` (train_head.py:168-170).
+    Un-normalised FiLM makes that term unbounded: inflating gamma is a
+    cheaper way to move the loss than matching clean to degraded, which is
+    how a7_norecon reached con=1.5e8 and a constant classifier. The zero-init
+    alone did not fix it (0.0296 at val_auc 0.5601 on 2026-08-30) because it
+    only sets the starting point. This pins the trajectory instead: even a
+    projection scaled to emit huge gamma leaves `hidden` at unit RMS.
+    """
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(0)
+        f = torch.randn(8, 32)
+        cond = torch.randn(8, 256)
+        plain = ClassifierHead(dim_in=32, use_film=False)
+        baseline = plain(f)["hidden"].pow(2).mean().sqrt()
+        film = ClassifierHead(dim_in=32, use_film=True)
+        for scale in (1.0, 10.0, 1000.0):
+            with torch.no_grad():
+                film.film.weight.normal_(0.0, scale)
+                film.film.bias.normal_(0.0, scale)
+            rms = film(f, cond)["hidden"].pow(2).mean().sqrt()
+            # LayerNorm pins RMS to ~1 regardless of the modulation size.
+            assert torch.isclose(rms, baseline, rtol=0.2), (scale, rms, baseline)
+
+
 def test_film_leaves_the_identity_once_it_is_trained():
     """The zero-init must be a STARTING point, not a dead branch: the film
     projection has to receive gradient, or A7 is A3 with extra parameters and

@@ -51,14 +51,36 @@ class ClassifierHead(nn.Module):
             # makes "does FiLM help?" a question about FiLM.
             nn.init.zeros_(self.film.weight)
             nn.init.zeros_(self.film.bias)
+            # Renormalise AFTER the modulation. `hidden` is what A3's
+            # consistency term takes an MSE over (train_head.py:168-170), and
+            # `(1 + gamma) * h + beta` is unbounded: nothing constrains how
+            # far a conditioned `h` can drift from the LayerNorm-ed scale the
+            # loss weight was tuned against. Zeroing the projection fixes the
+            # STARTING point but not the trajectory -- rung a7_norecon still
+            # diverged after the zero-init (2026-08-30: 0.0296 at val_auc
+            # 0.5601), because once gamma leaves zero the consistency MSE
+            # grows quadratically in |h| and minimising it by inflating
+            # gamma is cheaper than matching clean to degraded. This puts
+            # `hidden` back on the same scale as every non-FiLM rung, so the
+            # loss weights transfer and A7 is comparable to A3 rather than
+            # being a different optimisation problem wearing the same name.
+            #
+            # Applied whether or not `cond` is supplied, so the block's
+            # architecture does not depend on a call-site argument -- that is
+            # what keeps the zero-init an EXACT identity (LayerNorm is
+            # idempotent on an already-normalised `h` at unit weight and zero
+            # bias) rather than an approximate one.
+            self.film_norm = nn.LayerNorm(hidden)
         self.out = nn.Sequential(nn.Linear(hidden, hidden // 2), nn.GELU(),
                                  nn.Linear(hidden // 2, 1))
 
     def forward(self, f: torch.Tensor, cond: torch.Tensor | None = None) -> dict[str, torch.Tensor]:
         h = self.trunk(f)
-        if self.use_film and cond is not None:
-            gamma, beta = self.film(cond).chunk(2, dim=-1)
-            h = (1.0 + gamma) * h + beta
+        if self.use_film:
+            if cond is not None:
+                gamma, beta = self.film(cond).chunk(2, dim=-1)
+                h = (1.0 + gamma) * h + beta
+            h = self.film_norm(h)
         return {"logit": self.out(h).squeeze(-1), "hidden": h}
 
 
