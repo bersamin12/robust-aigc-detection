@@ -445,9 +445,25 @@ not the upstream provenance of the sets they themselves listed.
 | --- | --- | --- |
 | [OpenFake v2](https://huggingface.co/datasets/ComplexDataLab/OpenFake) | `license: cc-by-nc-4.0` in the Hub metadata; the card body says CC-BY-SA-4.0 with proprietary subsets non-commercial | **Barred.** The machine-readable tag is the declaration, and it is non-commercial — the same bar as GenImage. The tag contradicting the body is a second reason: an ambiguous licence is not a "public/licensed dataset". Otherwise ideal: 2.5M rows, ~80 generators including Flux/SD3.5/GPT-Image/nano-banana, real side from Pexels/DOCCI/LAION/Reddit, plus a 36,240-row in-the-wild Reddit test split. |
 | [Defactify / MS-COCOAI](https://huggingface.co/datasets/Rajarshi-Roy-research/Defactify_Image_Dataset) | none declared | **Barred.** 96k COCO-matched images from SD2.1/SDXL/SD3/DALL·E 3/MJv6 — exactly the era gap — but no licence tag at all fails the rule outright. |
+| [NTIRE 2026 Robust AIGen Detection](https://huggingface.co/datasets/deepfakesMSU/NTIRE-RobustAIGenDetection-train) | "research and educational use only", plus an explicit no-redistribution clause (challenge terms §5; nothing is declared on the HF card or in the CVPRW paper) | **Barred**, on two independent grounds. Research-only is non-commercial in substance — the same bar as Community Forensics and GenImage. The redistribution clause bars it a second time regardless: this project publishes its normalised corpus as a Kaggle Dataset for the fleet, which is redistribution. Painful, because it is the best-matched dataset found: 108,750 real + 185,750 generated from 42 generators released 2022-2026, real half filtered from ~12M CC12M/CommonPool/RedCaps images, 36 transformations, and resolution / aspect-ratio / JPEG-quality distributions aligned between the halves BY CONSTRUCTION rather than repaired downstream. |
 | Community Forensics | research-only | **Barred** (already recorded in `dataset_licences.md`). |
 | GenImage | CC BY-NC-SA | **Barred** (already recorded). |
 | CIFAKE | MIT, and named on the organisers' rules slide | **Permitted, not built.** 120k images at 32×32. Both classes sit at one resolution so it adds no resolution leak, but every image is far below `CANON_BAND_SIDE`, i.e. entirely inside the band the canonicaliser cannot reach. Worth a targeted stress run; not worth a box. |
+
+**Why the wall is structural, not bureaucratic.** Every barred dataset that
+would close the generator-era gap draws its authentic half from web-scraped
+image-text corpora — OpenFake v2 from Pexels/LAION/Reddit, NTIRE 2026 from
+CC12M/CommonPool/RedCaps. Those images stay under their individual copyrights,
+so the compilers *cannot* grant commercial rights they never held; research-only
+is the strongest licence they are able to offer. Asking them to relicense is
+therefore not a paperwork request and will not succeed.
+
+The exception is worth naming because it points at the way out: **Defactify's
+authentic half is MS COCO (CC BY 4.0) and its generated half is the authors'
+own**, so it is the one barred dataset whose licence *could* be made permissive
+by its owners. That is also the recipe for building one ourselves — licence-clean
+reals plus our own generations — and it is what `coco_crop` already does for the
+real half.
 
 The practical conclusion: **the licence wall means the corpus is the two
 organiser-listed sources we already hold.** That is why both presets are

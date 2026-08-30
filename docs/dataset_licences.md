@@ -94,6 +94,26 @@ organiser-listed datasets. Its authentic side is 85% WildFake's re-published sub
 whose upstream terms are non-commercial; that is permitted by the competition's rules as
 the organisers stated them, and is a constraint on any use beyond the competition.
 
+## Vertical-real sources audited for a 9:16 stream (2026-08-30)
+
+The corpus is 0.3% at 9:16 and COCO train2017 holds only 207 images within
++-0.03 of it (10,111 portrait at all), so a TikTok-aspect stream needs an
+authentic source that is natively vertical. Generated images can be produced at
+any aspect for free; authentic ones cannot, so this is the binding constraint —
+and centre-cropping landscape reals to 9:16 while generating fakes natively
+would build a "was this cropped?" detector, a content confound none of the
+three proxies can see.
+
+| Source | Declared terms | Verdict |
+| --- | --- | --- |
+| [Pexels](https://help.pexels.com/hc/en-us/articles/27292485713945-AI-and-ML-FAQ) | Photos are free for commercial use, but the AI/ML FAQ separately prohibits collecting content at scale "to train, fine-tune, evaluate, or develop ML/AI models or datasets" without explicit permission; content also may not be redistributed on a standalone basis | **Barred.** The photo licence is permissive and irrelevant: the ML prohibition is a separate term and it names this exact use. |
+| [Unsplash](https://github.com/unsplash/datasets/blob/master/TERMS.md) | Lite (25k, nature-themed) permits commercial ML training for internal business purposes; Full is non-commercial only; both state the dataset "cannot be used to redistribute the images contained within" | **Barred.** The no-redistribution clause blocks publishing a normalised corpus as a Kaggle Dataset, which is how the fleet gets its data. Lite is also 25k nature photos — the wrong content domain, and too small once filtered to portrait. |
+| [Open Images V7](https://storage.googleapis.com/openimages/web/factsfigures_v7.html) | Images CC BY 2.0, annotations CC BY 4.0 (Google) | **Passes.** CC BY 2.0 permits commercial use AND redistribution with attribution — the only one of the three that allows republishing. 9.2M images, so even a small portrait fraction clears the volume needed. Precedent: SID_Set is itself derived from COCO, OpenImages V7 and Flickr30k, is CC BY 4.0, and is organiser-listed. Google disclaims per-image licence verification, which is the same posture COCO carries toward Flickr terms and which this project already accepted for COCO. |
+
+**Not yet measured:** Open Images' aspect-ratio distribution. The volume is
+clearly sufficient in principle; the portrait and near-9:16 yield should be
+counted from the metadata before any download is planned.
+
 ## COCO train2017 as a training source — a rule reversed, and the control that replaces it
 
 Registered 2026-08-30 as `coco_train2017`, used by
