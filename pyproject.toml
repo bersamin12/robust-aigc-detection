@@ -16,6 +16,13 @@ dependencies = [
     # already carries torch 2.10 / transformers 5.3 and these must not fight
     # it. transformers>=4.53 is the floor that has DINOv3 and SigLIP2.
     "torch>=2.0", "transformers>=4.53",
+    # `eva02l` is published as a timm repo, which AutoModel resolves through
+    # TimmWrapperModel -- and that wrapper needs timm itself present. A main
+    # dependency and NOT an optional extra: kaggle_bootstrap.install_plan reads
+    # [project].dependencies and installs only what is genuinely missing, so on
+    # Kaggle (whose image already ships timm) this costs nothing, while an
+    # extra would simply never be installed there.
+    "timm>=1.0",
 ]
 
 [project.optional-dependencies]

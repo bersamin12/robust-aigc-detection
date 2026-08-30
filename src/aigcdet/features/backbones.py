@@ -26,14 +26,34 @@ import cv2
 import numpy as np
 import torch
 
-# ImageNet statistics, applied uniformly to all three backbones. CLIP and
-# SigLIP2 were each pretrained with their own mean/std, not ImageNet's; using
-# one shared normalisation here is an unverified simplification -- it has not
-# been measured against per-backbone stats -- not a finding that the
-# difference is immaterial. Revisit with a real comparison if a backbone's
-# features underperform expectation.
-_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+#: Pretraining normalisation, carried PER BACKBONE on `BackboneSpec` rather
+#: than applied globally.
+#:
+#: This was one shared ImageNet constant until 2026-08-31, under a comment
+#: calling it "an unverified simplification ... Revisit with a real comparison
+#: if a backbone's features underperform expectation". The backbone probe is
+#: that revisit: its entire purpose is RANKING towers, and EVA-02 was
+#: pretrained on CLIP's statistics while SigLIP was pretrained on [0.5]*3, so
+#: handing either ImageNet's numbers handicaps it and the ranking would be
+#: measuring the preprocessing.
+#:
+#: ImageNet stays the DEFAULT, so every entry that predates this change is
+#: unchanged bit-for-bit and no bank on disk is orphaned. That leaves a
+#: deliberate asymmetry worth stating rather than leaving as a puzzle: `clipl`
+#: and `siglip2l` were ALSO pretrained on their own statistics and keep
+#: ImageNet's anyway, because their banks were built that way and re-extracting
+#: them is a separate and much larger job. So a `siglip2l` number and a
+#: `siglipso400m` number differ in preprocessing as well as in tower, and that
+#: particular pair cannot be read as an architecture comparison.
+IMAGENET_MEAN = (0.485, 0.456, 0.406)
+IMAGENET_STD = (0.229, 0.224, 0.225)
+#: OpenAI CLIP's statistics, which EVA-02's `pretrained_cfg` also reports --
+#: EVA-02 distils CLIP features, so it inherits CLIP's input distribution.
+CLIP_MEAN = (0.48145466, 0.4578275, 0.40821073)
+CLIP_STD = (0.26862954, 0.26130258, 0.27577711)
+#: SigLIP normalises to [-1, 1], not to zero mean and unit variance.
+SIGLIP_MEAN = (0.5, 0.5, 0.5)
+SIGLIP_STD = (0.5, 0.5, 0.5)
 
 
 #: The two input contracts the registry's vision towers actually accept. They
@@ -75,6 +95,19 @@ INPUT_FORMATS = (INPUT_IMAGE_TENSOR, INPUT_SIGLIP2_PATCHES)
 POOL_TOKENS = "tokens"           # (B, T, D) -> mean over T, after num_prefix_tokens
 POOL_SPATIAL_MS = "spatial_ms"   # (B, C, H, W) per stage -> [mean, std] over H*W
 POOLS = (POOL_TOKENS, POOL_SPATIAL_MS)
+
+
+#: Which package publishes the weights. `AutoModel.from_pretrained` resolves a
+#: `timm/*` repo to `TimmWrapperModel`, whose `last_hidden_state` IS
+#: `timm_model.forward_features(x)` -- a (B, 1 + N, D) token sequence -- so
+#: `embed`, `_pool` and `model_inputs` need no timm-specific branch at all and
+#: none exists. The field earns its place for two things `load_backbone` must
+#: do that the transformers path does not: turn off timm's classifier head,
+#: and fail with an install line rather than a bare ImportError when the
+#: optional package is absent.
+LOADER_TRANSFORMERS = "transformers"
+LOADER_TIMM = "timm"
+LOADERS = (LOADER_TRANSFORMERS, LOADER_TIMM)
 
 
 @dataclass(frozen=True)
@@ -120,6 +153,12 @@ class BackboneSpec:
     #: the real model in tests/features/test_backbones.py, since the channel
     #: widths are a property of the checkpoint and cannot be checked here.
     stages: tuple[int, ...] = ()
+    #: Pretraining normalisation. Defaults to ImageNet so every entry that
+    #: predates 2026-08-31 is unchanged bit-for-bit; see IMAGENET_MEAN above.
+    mean: tuple[float, float, float] = IMAGENET_MEAN
+    std: tuple[float, float, float] = IMAGENET_STD
+    #: Which package publishes the weights -- one of `LOADERS`.
+    loader: str = LOADER_TRANSFORMERS
 
     def __post_init__(self):
         if self.input_format not in INPUT_FORMATS:
@@ -129,6 +168,17 @@ class BackboneSpec:
         if self.pool not in POOLS:
             raise ValueError(
                 f"{self.name}: pool must be one of {POOLS}, got {self.pool!r}")
+        if self.loader not in LOADERS:
+            raise ValueError(
+                f"{self.name}: loader must be one of {LOADERS}, "
+                f"got {self.loader!r}")
+        for field_name, value in (("mean", self.mean), ("std", self.std)):
+            if len(value) != 3:
+                raise ValueError(
+                    f"{self.name}: {field_name} must be 3 per-channel values, "
+                    f"got {value!r}")
+        if any(v == 0 for v in self.std):
+            raise ValueError(f"{self.name}: std has a zero channel: {self.std!r}")
         if (self.pool == POOL_SPATIAL_MS) != bool(self.stages):
             raise ValueError(
                 f"{self.name}: `stages` is required by {POOL_SPATIAL_MS} and "
@@ -199,9 +249,9 @@ BACKBONES: dict[str, BackboneSpec] = {
                            224, 1024, 1, 303_179_776),
     # --- Convolutional towers (spec 6.4: A5 wants DECORRELATED paradigms, not
     # three strong ones). Both share the ViTs' `pixel_values` contract and the
-    # ImageNet normalisation above -- which, unlike for CLIP and SigLIP2, is
-    # these checkpoints' OWN pretraining normalisation, so the caveat in the
-    # _MEAN/_STD comment does not apply to them.
+    # ImageNet normalisation default -- which, unlike for CLIP and SigLIP2, is
+    # these checkpoints' OWN pretraining normalisation, so the asymmetry
+    # described at IMAGENET_MEAN does not apply to them.
     #
     # Nothing upstream changes: they consume the same canonicalised, augmented
     # pixels as every other bank, so views stay bit-identical and
@@ -215,6 +265,12 @@ BACKBONES: dict[str, BackboneSpec] = {
     #   resnet50   stage  (4,)   -> 2048 * 2        = 4096
     # Both are float16-safe: ConvNeXt is LayerNorm throughout and ResNet's
     # BatchNorm runs on frozen eval statistics. Neither has DINOv3's overflow.
+    #
+    # THESE TWO are also ~50x less compute per image than SigLIP2-L, so a bank
+    # costs one Kaggle session rather than a five-account fleet. That is a
+    # property of THESE checkpoints and not of the conv paradigm: `convnextv2h`
+    # below is a conv tower at ~338 GFLOPs, more than DINOv2-L at 518 px. It is
+    # a probe candidate, not a cheap bank.
     "convnextt": BackboneSpec("convnextt", "facebook/convnext-tiny-224",
                                224, 2304, 0, 27_820_128,
                                pool=POOL_SPATIAL_MS, stages=(3, 4)),
@@ -229,6 +285,119 @@ BACKBONES: dict[str, BackboneSpec] = {
     "resnet50": BackboneSpec("resnet50", "microsoft/resnet-50",
                               224, 4096, 0, 23_508_032,
                               pool=POOL_SPATIAL_MS, stages=(4,)),
+
+    # --- Backbone-probe candidates, added 2026-08-31 ----------------------
+    # Four towers the ladder has never been run on, registered to be RANKED on
+    # the 20,000-row union probe rather than to ship. Licence and gating for
+    # each were read via the HF Hub API on 2026-08-31 and are recorded in
+    # docs/model_licences.md; all four are ungated, so no arm needs a token.
+    #
+    # The 2B parameter cap does NOT bind this list. It is a constraint on the
+    # architecture that ships -- the spec's own wording is "Final model uses at
+    # most two backbones" -- not on the menu of candidates an ablation may
+    # consider. See test_the_heaviest_shippable_configuration_stays_under_2b.
+    #
+    # Parameter counts measured the same way as every entry above: instantiated
+    # from the published config (architecture only, no weights) and summed over
+    # the vision tower actually loaded and run.
+
+    # DINOv2 WITH REGISTERS, against plain `dinov2l` above. This is a directed
+    # hypothesis about THIS task, not a version bump. Registers exist to absorb
+    # the high-norm artefact tokens DINOv2 develops in low-information patches
+    # -- flat sky, blur, smooth gradients -- and those are exactly the patches a
+    # generator's decoder leaves its trace in. If the artefact tokens were
+    # polluting the patch mean, the pooled vector this project reads should get
+    # cleaner; if they were carrying the forensic signal, it should get worse.
+    # Either result is informative, which is why the entry is worth a session.
+    #
+    # num_prefix_tokens is 5, NOT dinov2l's 1: `num_register_tokens: 4` in the
+    # published config, plus the CLS token. Copying the 1 across would average
+    # four register tokens into every pooled vector, silently.
+    #
+    # float16 MEASURED, not inherited (2026-08-31, 24 canonicalised images vs a
+    # float32 run of the same path): every value finite, max|diff| 5.29e-03,
+    # pooled |x| peaks at 7.31 -- the tightest of the four candidates, and far
+    # inside float16 both in the tower and in the bank's float16 storage.
+    # docs/backbone_dtype_probe.json.
+    "dinov2regl": BackboneSpec("dinov2regl",
+                                "facebook/dinov2-with-registers-large",
+                                518, 1024, 5, 304_372_736),
+
+    # EVA-02-L/14 at 448. A third pretraining PARADIGM, which is why it is here
+    # rather than as a fourth ViT: masked image modelling distilled from a CLIP
+    # teacher, then supervised fine-tuning on IN-22k/IN-1k -- neither DINOv2's
+    # self-distillation nor SigLIP's contrastive image-text objective.
+    #
+    # 448 is not a choice. `pretrained_cfg.fixed_input_size` is true, so the
+    # position embedding admits exactly 448 and `canonicalise`'s 512 nominal
+    # side is DOWNSAMPLED on the way in -- the one arm of the probe whose input
+    # is degraded, and a stated handicap rather than noise. It is also the
+    # cheapest ViT arm for the same reason (1024 tokens against dinov2l's 1369
+    # at 518; measured 74.3 vs 54.0 img/s on the A4500), so the handicap and the
+    # discount are one fact.
+    #
+    # CLIP's normalisation, not ImageNet's -- EVA-02 distils CLIP features and
+    # its pretrained_cfg reports CLIP's mean/std. See IMAGENET_MEAN.
+    #
+    # 304,055,232 is the tower with `reset_classifier(0)` applied, which
+    # `load_backbone` does: TimmWrapperModel materialises the 1000-way IN-1k
+    # head that this project never reads.
+    #
+    # float16 MEASURED (2026-08-31, same 24 images): finite, max|diff| 3.36e-01
+    # against float32, pooled |x| peaks at 102.00. Note the RELATIVE error is
+    # ~0.33%, five times dinov2regl's 0.07% -- EVA-02 pools larger activations,
+    # so it has less float16 headroom than the others. Still two orders inside
+    # the 65504 the bank stores at, but it is the entry to re-measure first if
+    # a future checkpoint or resolution moves. docs/backbone_dtype_probe.json.
+    "eva02l": BackboneSpec("eva02l",
+                            "timm/eva02_large_patch14_448.mim_m38m_ft_in22k_in1k",
+                            448, 1024, 1, 304_055_232,
+                            mean=CLIP_MEAN, std=CLIP_STD, loader=LOADER_TIMM),
+
+    # ConvNeXt V2 Huge at 384. The conv paradigm at a scale that can actually
+    # compete, against `convnextt`'s 27.8M -- convnextt lost the A5 comparison
+    # (a0 0.4244) and "the conv paradigm is weak here" and "we ran a tiny conv
+    # tower" are not the same claim. This entry separates them.
+    #
+    # stages=(4,) and NOT (3, 4). (3, 4) would give 2 * (1408 + 2816) = 8448,
+    # an 8.25x wider bank than the 1024-d ViT arms, and `train_head` takes
+    # `dim_feat=bank.config["dim"]` -- so a wider bank silently buys a bigger
+    # head and a win here would have two explanations. (4,) is 2 * 2816 = 5632,
+    # which REDUCES that confound and does not remove it: 5.5x is still 5.5x,
+    # so a convnextv2h win requires the matched-capacity control (re-run the
+    # best ViT rung with `hidden` raised to match this head's parameter count)
+    # before it is a finding.
+    #
+    # float16 was the entry this probe existed to doubt, and it PASSED. GRN
+    # takes a global L2 norm over all spatial positions, and at 384^2 with 2816
+    # channels that is a far larger reduction than convnextt's, so convnextt's
+    # "LayerNorm throughout" argument does not transfer and could not be
+    # borrowed. Measured instead (2026-08-31, 24 canonicalised images):
+    # every value finite, max|diff| 2.26e-01 against float32, pooled |x| peaks
+    # at 80.15. docs/backbone_dtype_probe.json.
+    "convnextv2h": BackboneSpec("convnextv2h", "facebook/convnextv2-huge-22k-384",
+                                 384, 5632, 0, 657_472_640,
+                                 pool=POOL_SPATIAL_MS, stages=(4,)),
+
+    # SigLIP SO400M/14 at 384, against `siglip2l` above. A shape-optimised
+    # tower -- 27 layers at width 1152, sized by architecture search rather than
+    # by the ViT-L/H ladder -- and the strongest open contrastive image encoder
+    # available under Apache-2.0.
+    #
+    # [0.5]*3 normalisation, which is SigLIP's own: it maps to [-1, 1] rather
+    # than to zero mean and unit variance. NOTE THE ASYMMETRY described at
+    # IMAGENET_MEAN: `siglip2l` keeps ImageNet's statistics because its banks
+    # were built that way, so a siglip2l-vs-siglipso400m gap confounds the tower
+    # with the preprocessing and that ONE pair is not an architecture
+    # comparison.
+    #
+    # float16 MEASURED (2026-08-31, same 24 images): finite, max|diff| 9.70e-02
+    # against float32, pooled |x| peaks at 36.66.
+    # docs/backbone_dtype_probe.json.
+    "siglipso400m": BackboneSpec("siglipso400m",
+                                  "google/siglip-so400m-patch14-384",
+                                  384, 1152, 0, 428_225_600,
+                                  mean=SIGLIP_MEAN, std=SIGLIP_STD),
 }
 
 
@@ -261,27 +430,73 @@ def run_dtype(spec: BackboneSpec, device: str) -> torch.dtype:
     return spec.dtype
 
 
+def _require_timm(spec: BackboneSpec) -> None:
+    """Fail on the missing optional package with an install line.
+
+    Without this the failure is a transformers ImportError raised from inside
+    `AutoModel.from_pretrained`, several cells into a Kaggle session, naming
+    neither the backbone that asked for it nor what to do about it.
+    """
+    import importlib.util
+
+    if importlib.util.find_spec("timm") is None:
+        raise ImportError(
+            f"backbone {spec.name!r} ({spec.hf_id}) is published by timm, which "
+            f"is not installed. Install it with `pip install 'timm>=1.0'` -- it "
+            f"is a declared dependency in pyproject.toml, and Kaggle's image "
+            f"already ships it.")
+
+
+def _strip_timm_head(model):
+    """Drop the classifier `TimmWrapperModel` materialises, and stop it running.
+
+    Two separate things, both needed. `reset_classifier(0)` frees the 1000-way
+    IN-1k head, which is what makes `eva02l`'s recorded parameter count the
+    count of what is actually loaded. `do_pooling=False` stops
+    `TimmWrapperModel.forward` calling `forward_head` at all -- `_pool` reads
+    `last_hidden_state`, which is `forward_features(x)` either way, so the
+    pooler output is compute nobody reads.
+    """
+    inner = getattr(model, "timm_model", None)
+    if inner is not None and hasattr(inner, "reset_classifier"):
+        inner.reset_classifier(0)
+    if hasattr(model, "config"):
+        model.config.do_pooling = False
+    return model
+
+
 def load_backbone(name: str, device: str = "cuda") -> tuple[torch.nn.Module, BackboneSpec]:
     """Load a frozen backbone's vision tower in eval mode on `device`, in
     `run_dtype(spec, device)`."""
     from transformers import AutoModel
 
     spec = BACKBONES[name]
+    if spec.loader == LOADER_TIMM:
+        _require_timm(spec)
     model = AutoModel.from_pretrained(spec.hf_id, dtype=run_dtype(spec, device))
     # CLIP and SigLIP wrap a vision tower alongside a text tower; DINOv3 is
     # already a vision-only model.
     model = getattr(model, "vision_model", model)
+    if spec.loader == LOADER_TIMM:
+        model = _strip_timm_head(model)
     model = model.to(device).eval()
     for p in model.parameters():
         p.requires_grad_(False)
     return model, spec
 
 
-def _normalised_batch(imgs: list[np.ndarray], size: int) -> np.ndarray:
+def _normalised_batch(imgs: list[np.ndarray], size: int,
+                      mean: tuple[float, float, float],
+                      std: tuple[float, float, float]) -> np.ndarray:
     """Squish, scale to [0, 1] and normalise into (B, size, size, 3) float32,
-    channels LAST -- the layout both input formats below start from."""
+    channels LAST -- the layout both input formats below start from.
+
+    `mean`/`std` come from the spec, not from a module constant: see
+    IMAGENET_MEAN above for why they are per-backbone.
+    """
     arr = np.stack([squish(i, size) for i in imgs]).astype(np.float32) / 255.0
-    return (arr - _MEAN) / _STD
+    return ((arr - np.asarray(mean, dtype=np.float32))
+            / np.asarray(std, dtype=np.float32))
 
 
 def _patchify(arr: np.ndarray, patch_size: int) -> tuple[np.ndarray, int, int]:
@@ -308,7 +523,7 @@ def model_inputs(spec: BackboneSpec, imgs: list[np.ndarray], device: str,
     Only `pixel_values` is cast to `dtype`: `attention_mask` and
     `spatial_shapes` are integer index/mask tensors and must stay integral.
     """
-    arr = _normalised_batch(imgs, spec.image_size)
+    arr = _normalised_batch(imgs, spec.image_size, spec.mean, spec.std)
     if spec.input_format == INPUT_IMAGE_TENSOR:
         x = torch.from_numpy(arr).permute(0, 3, 1, 2).contiguous()
         return {"pixel_values": x.to(device, dtype)}

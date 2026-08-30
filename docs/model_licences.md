@@ -2,7 +2,8 @@
 
 Recorded per spec §4.5 (model-weight provenance, same discipline as dataset provenance).
 Licence text was read in full at the source below, not inferred from a model-card
-summary line. Checked 2026-08-27/28; the two convolutional backbones and DINOv2 added 2026-08-30.
+summary line. Checked 2026-08-27/28; the two convolutional backbones and DINOv2 added
+2026-08-30; the four backbone-probe candidates added 2026-08-31.
 
 | Model | HF id | Licence | Source | Permits public repo + hackathon use? |
 | --- | --- | --- | --- | --- |
@@ -14,6 +15,19 @@ summary line. Checked 2026-08-27/28; the two convolutional backbones and DINOv2 
 | ResNet-50 | microsoft/resnet-50 | Apache License 2.0 | https://huggingface.co/microsoft/resnet-50 (`license: apache-2.0` in card metadata, read via the Hub API 2026-08-30; ungated) | Yes |
 | SD 1.5 VAE | stable-diffusion-v1-5/stable-diffusion-v1-5 (vae) | CreativeML Open RAIL-M | https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5 (`license: creativeml-openrail-m` in card metadata); full text https://huggingface.co/spaces/CompVis/stable-diffusion-license | Yes |
 | LPIPS (AlexNet) | richzhang/PerceptualSimilarity | BSD-2-Clause | https://github.com/richzhang/PerceptualSimilarity (`LICENSE` file) | Yes |
+
+### Backbone-probe candidates (added 2026-08-31)
+
+Four towers registered to be RANKED on the 20,000-row union probe, not to ship.
+Licence and gating for each were read via the HuggingFace Hub API on 2026-08-31.
+All four are **ungated**, so no arm of the probe needs a token.
+
+| Model | HF id | Licence | Source | Permits public repo + hackathon use? |
+| --- | --- | --- | --- | --- |
+| DINOv2-with-registers ViT-L/14 | facebook/dinov2-with-registers-large | Apache License 2.0 | https://huggingface.co/facebook/dinov2-with-registers-large (`license: apache-2.0` in card metadata, read via the Hub API 2026-08-31; `gated: False`) | Yes |
+| EVA-02 ViT-L/14 @448 | timm/eva02_large_patch14_448.mim_m38m_ft_in22k_in1k | MIT License | https://huggingface.co/timm/eva02_large_patch14_448.mim_m38m_ft_in22k_in1k (`license: mit` in card metadata AND in the checkpoint's own `pretrained_cfg`, read 2026-08-31; `gated: False`) | Yes |
+| ConvNeXt V2 Huge @384 | facebook/convnextv2-huge-22k-384 | Apache License 2.0 (card) / MIT (upstream repo) | https://huggingface.co/facebook/convnextv2-huge-22k-384 (`license: apache-2.0`, read via the Hub API 2026-08-31; ungated) and https://github.com/facebookresearch/ConvNeXt-V2/blob/main/LICENSE (`MIT License`, read in full 2026-08-31) | Yes |
+| SigLIP SO400M/14 @384 | google/siglip-so400m-patch14-384 | Apache License 2.0 | https://huggingface.co/google/siglip-so400m-patch14-384 (`license: apache-2.0` in card metadata, read via the Hub API 2026-08-31; `gated: False`) | Yes |
 
 ## Notes on each verdict
 
@@ -65,6 +79,46 @@ summary line. Checked 2026-08-27/28; the two convolutional backbones and DINOv2 
   of the prohibited end-uses apply.
 - **LPIPS (AlexNet weights).** BSD-2-Clause is unconditionally permissive.
 
-None of the four backbone/auxiliary models block public-repo or hackathon use. The
-registry in `src/aigcdet/features/backbones.py` therefore ships DINOv3 ViT-L/16 as
-planned, with SigLIP2-L/16-384 and CLIP ViT-L/14 as the other two entries.
+- **DINOv2-with-registers.** Apache-2.0 and ungated, same terms as plain DINOv2.
+  It is in the registry for an architectural reason rather than a licence one:
+  registers absorb the high-norm artefact tokens DINOv2 develops in
+  low-information patches, which is where a generator's decoder leaves its trace.
+- **EVA-02.** MIT, and ungated. `handoffs/08-ablation-rungs.md` recorded
+  `timm/eva02_*` earlier as a licence note about a candidate that was NOT
+  adopted; it is adopted now because the backbone probe is asking a different
+  question. The earlier note was about shipping it; this is about measuring it.
+  It is the only entry loaded through timm rather than transformers directly
+  (`AutoModel` resolves a `timm/*` repo to `TimmWrapperModel`), which is why
+  `timm>=1.0` became a declared dependency in `pyproject.toml`.
+- **ConvNeXt V2 Huge. TWO PERMISSIVE READINGS, AND THEY DISAGREE ON WHICH.** The
+  HF card metadata says `apache-2.0`; the upstream `facebookresearch/ConvNeXt-V2`
+  repository ships an `MIT License` file. Both were read in full on 2026-08-31.
+  Neither carries a non-commercial or research-only restriction, so the
+  divergence does not change the verdict and nothing is blocked — but it is
+  recorded rather than resolved by picking the more convenient one, because the
+  discipline in this file is that the licence is read, not assumed. Note the
+  contrast with ConvNeXt V1 (`facebook/convnext-tiny-224`), whose card and
+  upstream agree on Apache-2.0.
+- **SigLIP SO400M.** Apache-2.0, unconditionally permissive, ungated.
+- **All four are general-purpose vision backbones**, frozen as feature
+  extractors — the same relationship this project already has with DINOv3,
+  SigLIP2 and CLIP. The competition rules disqualify "using pre-trained AIGC
+  detection models directly"; nothing forensic is inherited from any of these
+  checkpoints.
+
+## The 2B parameter cap and this file
+
+The registry now holds ten entries summing to ~2.97B parameters, which is NOT a
+breach. The hackathon's constraint binds the architecture that SHIPS — the spec's
+wording is "Final model uses at most two backbones", and its exclusions name "any
+model at or above 2B parameters" — not the menu of candidates an ablation may
+consider. The test that enforces it
+(`tests/features/test_backbones.py::test_the_heaviest_shippable_configuration_stays_under_2b`)
+sums the two heaviest entries plus the SD 1.5 VAE and LPIPS: 1.17B, with 828M of
+margin. It summed the whole registry until 2026-08-31, which would have vetoed a
+four-backbone probe that ships none of the four.
+
+None of the models above blocks public-repo or hackathon use. The registry in
+`src/aigcdet/features/backbones.py` ships DINOv3 ViT-L/16 as planned, with
+SigLIP2-L/16-384 and CLIP ViT-L/14 as the other two entries; the rest are
+ablation candidates.

@@ -1,0 +1,67 @@
+{
+  "n_images": 24,
+  "device": "cuda",
+  "seed": 20260827,
+  "results": [
+    {
+      "backbone": "dinov2regl",
+      "hf_id": "facebook/dinov2-with-registers-large",
+      "declared_dtype": "float16",
+      "effective_dtype": "float16",
+      "dim": 1024,
+      "image_size": 518,
+      "n_images": 24,
+      "finite": true,
+      "n_nonfinite": 0,
+      "max_abs_diff_vs_float32": 0.005289018154144287,
+      "max_abs_pooled": 7.30859375,
+      "fits_float16_storage": true,
+      "float32_max_abs_pooled": 7.307411193847656
+    },
+    {
+      "backbone": "eva02l",
+      "hf_id": "timm/eva02_large_patch14_448.mim_m38m_ft_in22k_in1k",
+      "declared_dtype": "float16",
+      "effective_dtype": "float16",
+      "dim": 1024,
+      "image_size": 448,
+      "n_images": 24,
+      "finite": true,
+      "n_nonfinite": 0,
+      "max_abs_diff_vs_float32": 0.3355255126953125,
+      "max_abs_pooled": 102.0,
+      "fits_float16_storage": true,
+      "float32_max_abs_pooled": 101.9767074584961
+    },
+    {
+      "backbone": "siglipso400m",
+      "hf_id": "google/siglip-so400m-patch14-384",
+      "declared_dtype": "float16",
+      "effective_dtype": "float16",
+      "dim": 1152,
+      "image_size": 384,
+      "n_images": 24,
+      "finite": true,
+      "n_nonfinite": 0,
+      "max_abs_diff_vs_float32": 0.09700775146484375,
+      "max_abs_pooled": 36.65625,
+      "fits_float16_storage": true,
+      "float32_max_abs_pooled": 36.6562385559082
+    },
+    {
+      "backbone": "convnextv2h",
+      "hf_id": "facebook/convnextv2-huge-22k-384",
+      "declared_dtype": "float16",
+      "effective_dtype": "float16",
+      "dim": 5632,
+      "image_size": 384,
+      "n_images": 24,
+      "finite": true,
+      "n_nonfinite": 0,
+      "max_abs_diff_vs_float32": 0.22642898559570312,
+      "max_abs_pooled": 80.14620208740234,
+      "fits_float16_storage": true,
+      "float32_max_abs_pooled": 80.06075286865234
+    }
+  ]
+}
