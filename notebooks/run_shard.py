@@ -37,6 +37,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import kaggle_bootstrap as kb  # noqa: E402
 
+# Light import: `augment.canonical` pulls numpy and cv2 only, never torch, so
+# this keeps the deliberate deferral of `features.extract` (and its 1.2 GB of
+# backbone) below intact while still letting the parser carry the real
+# defaults rather than restating them as literals.
+from aigcdet.augment.canonical import (  # noqa: E402
+    CANON_CROP_SIDE, MODE_BAND, MODES, CanonPolicy)
+
 
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -64,6 +71,18 @@ def build_parser() -> argparse.ArgumentParser:
                     help="smoke path only: take the first N rows OF THIS "
                          "SHARD. A bank built with --limit is not a shard of "
                          "the real bank and must never be merged into one")
+    # Standardisation policy. These MUST reach extract_bank: a bank built at
+    # the default band policy over a crop-stream dataset is not an error and
+    # not empty -- it is a silently wrong bank whose config.json claims
+    # mode="band". `extract_bank` records the policy, so the mistake is
+    # detectable after the fact, but only if someone looks.
+    ap.add_argument("--canon-mode", choices=MODES, default=MODE_BAND,
+                    help="band (frozen stream) or crop (coco_crop stream)")
+    ap.add_argument("--crop-side", type=int, default=CANON_CROP_SIDE,
+                    help="window size for --canon-mode crop")
+    ap.add_argument("--geometric", action="store_true",
+                    help="per-view dihedral augmentation; requires a square "
+                         "standardisation, so --canon-mode crop")
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--dry-run", action="store_true",
                     help="resolve the shard, check the resume, print the plan, "
@@ -85,6 +104,17 @@ def main(argv: list[str] | None = None) -> int:
         # frame and then write a shorter bank, and `check_resume` would then
         # reject every subsequent resume of a smoke run.
         shard_df = shard_df.iloc[: a.limit]
+
+    # Built here rather than at the extract_bank call so an illegal
+    # combination (--geometric under band mode) raises before the shard is
+    # resolved and long before a 1.2 GB backbone download.
+    policy = CanonPolicy(mode=a.canon_mode, crop_side=a.crop_side)
+    if a.geometric and not policy.is_square:
+        raise SystemExit(
+            "--geometric requires a square standardisation, but --canon-mode "
+            f"is {a.canon_mode!r}. A 90-degree rotation transposes a "
+            "non-square image and every op downstream is shape-preserving. "
+            "Pass --canon-mode crop.")
 
     if not len(shard_df):
         raise SystemExit(
@@ -112,7 +142,8 @@ def main(argv: list[str] | None = None) -> int:
 
     extract_bank(shard_df, a.backbone, a.out, seed=a.seed, device=a.device,
                  batch_size=a.batch_size, resume=a.resume,
-                 checkpoint_every=a.checkpoint_every, workers=a.workers)
+                 checkpoint_every=a.checkpoint_every, workers=a.workers,
+                 policy=policy, geometric=a.geometric)
     print(f"shard {a.shard} complete -> {a.out}")
     return 0
 

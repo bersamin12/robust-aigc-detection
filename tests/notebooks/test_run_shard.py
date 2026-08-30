@@ -135,3 +135,55 @@ def test_run_shard_is_guarded_by_a_main_block(repo_root):
     src = open(os.path.join(repo_root, "notebooks", "run_shard.py")).read()
     assert 'if __name__ == "__main__":' in src
     assert src.index('if __name__ == "__main__":') < src.index("sys.exit(main())")
+
+
+# --- standardisation policy -------------------------------------------------
+
+def test_the_cli_defaults_to_band_so_the_frozen_stream_is_unchanged():
+    a = run_shard.build_parser().parse_args(
+        ["--manifest", "m", "--root", "/r", "--backbone", "dinov3l",
+         "--out", "/o", "--shard", "0", "--n-shards", "1",
+         "--expect-manifest-sha256", "x"])
+    assert a.canon_mode == "band"
+    assert a.geometric is False
+
+
+def test_the_cli_accepts_the_crop_policy():
+    a = run_shard.build_parser().parse_args(
+        ["--manifest", "m", "--root", "/r", "--backbone", "dinov3l",
+         "--out", "/o", "--shard", "0", "--n-shards", "1",
+         "--expect-manifest-sha256", "x",
+         "--canon-mode", "crop", "--crop-side", "200", "--geometric"])
+    assert (a.canon_mode, a.crop_side, a.geometric) == ("crop", 200, True)
+
+
+def test_geometric_under_band_mode_exits_before_the_shard_is_resolved(
+        frozen_manifest, sha, tmp_path):
+    """The guard must fire on the CONFIGURATION, before any work: on Kaggle the
+    next step is a multi-GB download inside a metered session."""
+    argv = _argv(frozen_manifest, sha, out=str(tmp_path / "b"))
+    argv = [x for x in argv if x != "--dry-run"] + ["--geometric"]
+    with pytest.raises(SystemExit, match="--canon-mode crop"):
+        run_shard.main(argv)
+
+
+def test_the_crop_policy_reaches_extract_bank(frozen_manifest, sha, tmp_path,
+                                              monkeypatch):
+    """The whole point of the plumbing: a band bank over crop-stream data is
+    not an error and not empty, just silently wrong, so this asserts the
+    policy actually arrives rather than that the run merely succeeds."""
+    seen = {}
+
+    def fake_extract_bank(df, backbone, out, **kw):
+        seen.update(kw)
+
+    import aigcdet.features.extract as ex
+    monkeypatch.setattr(ex, "extract_bank", fake_extract_bank)
+    argv = [x for x in _argv(frozen_manifest, sha, out=str(tmp_path / "b"))
+            if x != "--dry-run"]
+    run_shard.main(argv + ["--canon-mode", "crop", "--crop-side", "200",
+                           "--geometric"])
+    assert seen["geometric"] is True
+    assert seen["policy"].mode == "crop"
+    assert seen["policy"].crop_side == 200
+    assert seen["policy"].is_square

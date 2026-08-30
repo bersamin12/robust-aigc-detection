@@ -1082,3 +1082,46 @@ def test_the_advice_for_an_ungated_backbone_does_not_demand_a_token():
                                        gated=False))
     assert "gated" not in lines.lower()
     assert "not required" in lines.lower() or "no token" in lines.lower()
+
+
+# --- standardisation policy across the process boundary ---------------------
+#
+# The chain is notebook -> run_shard_argv -> run_shard.py -> extract_bank. The
+# policy was threaded into extract_bank first and these two middle layers were
+# not updated with it, so a crop-stream notebook silently produced band-mode
+# banks. These pin the flags all the way through.
+
+def _policy_kw():
+    return dict(manifest_path="m", root="/r", backbone="dinov3l", out_dir="/o",
+                splits="train", shard=0, n_shards=5)
+
+
+def test_run_shard_argv_defaults_to_the_frozen_streams_band_policy(frozen_manifest):
+    """An un-updated caller must keep behaving exactly as before, so the flag
+    is ABSENT rather than passed explicitly as band."""
+    from aigcdet.data.manifest import read_manifest
+
+    df = read_manifest(frozen_manifest["path"], root=frozen_manifest["root"])
+    argv = kb.run_shard_argv(_gate(df), **_policy_kw())
+    assert "--canon-mode" not in argv
+    assert "--geometric" not in argv
+
+
+def test_run_shard_argv_carries_the_crop_policy(frozen_manifest):
+    from aigcdet.data.manifest import read_manifest
+
+    df = read_manifest(frozen_manifest["path"], root=frozen_manifest["root"])
+    argv = kb.run_shard_argv(_gate(df), canon_mode="crop", crop_side=200,
+                             geometric=True, **_policy_kw())
+    assert argv[argv.index("--canon-mode") + 1] == "crop"
+    assert argv[argv.index("--crop-side") + 1] == "200"
+    assert "--geometric" in argv
+
+
+def test_run_shard_argv_refuses_geometric_under_band_mode(frozen_manifest):
+    """Caught here rather than after a session start and a backbone download."""
+    from aigcdet.data.manifest import read_manifest
+
+    df = read_manifest(frozen_manifest["path"], root=frozen_manifest["root"])
+    with pytest.raises(ValueError, match="canon_mode='crop'"):
+        kb.run_shard_argv(_gate(df), geometric=True, **_policy_kw())

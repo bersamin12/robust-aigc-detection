@@ -28,6 +28,7 @@ EXPECTED_NOTEBOOKS = (
     "kaggle_stage_a_cnn.ipynb",      # the convolutional bank (A5 third paradigm)
     "kaggle_stage_a_eval.ipynb",     # the evaluation bank, both manifests joined
     "kaggle_merge_train.ipynb",      # merge the fleet's shards
+    "kaggle_all_experiments.ipynb",  # every phase in one resumable session
 )
 
 

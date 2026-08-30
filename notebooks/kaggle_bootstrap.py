@@ -1000,7 +1000,9 @@ def run_shard_argv(gate, *, manifest_path: str, root: str, backbone: str,
                    out_dir: str, splits: str, shard: int, n_shards: int,
                    resume: bool = True, workers: int = 4, batch_size: int = 16,
                    checkpoint_every: int = 500, limit: int | None = None,
-                   device: str = "cuda", runner: str | None = None) -> list[str]:
+                   device: str = "cuda", runner: str | None = None,
+                   canon_mode: str = "band", crop_side: int | None = None,
+                   geometric: bool = False) -> list[str]:
     """argv for `notebooks/run_shard.py`, the sharded Stage A entry point.
 
     A separate process, not an in-notebook `extract_bank` call, and that is
@@ -1033,6 +1035,23 @@ def run_shard_argv(gate, *, manifest_path: str, root: str, backbone: str,
             "--checkpoint-every", str(int(checkpoint_every)),
             "--workers", str(int(workers)),
             "--expect-manifest-sha256", str(gate.manifest_sha256)]
+    # The standardisation policy has to cross this boundary explicitly. The
+    # default is the frozen stream's band mode, so an un-updated caller keeps
+    # its existing behaviour; a crop-stream caller that forgets these gets a
+    # band bank over crop-stream data, which is wrong without being an error.
+    if canon_mode != "band":
+        argv += ["--canon-mode", str(canon_mode)]
+    if crop_side is not None:
+        argv += ["--crop-side", str(int(crop_side))]
+    if geometric:
+        if canon_mode != "crop":
+            raise ValueError(
+                "geometric=True needs canon_mode='crop': dihedral augmentation "
+                "transposes on 90/270 degrees and every op downstream is "
+                "shape-preserving, so it is only defined on a square "
+                "standardisation. run_shard.py refuses this too, but failing "
+                "here costs a millisecond instead of a session start.")
+        argv.append("--geometric")
     if limit is not None:
         argv += ["--limit", str(int(limit))]
     if resume:
