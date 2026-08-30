@@ -89,9 +89,36 @@ WORKER_CAP="${WORKER_CAP:-32}"
 BATCH="${BATCH:-32}"
 LIMIT="${LIMIT:-}"          # set it to smoke the chain; unset for the real run
 
+# ONE THREAD PER WORKER, and this is a correctness fix before it is a tuning
+# one. Parallelism here comes from the WORKER PROCESSES; OpenMP, OpenCV, BLAS
+# and torch each additionally size their own thread pool to nproc, so on a
+# 320-core box every one of 32 workers x 4 arms tries to create ~320 threads
+# and the box runs out:
+#
+#   libgomp: Thread creation failed: Resource temporarily unavailable
+#   [ERROR] parallel_impl.cpp: WorkerThread 0: Can't spawn new thread
+#
+# It is a race, which is worse than a clean failure -- three arms took their
+# threads and the fourth died. The pools were never wanted: they oversubscribe
+# the cores the workers are already using, so capping them is faster as well as
+# survivable. Nothing here is a big matmul; the GPU does that.
+export OMP_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1
+export VECLIB_MAXIMUM_THREADS=1
+export OPENCV_FOR_THREADS_NUM=1
+
 echo "arms:    ${ARMS[*]}"
 echo "gpus:    $NGPU   cores: $NCPU   workers/arm: $WORKERS   batch: $BATCH"
 echo "corpus:  $DATA_DIR"
+echo "threads: 1 per worker (OMP/BLAS/OpenCV capped); nproc=$NCPU"
+# The ceiling that was actually hit. Printed so the next failure is diagnosable
+# from the header rather than from a wall of libgomp errors.
+_maxproc=$(ulimit -u 2>/dev/null || echo "?")
+_pidsmax=$(cat /sys/fs/cgroup/pids.max 2>/dev/null || echo "?")
+echo "limits:  ulimit -u=$_maxproc  cgroup pids.max=$_pidsmax  "\
+     "(this run wants ~$(( NGPU * (WORKERS + 2) )) processes)"
 if [ -n "$LIMIT" ]; then
   echo "MODE:    SMOKE, $LIMIT images per arm, into data/banks/smoke_*"
 else
