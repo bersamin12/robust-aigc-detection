@@ -40,6 +40,13 @@ GATED_MODELS=(facebook/dinov3-vitl16-pretrain-lvd1689m)
 PY_BIN="${PY_BIN:-$(command -v python || command -v python3)}"
 [ -n "$PY_BIN" ] || { echo 'FATAL: no python or python3 on PATH' >&2; exit 1; }
 
+# FIRST, before anything that can fail. These were created on the last line of
+# this script, which meant a bootstrap that died anywhere -- the torch guard,
+# the model download, a bad credential -- left no logs/ for the NEXT command to
+# redirect into, and `nohup ... > logs/x.log &` then failed with "No such file
+# or directory" for a reason that has nothing to do with the command being run.
+mkdir -p logs docs data/banks outputs
+
 log() { echo "[$(date +%H:%M:%S)] $*"; }
 die() { echo "FATAL: $*" >&2; exit 1; }
 
@@ -228,5 +235,4 @@ for name, want in EXPECT.items():
     print(f"    {name}: {got[:16]}... matches")
 PY
 
-mkdir -p logs docs data/banks outputs
 log "READY. Next: scripts/run_pod_arms.sh"
