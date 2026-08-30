@@ -75,6 +75,12 @@ from aigcdet.data.encoder_parity import (
     GEOMETRIES, ParityError, read_profile, save_matched,
 )
 
+#: Ideogram returns a CDN URL rather than bytes, and that CDN rejects Python's
+#: default `Python-urllib/3.x` agent with HTTP 403 -- which silently throws away
+#: an image the account was already billed for. Every outbound fetch carries a
+#: real agent string for that reason.
+UA = "Mozilla/5.0 (compatible; aigcdet-research/1.0)"
+
 OPENROUTER_URL = "https://openrouter.ai/api/v1/images"
 IDEOGRAM_URL = "https://api.ideogram.ai/v1/ideogram-v4/generate"
 
@@ -318,11 +324,19 @@ def call_ideogram(model: str, prompt: str, key: str, resolution: str = "1K") -> 
     url = items[0].get("url")
     if not url:
         return Result(False, reason="200 with no url in data[0]")
+    # The generation is already billed by this point, so a failed fetch is a
+    # paid-for image thrown away. `billed=True` keeps it visible in the receipt
+    # rather than being written off as a free error.
     try:
-        with urllib.request.urlopen(url, timeout=120) as r:
-            return Result(True, r.read(), "image/png", None)
+        req = urllib.request.Request(url, headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=120) as r:
+            blob = r.read()
+            ctype = r.headers.get("Content-Type", "").split(";")[0].strip()
+        return Result(True, blob, ctype or "image/png", None)
     except Exception as e:
-        return Result(False, reason=f"image fetch failed: {type(e).__name__}: {e}")
+        return Result(False, billed=True,
+                      reason=f"image fetch failed (GENERATION WAS BILLED): "
+                             f"{type(e).__name__}: {e}")
 
 
 ADAPTERS = {"openrouter": call_openrouter, "ideogram": call_ideogram}
