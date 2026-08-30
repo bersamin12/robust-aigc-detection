@@ -371,6 +371,18 @@ symlink two parquet files into the corpus root. Published by
 values so a session can check its mount against what was frozen without
 re-reading 128 GB.
 
+**Storage.** Private datasets are capped at 200 GB in total for the account,
+and the union is 128 GB of it. `techjam-aigc-train` (25.5 GB, the frozen
+stream's corpus) was deleted on 2026-08-30 to fit — its banks remain published
+as `techjam-aigc-banks` and the corpus is still on local disk, so the frozen
+stream's results stand; only re-extracting it on Kaggle now costs a re-upload.
+Measured upload rate to Kaggle is 22 MB/s on a single stream (192 Mbps),
+consistent across two transfers hours apart, so the 128 GB is ~1 h 40 of
+transfer plus ~25 min of archiving — provided the archiver has the disk to
+itself. It must: with `build_dataset` reading the same spinning disk the
+archiver drops to 7 MB/s and takes the build down with it, and no `ionice`
+class fixes that because the contention is seek time, not bandwidth.
+
 **`N_SHARDS` is pinned at 8, and the notebook will not derive it.** The
 derivation can only see the 20 GiB working quota, and at dim 1024 the whole
 bank is 8.5 GiB — so it would return `N_SHARDS=1`, which fits the quota fine
