@@ -45,11 +45,35 @@ STAGE_ROOT="${3:-/mnt/berstorage/techjam/experiments/data}"
 export TMPDIR="${TMPDIR:-/home/administrator/.cache/kaggle_tmp}"
 mkdir -p "$TMPDIR"
 
-# Alphabetical, matching the order build_dataset walks them.
+# Alphabetical, matching the order build_dataset walks them. This is the
+# order the COMPLETION WAIT uses -- a source is done when its successor
+# appears, so the list has to match the writer's own order to mean anything.
 SOURCES=(coco_train2017 ntire open_images sid_set wildfake)
+
+# Smallest first, which is a different order and a deliberate one: the first
+# transfer is the only cheap measurement of a path we are about to push 128 GB
+# down, and open_images at 9.3 GB buys that measurement for a twentieth of
+# ntire's 62 GB. It also lands usable mounts early -- five Datasets are
+# attached as one tree, but four of five attached is four fewer to wait for.
+UPLOAD_ORDER=(open_images wildfake coco_train2017 sid_set ntire)
 STAGED_MARKER=logs/probe_ssd_staged.done
+BUILD_LOG=logs/build_union.log
 
 log() { echo "[$(date +%H:%M:%S)] $*"; }
+
+normalisation_finished() {
+  # `build_dataset` prints the sub-band drop report (build_dataset.py:435)
+  # AFTER the last source is normalised and BEFORE the audit/dedupe/freeze
+  # phases, which read the RAW tree and never write the normalised one. So
+  # this line is the point from which every image in $NORM is final, and the
+  # rest of the build is not a reason to wait: the corpus cannot change under
+  # an archiver any more.
+  #
+  # A log line and not a file count, for the same reason the per-source wait
+  # uses a successor: normalisation legally skips unreadable images (14 of
+  # them here), so "count == expected" may never become true.
+  grep -q "below short side" "$BUILD_LOG" 2>/dev/null
+}
 
 wait_for_probe_staging() {
   # The marker the probe writes once its images are on the SSD. If the probe
@@ -122,11 +146,25 @@ JSON
 # before the first archive starts. Waiting per-source here would put an
 # archiver back beside the build, which is the thing that was measured to be a
 # mistake.
-for i in "${!SOURCES[@]}"; do wait_for_source_done "$i"; done
-wait_for_probe_staging
+if normalisation_finished; then
+  log "normalisation is complete; every image in $NORM is final"
+else
+  for i in "${!SOURCES[@]}"; do wait_for_source_done "$i"; done
+  wait_for_probe_staging
+fi
 
-for name in "${SOURCES[@]}"; do
+for name in "${UPLOAD_ORDER[@]}"; do
   if [ -f "logs/upload_union_$name.done" ]; then log "$name: already published"; continue; fi
-  upload_source "$name" && touch "logs/upload_union_$name.done"
+  bytes=$(du -sb "$NORM/$name" | cut -f1)
+  t0=$(date +%s)
+  if upload_source "$name"; then
+    touch "logs/upload_union_$name.done"
+    dt=$(( $(date +%s) - t0 )); dt=$(( dt > 0 ? dt : 1 ))
+    # Archive AND transfer, because the CLI does both inside one call
+    # (`upload_files` is a serial loop that wraps a directory in an archive
+    # and then uploads it), so there is no honest way to separate them from
+    # out here. Quoted as an end-to-end rate for that reason.
+    log "$name: $(( bytes / 1024 / 1024 )) MiB in ${dt}s = $(( bytes / dt / 1024 / 1024 )) MiB/s end-to-end"
+  fi
 done
 log "all sources published (or attempted); check logs/upload_union_*.log"
