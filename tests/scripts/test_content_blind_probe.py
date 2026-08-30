@@ -175,3 +175,48 @@ def test_the_clean_view_is_the_one_measured():
     STANDARDISATION did to the frame. Any other view would fold the recipe's
     own resize and crop into the number."""
     assert cbp.CLEAN_VIEW == 0
+
+
+def test_run_rebases_onto_root_so_a_staged_copy_is_read(tmp_path):
+    """The control must read the SAME tree the GPU arms read.
+
+    The probe's images are staged onto the SSD so the arms and the Kaggle
+    uploads stop seeking against each other on one spinning disk, and the arms
+    follow `$AIGCDET_DATA_ROOT`. This entry point read `path` straight out of
+    the parquet, which is absolute and names the machine that froze it -- so
+    it would have kept reading the ORIGINAL tree while the arms read the
+    staged one, and any divergence between the two would never have surfaced.
+    Pinning it here because the failure is silent: a wrong tree still returns
+    a plausible AUC.
+    """
+    rng = np.random.default_rng(6)
+    real = tmp_path / "staged"
+    (real / "src" / "b").mkdir(parents=True)
+    rels, paths = [], []
+    n = 20                      # 10 per class: content_blind_auc is 5-fold
+    for i in range(n):
+        rel = f"src/b/{i}.png"
+        _img(real / rel, 300, 300, rng)
+        rels.append(rel)
+        paths.append(str(tmp_path / "gone" / rel))     # absolute, nonexistent
+
+    man = tmp_path / "m.parquet"
+    pd.DataFrame({
+        "path": paths, "label": [0, 1] * (n // 2), "generator": [""] * n,
+        "source": ["src"] * n, "licence": [""] * n,
+        "width": [300] * n, "height": [300] * n, "split": ["train"] * n,
+        "rel_path": rels, "content_sha256": [""] * n, "pixel_sha256": [""] * n,
+    }).to_parquet(man)
+
+    # Without a root the manifest's own paths are used, and they do not exist.
+    try:
+        cbp.run(str(man), "band", seed=7, limit=None, crop_side=200, workers=2)
+    except Exception:
+        pass
+    else:
+        raise AssertionError("reading the manifest's stale absolute paths "
+                             "should not have succeeded")
+
+    out = cbp.run(str(man), "band", seed=7, limit=None, crop_side=200,
+                  workers=2, root=str(real))
+    assert out["n_rows"] == n

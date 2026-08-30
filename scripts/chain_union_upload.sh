@@ -26,10 +26,13 @@
 # to 954 MB in 22 minutes -- a 7-hour projection for one 18 GiB source. Three
 # sequential readers on one head do not share; they seek.
 #
-# So the chain waits for the build AND for the crop-vs-band probe to finish
-# before it archives anything, and runs under `ionice -c3` (idle class) so any
-# later reader still takes priority. The probe is the time-critical job; the
-# uploads are not.
+# So the chain waits for the build, and then for the probe to finish COPYING
+# its 24,000 images (~8 GB) onto the NVMe -- not for the probe itself. Once
+# that copy lands, the probe's two arms and its CPU control read the SSD and
+# touch sda not at all, so the archivers can have the spinning disk to
+# themselves while the probe runs. Waiting for the whole probe instead would
+# serialise two hours for nothing. `ionice -c3` (idle class) stays on anyway,
+# so anything that DOES come back to sda still takes priority.
 #
 # `--dir-mode tar`, not zip. The tree is PNGs, which are already deflate
 # compressed: zip spends CPU re-compressing incompressible bytes for no size
@@ -44,16 +47,27 @@ mkdir -p "$TMPDIR"
 
 # Alphabetical, matching the order build_dataset walks them.
 SOURCES=(coco_train2017 ntire open_images sid_set wildfake)
+STAGED_MARKER=logs/probe_ssd_staged.done
 
 log() { echo "[$(date +%H:%M:%S)] $*"; }
 
-wait_for_quiet_disk() {
-  # The probe script owns the disk (and the GPU) as soon as the build exits.
-  # Wait it out rather than seeking against it.
-  while pgrep -f "run_crop_vs_band_probe.sh" > /dev/null 2>&1; do
-    sleep 120
+wait_for_probe_staging() {
+  # The marker the probe writes once its images are on the SSD. If the probe
+  # is not running at all -- it was never armed, or it already failed -- do
+  # not block forever waiting for a marker nobody will write; the disk is
+  # free in that case anyway.
+  if ! pgrep -f "run_crop_vs_band_probe.sh" > /dev/null 2>&1; then
+    log "probe is not running; nothing to wait for"; return 0
+  fi
+  log "waiting for the probe to stage its images onto the SSD"
+  while [ ! -f "$STAGED_MARKER" ]; do
+    if ! pgrep -f "run_crop_vs_band_probe.sh" > /dev/null 2>&1; then
+      log "probe exited without staging -- proceeding, sda is free either way"
+      return 0
+    fi
+    sleep 30
   done
-  log "probe finished; disk is quiet"
+  log "probe is on the SSD; sda is ours"
 }
 
 wait_for_source_done() {
@@ -104,11 +118,12 @@ JSON
   fi
 }
 
-# Every source must be normalised AND the probe must be done before the first
-# archive starts. Waiting per-source here would put an archiver back beside the
-# build, which is the thing that was measured to be a mistake.
+# Every source must be normalised, and the probe must have its images off sda,
+# before the first archive starts. Waiting per-source here would put an
+# archiver back beside the build, which is the thing that was measured to be a
+# mistake.
 for i in "${!SOURCES[@]}"; do wait_for_source_done "$i"; done
-wait_for_quiet_disk
+wait_for_probe_staging
 
 for name in "${SOURCES[@]}"; do
   if [ -f "logs/upload_union_$name.done" ]; then log "$name: already published"; continue; fi

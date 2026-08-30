@@ -25,6 +25,18 @@
 # Same probe manifest, same eval manifest, same seed, same rungs, same
 # backbone. `--geometric` is OFF in both: dihedral needs a square input so it
 # is crop-only, and enabling it on one arm would test two changes at once.
+#
+# WHY THE PROBE'S IMAGES ARE COPIED TO THE SSD FIRST
+# The corpus lives on sda, a spinning disk, and the Kaggle upload of the same
+# corpus has to read ~128 GB off it. Measured 2026-08-30: three sequential
+# readers on one head do not share, they seek -- adding two archivers beside
+# `build_dataset` took average read latency from 222 ms to 319 ms and dropped
+# normalisation from 73 img/s to 40. Copying the WHOLE corpus to the SSD would
+# be pointless, because the copy pays exactly the read it is trying to avoid.
+# The probe's own working set is different: 24,000 images, ~8 GB, read many
+# times over two hours by two arms and a CPU control. Staged on the NVMe once,
+# those reads leave sda entirely, and the upload can run beside the probe
+# instead of behind it -- which is worth about two hours of critical path.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -33,6 +45,11 @@ MANIFEST=$DATA/manifest_union.parquet
 EVAL_MANIFEST=$DATA/eval_manifest_union.parquet
 PROBE=$DATA/probe/manifest_union_probe.parquet
 EVAL_PROBE=$DATA/probe/eval_manifest_union_probe.parquet
+# On the NVMe (/dev/nvme0n1p2), which is a different spindle from $DATA.
+SSD=/home/administrator/aigc_probe_ssd
+SSD_TRAIN=$SSD/train_root
+SSD_EVAL=$SSD/eval_root
+STAGED_MARKER=logs/probe_ssd_staged.done
 BACKBONE=dinov2l
 RUNGS="configs/rungs/a0.yaml configs/rungs/a1.yaml configs/rungs/a2.yaml configs/rungs/a3.yaml configs/rungs/a7_norecon.yaml"
 BUILD_PID="${1:-}"
@@ -72,6 +89,31 @@ if [ ! -f "$EVAL_PROBE" ]; then
       --budget val_internal=2000 --budget heldout_generator=1500 --budget benchmark=500
 fi
 
+# ---- 3a. stage the probe's images onto the SSD --------------------------
+# TWO trees, because the two manifests measure rel_path from different roots:
+# a TRAIN manifest's rel_path starts at the corpus top level
+# (`sid_set/sid_set/x.png`), an EVAL manifest's starts one level up
+# (`normalized_union/...`, `demo/...`) because it spans the corpus and the
+# organisers' benchmark. Staging both into one tree would put some images at
+# two rel_paths; giving each consumer its own root keeps every rel_path
+# byte-identical to the manifest that names it, which is the half of bank
+# identity that lives outside the parquet.
+NEED_GB=12
+FREE_GB=$(df -BG --output=avail "$(dirname "$SSD")" | tail -1 | tr -dc '0-9')
+if [ "$FREE_GB" -lt "$NEED_GB" ]; then
+  log "FATAL: only ${FREE_GB}G free on the SSD, need ~${NEED_GB}G"; exit 1
+fi
+log "staging the probe's images onto the SSD (${FREE_GB}G free)"
+python scripts/stage_manifest_images.py --manifest "$PROBE" \
+    --root "$DATA/normalized_union" --dest "$SSD_TRAIN" --mode copy
+python scripts/stage_manifest_images.py --manifest "$EVAL_PROBE" \
+    --root "$DATA" --dest "$SSD_EVAL" --mode copy
+# The upload chain waits on THIS, not on the probe finishing. Staging is the
+# last thing here that touches sda; once it is written, the probe reads only
+# the NVMe and the archivers can have the spinning disk to themselves.
+touch "$STAGED_MARKER"
+log "staged; sda released to the upload chain"
+
 # ---- 3b. the content-blind control, on CPU, beside the GPU arms ---------
 # Crop's cost is a CONTENT confound, and no proxy in gate_confounds.py can see
 # it: a 200x200 window is a whole frame for a 200px WildFake image and a
@@ -80,27 +122,33 @@ fi
 # thumbnail control over the CANONICALISED view -- the thing the model
 # actually receives -- for both policies on identical rows, because the
 # number is only meaningful as a difference. Pure CPU, so it costs no wall
-# clock against the GPU arms.
+# clock against the GPU arms. `--root` so it reads the SAME staged tree the
+# arms read; without it the control would silently measure the original tree.
 log "content-blind control (CPU, both policies) in the background"
-python -u scripts/content_blind_probe.py --manifest "$PROBE" \
+python -u scripts/content_blind_probe.py --manifest "$PROBE" --root "$SSD_TRAIN" \
     --out docs/content_blind_probe_union.json --workers 12 \
     > logs/content_blind_probe.log 2>&1 &
 PID_CONTROL=$!
 
 # ---- 4. both arms, concurrently -----------------------------------------
+# `extract_features` has no --root, so it takes the staged tree from
+# $AIGCDET_DATA_ROOT; `extract_eval_bank` takes its own --root because its
+# manifest is measured from the other level. Both are set per-command rather
+# than exported, so nothing else in this script can pick up the wrong tree.
 arm () {
   local NAME=$1 MODE=$2; shift 2
   local EXTRA=("$@")
   local BANK=data/banks/probe_${NAME}_${BACKBONE}
   local EBANK=data/banks/eval_probe_${NAME}_${BACKBONE}
   log "[$NAME] stage A ($MODE)"
+  AIGCDET_DATA_ROOT="$SSD_TRAIN" \
   python -u scripts/extract_features.py --manifest "$PROBE" --backbone "$BACKBONE" \
       --out "$BANK" --split train,val_internal --device cuda \
       --batch-size 8 --workers 8 --resume \
       --canon-mode "$MODE" "${EXTRA[@]}"
   log "[$NAME] eval bank ($MODE)"
   python -u scripts/extract_eval_bank.py --manifest "$EVAL_PROBE" --backbone "$BACKBONE" \
-      --out "$EBANK" --tier ablation --device cuda \
+      --out "$EBANK" --tier ablation --device cuda --root "$SSD_EVAL" \
       --batch-size 8 --checkpoint-every 200 --resume --no-subsample \
       --canon-mode "$MODE" "${EXTRA[@]}"
   log "[$NAME] ladder"

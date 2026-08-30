@@ -50,6 +50,7 @@ from PIL import Image
 from aigcdet.augment.canonical import (
     CANON_CROP_SIDE, MODES, MODE_BAND, MODE_CROP, CanonPolicy, canonical_rng,
     canonicalise)
+from aigcdet.data.manifest import read_manifest
 from aigcdet.eval.controls import NO_QUALITY_COLUMN, content_blind_auc
 
 #: The view whose crop window this control reproduces. View 0 is the clean
@@ -124,8 +125,16 @@ def within_source(features: np.ndarray, labels: np.ndarray,
 
 
 def run(manifest_path: str, mode: str, seed: int, limit: int | None,
-        crop_side: int, workers: int) -> dict:
-    df = pd.read_parquet(manifest_path)
+        crop_side: int, workers: int, root: str | None = None) -> dict:
+    # `read_manifest`, not `pd.read_parquet`: the manifest's `path` column is
+    # absolute and names the machine that froze it, so reading it raw ties
+    # this control to one filesystem layout. Rebasing on `rel_path` is what
+    # lets the control run against a staged copy of the probe's images -- on
+    # the SSD, or on a Kaggle mount -- and it is the same seam
+    # `extract_features` and `extract_eval_bank` already use. Without it the
+    # control would silently thumbnail the ORIGINAL tree while the GPU arms
+    # read the staged one, and any divergence between them would be invisible.
+    df = read_manifest(manifest_path, root=root)
     if limit:
         df = df.iloc[:limit]
     policy = (CanonPolicy(mode=MODE_CROP, crop_side=crop_side)
@@ -154,10 +163,15 @@ def main(argv=None) -> dict:
     ap.add_argument("--crop-side", type=int, default=CANON_CROP_SIDE)
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--workers", type=int, default=16)
+    ap.add_argument("--root", default=None,
+                    help="where the images actually are on this machine; "
+                         "defaults to $AIGCDET_DATA_ROOT, then to the "
+                         "manifest's own absolute paths")
     a = ap.parse_args(argv)
     modes = a.mode or list(MODES)
 
-    results = {m: run(a.manifest, m, a.seed, a.limit, a.crop_side, a.workers)
+    results = {m: run(a.manifest, m, a.seed, a.limit, a.crop_side, a.workers,
+                      root=a.root)
                for m in modes}
 
     print("\n=========== CONTENT-BLIND CONTROL (16x16 after standardisation) ===========")

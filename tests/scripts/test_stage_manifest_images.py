@@ -137,3 +137,30 @@ def test_a_manifest_without_rel_path_is_refused(tmp_path):
     pd.DataFrame({"path": [str(root / "x" / "1.png")]}).to_parquet(p, index=False)
     with pytest.raises(ValueError, match="rel_path"):
         smi.main(["--manifest", str(p), "--root", str(root), "--dest", str(dest)])
+
+
+def test_copy_mode_is_idempotent(tmp_path):
+    """Re-staging a copy tree must be a no-op, not an error.
+
+    `os.path.samefile` is False for a copy by construction, so the
+    already-present branch could only ever recognise a hardlink -- and copy
+    mode is precisely the expensive, cross-filesystem case where resuming a
+    half-finished stage matters. `copy2` preserves mtime, so size and mtime
+    identify a copy this script made; a DIFFERENT file at that path still
+    collides.
+    """
+    src = tmp_path / "src"
+    rels = [f"s/b/{i}.png" for i in range(3)]
+    _corpus(src, rels)
+    man = _manifest(tmp_path / "m.parquet", rels)
+
+    dest = tmp_path / "dest"
+    first = smi.stage(man, [str(src)], str(dest), "copy")
+    assert (first["staged"], first["already_present"]) == (3, 0)
+    second = smi.stage(man, [str(src)], str(dest), "copy")
+    assert (second["staged"], second["already_present"]) == (0, 3)
+
+    # A different image at the same rel_path is still a collision.
+    (dest / rels[0]).write_bytes(b"something else entirely, and longer")
+    with pytest.raises(FileExistsError):
+        smi.stage(man, [str(src)], str(dest), "copy")

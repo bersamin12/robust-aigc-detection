@@ -46,10 +46,21 @@ def link_one(src: str, dst: str, mode: str) -> bool:
     over.
     """
     if os.path.exists(dst):
-        if mode != "symlink" and os.path.samefile(src, dst):
+        if mode == "hardlink" and os.path.samefile(src, dst):
             return False
         if mode == "symlink" and os.path.realpath(dst) == os.path.realpath(src):
             return False
+        if mode == "copy":
+            # A copy is a DIFFERENT inode by construction, so `samefile` can
+            # never recognise one and this branch would have raised on every
+            # re-run -- which is exactly the staging that is not idempotent:
+            # a cross-filesystem stage is the expensive one, and the case
+            # where resuming matters most. `copy2` preserves mtime, so size
+            # and mtime together identify a copy this script made. Anything
+            # else at that path is still a genuine collision and still raises.
+            a, b = os.stat(src), os.stat(dst)
+            if (a.st_size, int(a.st_mtime)) == (b.st_size, int(b.st_mtime)):
+                return False
         raise FileExistsError(
             f"{dst} exists and is not {src}. Two manifests disagree about what "
             "lives at this rel_path; staging either one silently would make "
