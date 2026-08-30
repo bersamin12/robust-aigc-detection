@@ -338,6 +338,73 @@ it preserves native detail instead of box-filtering it away, so if it does not
 pull `laplacian_var` back toward the frozen 0.6721 baseline it has failed on its
 own terms.
 
+## The full union extraction (`kaggle_all_experiments.ipynb`, stream `union`)
+
+The shipping corpus: 376,744 rows over NTIRE, WildFake, SID_Set, COCO
+train2017 and Open Images V7. This is the run the fleet exists for — the
+probe and the two ancestor streams are all smaller things that feed it.
+
+**Attach six Datasets, not one.** Five carry images, one carries manifests.
+
+| Dataset | what |
+| --- | --- |
+| `techjam-aigc-union-coco-train2017` | 18 GB |
+| `techjam-aigc-union-ntire` | 62 GB |
+| `techjam-aigc-union-open-images` | 9.3 GB |
+| `techjam-aigc-union-sid-set` | 23 GB |
+| `techjam-aigc-union-wildfake` | 16 GB |
+| `techjam-aigc-manifests-union` | both parquets, a few MB |
+| `techjam-aigc-benchmark` | the organisers' half of the eval manifest |
+
+The corpus is split per source only because of the per-Dataset size cap.
+`DATA_GLOB` is the prefix glob `/kaggle/input/techjam-aigc-union*`, which
+matches all five, and `kb.unify_mounts` symlinks them into one root — the same
+mechanism the five-teammate shard farm uses. **Attach all five.** A missing
+mount does not raise: it removes rows, and the first thing that notices is the
+verify gate.
+
+The manifests Dataset is called `techjam-aigc-manifests-union` and *not*
+`techjam-aigc-union-manifests` for exactly that reason — the latter matches
+the prefix glob, would arrive as a sixth image mount, and `unify_mounts` would
+symlink two parquet files into the corpus root. Published by
+`scripts/publish_union_manifests.sh`, which prints both `manifest_sha256`
+values so a session can check its mount against what was frozen without
+re-reading 128 GB.
+
+**`N_SHARDS` is pinned at 8, and the notebook will not derive it.** The
+derivation can only see the 20 GiB working quota, and at dim 1024 the whole
+bank is 8.5 GiB — so it would return `N_SHARDS=1`, which fits the quota fine
+and takes about 23 hours, twice the session cap. The clock binds here, not the
+quota, and a count that cannot see the clock must not win over one chosen
+against it. Eight shards is 47,093 rows each:
+
+| backbone | px | per shard | 8 shards |
+| --- | --- | --- | --- |
+| `dinov2l` | 518 | ~2 h 53 | ~3 h wall on 16 T4s |
+| `siglip2l` | 384 | ~1 h 30 | ~2 h wall |
+
+Those come from the A4500's measured 54 views/s at 518 px, halved for a T4 and
+doubled for the two in a session. **Projected, not measured** — no `dinov2l`
+run has happened on a T4. Run one session with `SMOKE=True` first and read
+`kb.session_plan`, which measures the rate on that session's actual GPU and
+says whether 8 was right. Raising `N_SHARDS` costs a re-run of the plan cell;
+discovering at hour eleven that it was too low costs the session.
+
+Per-shard bank is 1.06 GiB, nowhere near the quota, so the merge afterwards is
+eight small files.
+
+**Order.** Run `SMOKE=True` in one session and read the plan before anyone
+else starts — that is the cheapest moment to discover the shard count is
+wrong. Then eight sessions, `SHARD_INDEX` 0..7, same `BACKBONE`, same
+`STREAM`. `merge_banks` refuses shards that disagree on backbone, dim,
+n_views, seed **or** `canon_policy`, so a session that ran the wrong stream is
+caught at merge rather than folded in.
+
+**`STREAM` is `union` (crop) or `union_band`, and the probe decides which.**
+Both are spelled out in the notebook so the winner needs no edit. Delete the
+loser from `STREAMS` once the probe reports, so nobody runs it by muscle
+memory.
+
 ## Publishing a corpus as a Kaggle Dataset
 
 Nothing in this repo automated this and nothing recorded it either, so the two
