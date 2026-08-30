@@ -245,13 +245,46 @@ jitter   clean 0.41 -> 0.47                          flat
 ```
 
 Two things to carry forward. **It hallucinates damage on clean images** — 0.41
-jitter, 0.38 resize, 0.31 blur where the truth is 0. And **resize is close to
-undetectable for a mechanical reason, not a training one**: band
-standardisation band-limits to 200 px and upscales to 512, which IS a resize,
-so a `resize_0.5` applied beforehand is largely erased before the backbone
-ever sees it. That predicts resize becomes detectable under `--canon-mode
-crop`, which does not resample the pixels it keeps — testable on the existing
-`coco_crop` banks at no extraction cost.
+jitter, 0.38 resize, 0.31 blur where the truth is 0. And **the resize family
+is partly unmeasurable by construction** — a property of the pipeline, not of
+the head.
+
+Standardisation runs BEFORE the condition (`eval/grid.py:153`), so it cannot
+erase a resize that has not happened yet. What it does is cap the CONTENT:
+both policies put `band_side`/`crop_side` (200) of real detail inside a
+`nominal_side` (512) frame — 0.39 of Nyquist. `resize_0.5` cuts at 0.50,
+ABOVE the cap, so it removes almost nothing. `resize_0.25` cuts at 0.25,
+below it, so it removes real content. Measured over 80 `coco_crop` images by
+`scripts/canon_bandwidth_check.py`, each degraded view against the SAME
+canonicalised image:
+
+| condition | cuts at | band PSNR | band AUC | crop PSNR | crop AUC |
+|---|---|---|---|---|---|
+| `resize_0.5` | 0.50 | 44.6 dB | 0.5958 | 45.1 dB | 0.5664 |
+| `resize_0.25` | 0.25 | 33.6 dB | 0.8981 | 33.9 dB | 0.8280 |
+| `blur_s2.0` | — | 32.0 dB | 0.9661 | 32.2 dB | 0.9277 |
+| `noise_s0.05` | — | 26.4 dB | 1.0000 | 26.4 dB | 1.0000 |
+
+(AUC is orientation-corrected separability of `laplacian_var`, clean vs
+degraded, on the same images — roughly the best one pixel statistic could do,
+and therefore the floor to read the head against.)
+
+44.6 dB is visually lossless. **`resize_0.5` is very nearly the identity after
+standardisation, under EITHER policy.** The head's dose-response says the same
+— 0.38 clean, 0.39 at `resize_0.5`, 0.47 at `resize_0.25` — and its pooled
+resize AUC of 0.6020 is within noise of what `laplacian_var` alone gets on
+`resize_0.5` (0.5958). There is very little there to find.
+
+**An earlier version of this section claimed crop would fix it. It does not:
+crop is marginally WORSE on both resize conditions.** The cap is 200/512 under
+either policy, so the policy is irrelevant here and only the RATIO matters.
+That ratio is load-bearing — `CanonPolicy.__post_init__` requires
+`band_side < nominal_side` so step 2 is always an upscale, which is what stops
+native resolution being re-recorded as an interpolation signature. **The
+pipeline destroys this evidence on purpose**, and the resize channel measures
+the remainder. The ladder corroborates it: DINOv3 A0 scores 0.9926 under
+`resize_0.5` against 0.9935 clean — a 0.0009 drop, because the condition
+barely does anything — and 0.9876 under `resize_0.25`.
 
 **Verdict: passes, unevenly.** Enough to justify building the EQI-on/EQI-off
 comparison, because EQI is FITTED — a logistic regression over the head's
