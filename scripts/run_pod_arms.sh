@@ -111,6 +111,11 @@ if not (os.path.exists(cfg) and os.path.exists(meta)):
 import pyarrow.parquet as pq
 n = pq.ParquetFile(meta).metadata.num_rows
 raise SystemExit(0 if n >= json.load(open(cfg))["n_images"] else 1)
+# pandas/pyarrow can abort in a static destructor at interpreter shutdown --
+# 'terminate called without an active exception' -- AFTER the work is done and
+# printed. That non-zero exit then killed a bootstrap whose checks had all
+# passed. os._exit skips the teardown entirely.
+import os as _os; _os._exit(0)
 PY
 }
 
@@ -163,6 +168,11 @@ if bad:
     raise SystemExit(
         f"{bad} non-finite values. A DTYPE problem, not a bad image: fix "
         f"BackboneSpec.dtype for {name} and extract to a NEW directory.")
+# pandas/pyarrow can abort in a static destructor at interpreter shutdown --
+# 'terminate called without an active exception' -- AFTER the work is done and
+# printed. That non-zero exit then killed a bootstrap whose checks had all
+# passed. os._exit skips the teardown entirely.
+import os as _os; _os._exit(0)
 PY
 
   # ---- eval bank. --no-subsample: the eval manifest IS the probe cut already,

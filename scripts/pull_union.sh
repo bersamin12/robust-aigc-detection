@@ -28,13 +28,31 @@ TRAIN="$ROOT/train"
 BENCH="$ROOT/bench"
 EVAL_ROOT="$ROOT/eval_root"
 
-# Largest first. ntire is ~61 GiB; open_images ~9.
-IMAGE_SLUGS=(
-  justinbersamin/techjam-aigc-union-ntire
-  justinbersamin/techjam-aigc-union-sid-set
-  justinbersamin/techjam-aigc-union-coco-train2017
-  justinbersamin/techjam-aigc-union-wildfake
-  justinbersamin/techjam-aigc-union-open-images
+# "<slug> <source>", largest first (ntire ~61 GiB, open_images ~9).
+#
+# THE SOURCE NAME IS NOT DECORATION AND NOT DERIVABLE FROM THE SLUG.
+# `chain_union_upload.sh` stages `<source>/<bucket>/...` and uploads it with
+# --dir-mode tar, which archives each TOP-LEVEL directory -- so each Dataset
+# went up as one `<source>.tar`. Kaggle then unpacks it and DROPS THE OUTER
+# LEVEL: the dataset root is the contents of `<source>/`, i.e. the buckets.
+# Verified 2026-08-31 against the published Datasets:
+#
+#   techjam-aigc-union-sid-set  ->  real/0244438.png      (no `sid_set/`)
+#   techjam-aigc-union-ntire    ->  ntire/0040000.png     (the BUCKET `ntire`)
+#
+# The manifest's rel_path is `<source>/<bucket>/<file>`, so extracting every
+# Dataset into one flat directory yields `train/real/...` where
+# `train/sid_set/real/...` is wanted, and NOTHING resolves. Each therefore
+# extracts into its own `$TRAIN/<source>/`, which puts the stripped level back.
+#
+# The slug is also not a safe source: `techjam-aigc-union-coco-train2017`
+# would give `coco-train2017`, and the manifest says `coco_train2017`.
+IMAGE_SETS=(
+  "justinbersamin/techjam-aigc-union-ntire ntire"
+  "justinbersamin/techjam-aigc-union-sid-set sid_set"
+  "justinbersamin/techjam-aigc-union-coco-train2017 coco_train2017"
+  "justinbersamin/techjam-aigc-union-wildfake wildfake"
+  "justinbersamin/techjam-aigc-union-open-images open_images"
 )
 MANIFEST_SLUG=justinbersamin/techjam-aigc-manifests-union
 BENCH_SLUG=justinbersamin/techjam-aigc-benchmark
@@ -107,8 +125,10 @@ pull() {   # slug, dest
   touch "$dest/.pulled_$name"
 }
 
-for slug in "${IMAGE_SLUGS[@]}"; do
-  pull "$slug" "$TRAIN" || die "pull failed: $slug
+for entry in "${IMAGE_SETS[@]}"; do
+  slug=${entry%% *}; source=${entry##* }
+  mkdir -p "$TRAIN/$source"
+  pull "$slug" "$TRAIN/$source" || die "pull failed: $slug
      If this is techjam-aigc-union-ntire, check it has finished PROCESSING on
      Kaggle -- a 62 GB upload is unpacked asynchronously and lists at 0 bytes
      until it is done."
@@ -149,6 +169,11 @@ for name, base, want in (("manifest_union.parquet", train, want_tr),
             if not os.path.exists(os.path.join(base, x))]
     assert not miss, f"{name}: {len(miss)}/500 do not resolve, e.g. {miss[:3]}"
     print(f"    {name}: {len(df)} rows, fingerprint {got[:16]}..., 500 resolve")
+# pandas/pyarrow can abort in a static destructor at interpreter shutdown --
+# 'terminate called without an active exception' -- AFTER the work is done and
+# printed. That non-zero exit then killed a bootstrap whose checks had all
+# passed. os._exit skips the teardown entirely.
+import os as _os; _os._exit(0)
 PY
 
 log "READY."

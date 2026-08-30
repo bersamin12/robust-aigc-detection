@@ -211,6 +211,11 @@ for name in ("manifest_union_probe.parquet", "eval_manifest_union_probe.parquet"
             if not os.path.exists(os.path.join(root, x))]
     assert not miss, f"{name}: {len(miss)} of 300 do not resolve, e.g. {miss[:3]}"
     print(f"    {name}: {len(rel)} rows, 300 sampled all resolve")
+# pandas/pyarrow can abort in a static destructor at interpreter shutdown --
+# 'terminate called without an active exception' -- AFTER the work is done and
+# printed. That non-zero exit then killed a bootstrap whose checks had all
+# passed. os._exit skips the teardown entirely.
+import os as _os; _os._exit(0)
 PY
 
 # ------------------------------------------------------------- 6. the pin
@@ -233,6 +238,11 @@ for name, want in EXPECT.items():
         f"{name} fingerprint is {got}, expected {want}. This is a DIFFERENT "
         f"cut, so nothing run against it is comparable with the dinov3l bars.")
     print(f"    {name}: {got[:16]}... matches")
+# pandas/pyarrow can abort in a static destructor at interpreter shutdown --
+# 'terminate called without an active exception' -- AFTER the work is done and
+# printed. That non-zero exit then killed a bootstrap whose checks had all
+# passed. os._exit skips the teardown entirely.
+import os as _os; _os._exit(0)
 PY
 
 log "READY. Next: scripts/run_pod_arms.sh"
