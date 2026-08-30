@@ -30,10 +30,40 @@
 # WHAT SURVIVES THE CUT IS NOT A LEFTOVER
 # The band arm was never the control; it is the deliverable. Band is
 # `CanonPolicy`'s default and the policy every bank on disk was built under, so
-# this is the bank the union would actually ship. It is also dinov2l's first
-# ladder at any scale, and that question is open on its own terms: Apache-2.0,
-# ungated, and float16-safe, so it runs at full speed on the fleet's T4s where
-# dinov3l's bfloat16 has no hardware and falls back to float32.
+# this is the bank the union would actually ship.
+#
+# WHY dinov3l, AND NOT dinov2l (CHANGED 2026-08-30)
+# This probe's question is now "does the union corpus beat the frozen one",
+# and that is a comparison, so the backbone has to be the one there is already
+# something to compare AGAINST. There is exactly one: docs/robustness_table.md
+# is a dinov3l ladder over a0/a1/a2/a3/a7_norecon -- the same five rungs in
+# $RUNGS below, the same §6.4 metric, the same seed 20260827 and boot seed.
+# Frozen dinov3l scores 0.8611 / 0.9037 / 0.9037 / 0.9012 / 0.0296 on
+# `heldout_robust_tpr_at_1pct`, and that is the bar the union has to clear.
+#
+# It had been dinov2l, which answered NEITHER question. Not the corpus one --
+# no dinov2l ladder exists at any scale, so a union dinov2l number has nothing
+# to sit beside. And not the fleet one either: the fleet's backbone is
+# siglip2l (kaggle_stage_a.ipynb), with dinov2l a listed option nobody has run.
+# Running it here would have changed corpus AND backbone at once and produced a
+# number that cannot be attributed to either.
+#
+# dinov2l's own question -- does the ungated Apache-2.0 stand-in retain
+# dinov3l's advantage -- is real and still open, but it is a BACKBONE question
+# and belongs on the FROZEN corpus, where dinov3l, siglip2l and convnextt
+# already have ladders to rank it against.
+#
+# The switch also makes this run FASTER, which is the opposite of the usual
+# trade. dinov2l is registered at 518px (1369 tokens, a measured 54.0 img/s on
+# this card) because `canonicalise` delivers 512 and 518 is the only registered
+# size that does not throw pixels away; dinov3l runs at 384. Per that entry the
+# same bank projects to ~7.4 h for dinov2l against ~2.9 h for dinov3l, so the
+# probe drops from roughly 2.8 h to 1.1 h wall.
+#
+# Gating is not an objection HERE. dinov3l is gated per account and that is why
+# a five-member fleet cannot use it -- but this runs on the A4500, where the
+# licence is already accepted. It is a fleet constraint, and this is not the
+# fleet.
 #
 # THE CONTENT-BLIND CONTROL STILL RUNS BOTH POLICIES.
 # It is CPU-only, so it costs the GPU arm nothing, and it is exactly the
@@ -80,7 +110,7 @@ SSD=/home/administrator/aigc_probe_ssd
 SSD_TRAIN=$SSD/train_root
 SSD_EVAL=$SSD/eval_root
 STAGED_MARKER=logs/probe_ssd_staged.done
-BACKBONE=dinov2l
+BACKBONE=dinov3l
 RUNGS="configs/rungs/a0.yaml configs/rungs/a1.yaml configs/rungs/a2.yaml configs/rungs/a3.yaml configs/rungs/a7_norecon.yaml"
 BUILD_PID="${1:-}"
 
@@ -179,6 +209,23 @@ arm () {
       --out "$BANK" --split train,val_internal --device cuda \
       --batch-size 16 --workers 12 --resume \
       --canon-mode "$MODE" "${EXTRA[@]}"
+  # dinov3l OVERFLOWS IN FLOAT16 AND THE FAILURE IS SILENT. On 2026-08-29 a
+  # full bank came back 100% NaN and was not noticed, because the only
+  # post-condition anything checked was the ROW COUNT -- which a NaN bank
+  # satisfies perfectly. `BACKBONES["dinov3l"]` now pins dtype=bfloat16 so it
+  # should not recur, but "should not recur" is what was believed last time.
+  # Check before spending the eval bank and the ladder on top of it.
+  python - "$BANK" <<'PY' || { log "[$NAME] BANK IS NOT FINITE -- stopping"; exit 1; }
+import sys, numpy as np
+f = np.load(f"{sys.argv[1]}/feats.npy", mmap_mode="r")
+n = min(len(f), 4096)
+sample = np.asarray(f[np.linspace(0, len(f) - 1, n).astype(int)], dtype=np.float32)
+bad = ~np.isfinite(sample)
+if bad.any():
+    print(f"  {bad.mean() * 100:.1f}% of {n} sampled vectors are NaN/inf")
+    sys.exit(1)
+print(f"  finite: {n} sampled vectors, |x| max {np.abs(sample).max():.2f}")
+PY
   log "[$NAME] eval bank ($MODE)"
   python -u scripts/extract_eval_bank.py --manifest "$EVAL_PROBE" --backbone "$BACKBONE" \
       --out "$EBANK" --tier ablation --device cuda --root "$SSD_EVAL" \
@@ -225,13 +272,21 @@ print()
 print("Read `heldout_robust_tpr_at_1pct`, which is the SS6.4 selection metric and")
 print("was fixed before any result existed. Two comparisons are legitimate:")
 print("  * across RUNGS here, which is what the ladder is for; and")
-print("  * against siglip2l/dinov3l on the frozen corpus, which is the backbone")
-print("    question this run exists to answer (0.8611 dinov3l a5, 0.8773")
-print("    siglip2l a5 are CLEAN AUC, not this metric -- do not read them as")
-print("    comparable numbers).")
-print("NOT against docs/crop_vs_band_ablation.md's 0.1903. That is a different")
-print("corpus, a different backbone and 10,000 rows; only its POLICY verdict")
-print("transfers, not its magnitudes.")
+print("  * against the FROZEN dinov3l ladder in docs/robustness_table.md, which")
+print("    is the same five rungs, the same metric and the same seed. That is")
+print("    the comparison this run exists for. The bar, per rung:")
+print("      a0 0.8611 | a1 0.9037 | a2 0.9037 | a3 0.9012 | a7_norecon 0.0296")
+print("Two caveats on that comparison, both real:")
+print("  * SCALE. 20,000 rows here against the frozen bank's 138,116, and a")
+print("    4,000-image eval against 25,332. Corpus is not quite the only")
+print("    variable; run_ablation.py has no row-subset flag, so a scale-matched")
+print("    frozen baseline is not a one-liner.")
+print("  * POPULATION. The metric is val_internal reals vs heldout_generator")
+print("    fakes, and those rows differ between corpora by construction. The")
+print("    held-out PAIR is pinned (SDwithAdaptor_controlnet, VQGAN), so the")
+print("    generator families match even though the rows do not.")
+print("NOT against docs/crop_vs_band_ablation.md's 0.1903. Different corpus,")
+print("different backbone, 10,000 rows; only its POLICY verdict transfers.")
 
 # The crop arm's one surviving piece. `metadata_control` was never run in the
 # ablation (its SS9.6: only the banks came back from Kaggle, not the images), so
