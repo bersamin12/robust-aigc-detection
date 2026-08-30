@@ -1,0 +1,54 @@
+# A3 trained on GAN-family fakes only.  OFF-LADDER PROBE -- not a rung.
+#
+# Same flags as a3.yaml, so the head, the losses and the frozen features are
+# identical to the headline model. The one thing that differs is which fakes
+# the head is allowed to see.
+#
+# `train_exclude_generators` applies to the TRAIN split only (see the field's
+# docstring in train/train_head.py): val_internal is the authentic population
+# the selection metric is read against, and thinning it would move the
+# operating point for a reason that has nothing to do with the experiment.
+#
+# Reals are NOT excluded. The 58,424 authentic training rows carry
+# generator == "", so no exclusion list matches them and both experts keep the
+# same negative pool. Halving the negatives per expert would confound "trained
+# on one family" with "trained on half the data".
+#
+# MAE / MAGE / VQVAE / sid_set are excluded from BOTH experts. They are
+# neither GAN nor diffusion, so putting them in one arm would make the pair
+# differ by more than the family split. They are the obvious third expert if
+# this probe shows anything.
+#
+# epochs=93 is an optimisation-budget match, not a hyperparameter change.
+# PairedSampler yields min(len(pos), len(neg)) // (n_src // 2) batches per
+# epoch, so shrinking the positive pool shrinks the epoch:
+#
+#   pooled a3   min(59360, 58424) // 32 = 1825 steps x 30 epochs = 54,750
+#   this rung          18884      // 32 =  590 steps x 93 epochs = 54,870
+#
+# Left at 30, this head would take a third of the gradient steps the model it
+# is compared against took, and a weaker score would mean "undertrained", not
+# "one family". Batches are class- AND generator-balanced by the sampler, so
+# the 3:1 pool imbalance never reaches a gradient step -- the 6 GAN families
+# are each seen 1/6 of the time, against 1/17 in the pooled run.
+name: a3_gan
+use_augmented: true
+use_degradation: true
+use_consistency: true
+use_recon: false
+use_film: false
+epochs: 93
+train_exclude_generators:
+  # diffusion / latent-diffusion -- the other expert's half
+  - adm
+  - ddim
+  - ddpm
+  - imagen
+  - vqdm
+  - SDwithAdaptor_lora
+  - SDwithAdaptor_lycris
+  # neither family: held out of both experts
+  - MAE
+  - MAGE
+  - VQVAE
+  - sid_set

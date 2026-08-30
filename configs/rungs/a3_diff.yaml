@@ -1,0 +1,37 @@
+# A3 trained on diffusion-family fakes only.  OFF-LADDER PROBE -- not a rung.
+#
+# The mirror image of a3_gan.yaml; read that file's header for why reals stay
+# in, why MAE/MAGE/VQVAE/sid_set are out of both arms, and why the epoch count
+# is not 30.
+#
+#   pooled a3   min(59360, 58424) // 32 = 1825 steps x 30 epochs = 54,750
+#   this rung          22002      // 32 =  687 steps x 80 epochs = 54,960
+#
+# Note what this expert does NOT hold out: SDwithAdaptor_lora and
+# SDwithAdaptor_lycris are in its training set, and the eval bank's held-out
+# `SDwithAdaptor_controlnet` is their sibling -- same decoder, different
+# conditioning. So the diffusion expert is expected to have the easier half of
+# the held-out pair, and the GAN expert the easier half of `VQGAN`. That
+# asymmetry is the point of the per-generator transfer table in
+# scripts/family_experts.py, and it is why the headline comparison is the
+# fused score against pooled a3, not either expert's own number.
+name: a3_diff
+use_augmented: true
+use_degradation: true
+use_consistency: true
+use_recon: false
+use_film: false
+epochs: 80
+train_exclude_generators:
+  # GAN -- the other expert's half
+  - BigGAN
+  - DF-GAN
+  - GALIP
+  - GigaGAN
+  - starGAN
+  - styleGAN
+  # neither family: held out of both experts
+  - MAE
+  - MAGE
+  - VQVAE
+  - sid_set

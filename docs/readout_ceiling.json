@@ -1,0 +1,48 @@
+{
+  "boot_n": 1000,
+  "metric": "heldout_robust_tpr_at_1pct",
+  "off_ladder": true,
+  "probe": "readout_ceiling",
+  "question": "does the closed-form/trained gap open as the backbone weakens?",
+  "results": {
+    "convnextt": {
+      "checkpoint": "outputs/rungs_convnextt/a3/checkpoint.pt",
+      "closed_form": 0.3733458646616541,
+      "dim": 2304,
+      "gap_closed_minus_trained": -0.11484962406015048,
+      "p_closed_better": 0.0,
+      "paired_ci95": [
+        -0.15092814368182658,
+        -0.07593770640844742
+      ],
+      "trained": 0.48819548872180457,
+      "verdict": "trained wins"
+    },
+    "dinov3l": {
+      "checkpoint": "outputs/rungs/a3/checkpoint.pt",
+      "closed_form": 0.9005488721804511,
+      "dim": 1024,
+      "gap_closed_minus_trained": -0.0006917293233081878,
+      "p_closed_better": 0.576,
+      "paired_ci95": [
+        -0.013982236967657118,
+        0.016711866127570054
+      ],
+      "trained": 0.9012406015037593,
+      "verdict": "tie"
+    },
+    "siglip2l": {
+      "checkpoint": "outputs/rungs_siglip2l/a3/checkpoint.pt",
+      "closed_form": 0.21784962406015035,
+      "dim": 1024,
+      "gap_closed_minus_trained": -0.07140601503759403,
+      "p_closed_better": 0.0,
+      "paired_ci95": [
+        -0.09396516154730682,
+        -0.04693520793516188
+      ],
+      "trained": 0.2892556390977444,
+      "verdict": "trained wins"
+    }
+  }
+}

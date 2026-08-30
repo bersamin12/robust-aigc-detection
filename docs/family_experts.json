@@ -1,0 +1,327 @@
+{
+  "backbone": "dinov3l",
+  "checkpoints": {
+    "a3": "outputs/rungs/a3/checkpoint.pt",
+    "diff": "outputs/rungs_family/a3_diff/checkpoint.pt",
+    "gan": "outputs/rungs_family/a3_gan/checkpoint.pt"
+  },
+  "disagreement_sign": "abs",
+  "epochs": {
+    "a3": 30,
+    "diff": 80,
+    "gan": 93
+  },
+  "eval_bank": "data/banks/eval_dinov3l",
+  "exclusions": {
+    "a3": [],
+    "diff": [
+      "BigGAN",
+      "DF-GAN",
+      "GALIP",
+      "GigaGAN",
+      "starGAN",
+      "styleGAN",
+      "MAE",
+      "MAGE",
+      "VQVAE",
+      "sid_set"
+    ],
+    "gan": [
+      "adm",
+      "ddim",
+      "ddpm",
+      "imagen",
+      "vqdm",
+      "SDwithAdaptor_lora",
+      "SDwithAdaptor_lycris",
+      "MAE",
+      "MAGE",
+      "VQVAE",
+      "sid_set"
+    ]
+  },
+  "manifest_sha256": "0e28afcda31288bc2300abb705514c0935a7a982c73a3d17ef1d1a760de6389e",
+  "not_eligible_reason": "differs from a3 in training ROWS, not in a flag; \u00a76.4 chooses among a3-a6 and this is none of them",
+  "off_ladder": true,
+  "primary_zscore_population": [
+    "val_internal"
+  ],
+  "probe": "family_experts",
+  "results": {
+    "a3": {
+      "boot_n": 1000,
+      "boot_seed": 20260827,
+      "ci95": [
+        0.8834261694846297,
+        0.9124776750011783
+      ],
+      "heldout_robust_tpr_at_1pct": 0.9012406015037595,
+      "per_generator": {
+        "SDwithAdaptor_controlnet": 0.8055789473684211,
+        "VQGAN": 0.9969022556390977
+      },
+      "point": 0.9012406015037593,
+      "population": "val_internal authentic images vs heldout_generator generated images",
+      "splits": [
+        "val_internal",
+        "heldout_generator"
+      ],
+      "target_fpr": 0.01,
+      "val_robust_tpr_knob_setter_not_a_result": 0.9546349846586049,
+      "vs_baseline": {
+        "baseline": "a3",
+        "delta": 0.0,
+        "p_better": 0.0,
+        "paired_ci95": [
+          0.0,
+          0.0
+        ]
+      },
+      "zscore_population": "single_head"
+    },
+    "diff": {
+      "boot_n": 1000,
+      "boot_seed": 20260827,
+      "ci95": [
+        0.8588541327465432,
+        0.8870719680118099
+      ],
+      "heldout_robust_tpr_at_1pct": 0.8730075187969926,
+      "per_generator": {
+        "SDwithAdaptor_controlnet": 0.7544511278195489,
+        "VQGAN": 0.9915639097744361
+      },
+      "point": 0.8730075187969923,
+      "population": "val_internal authentic images vs heldout_generator generated images",
+      "splits": [
+        "val_internal",
+        "heldout_generator"
+      ],
+      "target_fpr": 0.01,
+      "val_robust_tpr_knob_setter_not_a_result": 0.778189323016801,
+      "vs_baseline": {
+        "baseline": "a3",
+        "delta": -0.028233082706766943,
+        "p_better": 0.001,
+        "paired_ci95": [
+          -0.041803716888141926,
+          -0.010074044698924334
+        ]
+      },
+      "zscore_population": "single_head"
+    },
+    "disagreement": {
+      "boot_n": 1000,
+      "boot_seed": 20260827,
+      "ci95": [
+        0.02024893650060027,
+        0.030022929051595718
+      ],
+      "heldout_robust_tpr_at_1pct": 0.024729323308270674,
+      "per_generator": {
+        "SDwithAdaptor_controlnet": 0.0461203007518797,
+        "VQGAN": 0.0033383458646616543
+      },
+      "point": 0.024729323308270674,
+      "population": "val_internal authentic images vs heldout_generator generated images",
+      "splits": [
+        "val_internal",
+        "heldout_generator"
+      ],
+      "target_fpr": 0.01,
+      "val_robust_tpr_knob_setter_not_a_result": 0.21919753909897752,
+      "vs_baseline": {
+        "baseline": "a3",
+        "delta": -0.8765112781954886,
+        "p_better": 0.0,
+        "paired_ci95": [
+          -0.8879778480053679,
+          -0.8586338067200814
+        ]
+      },
+      "zscore_population": "split=val_internal"
+    },
+    "fused": {
+      "boot_n": 1000,
+      "boot_seed": 20260827,
+      "ci95": [
+        0.8703665671733382,
+        0.8966475090617616
+      ],
+      "heldout_robust_tpr_at_1pct": 0.8843458646616542,
+      "per_generator": {
+        "SDwithAdaptor_controlnet": 0.7699548872180452,
+        "VQGAN": 0.9987368421052631
+      },
+      "point": 0.8843458646616542,
+      "population": "val_internal authentic images vs heldout_generator generated images",
+      "splits": [
+        "val_internal",
+        "heldout_generator"
+      ],
+      "target_fpr": 0.01,
+      "val_robust_tpr_knob_setter_not_a_result": 0.8377657278726861,
+      "vs_baseline": {
+        "baseline": "a3",
+        "delta": -0.016894736842105074,
+        "p_better": 0.017,
+        "paired_ci95": [
+          -0.03045653680819437,
+          -0.0012319319528058044
+        ]
+      },
+      "zscore_population": "split=val_internal"
+    },
+    "fused_a5_population": {
+      "boot_n": 1000,
+      "boot_seed": 20260827,
+      "ci95": [
+        0.8709410615513637,
+        0.8972215811650277
+      ],
+      "heldout_robust_tpr_at_1pct": 0.8848120300751879,
+      "per_generator": {
+        "SDwithAdaptor_controlnet": 0.7709323308270676,
+        "VQGAN": 0.9986917293233082
+      },
+      "point": 0.8848120300751879,
+      "population": "val_internal authentic images vs heldout_generator generated images",
+      "splits": [
+        "val_internal",
+        "heldout_generator"
+      ],
+      "target_fpr": 0.01,
+      "val_robust_tpr_knob_setter_not_a_result": 0.8374910737407109,
+      "vs_baseline": {
+        "baseline": "a3",
+        "delta": -0.016428571428571348,
+        "p_better": 0.02,
+        "paired_ci95": [
+          -0.029814734332844938,
+          -0.0006996762634846148
+        ]
+      },
+      "zscore_population": "split=heldout_generator+val_internal"
+    },
+    "gan": {
+      "boot_n": 1000,
+      "boot_seed": 20260827,
+      "ci95": [
+        0.6546233402200565,
+        0.6807954945954179
+      ],
+      "heldout_robust_tpr_at_1pct": 0.6689097744360902,
+      "per_generator": {
+        "SDwithAdaptor_controlnet": 0.33971428571428575,
+        "VQGAN": 0.9981052631578947
+      },
+      "point": 0.6689097744360902,
+      "population": "val_internal authentic images vs heldout_generator generated images",
+      "splits": [
+        "val_internal",
+        "heldout_generator"
+      ],
+      "target_fpr": 0.01,
+      "val_robust_tpr_knob_setter_not_a_result": 0.5860491395478408,
+      "vs_baseline": {
+        "baseline": "a3",
+        "delta": -0.23233082706766905,
+        "p_better": 0.0,
+        "paired_ci95": [
+          -0.24704861508426176,
+          -0.21487135235872315
+        ]
+      },
+      "zscore_population": "single_head"
+    }
+  },
+  "train_bank": "data/banks/dinov3l",
+  "w_gan": 0.4,
+  "weight_selected_on": "val_internal",
+  "weight_sweep": [
+    {
+      "val_robust_tpr": 0.778189323016801,
+      "w_gan": 0.0
+    },
+    {
+      "val_robust_tpr": 0.786413252454231,
+      "w_gan": 0.05
+    },
+    {
+      "val_robust_tpr": 0.7971090690794377,
+      "w_gan": 0.1
+    },
+    {
+      "val_robust_tpr": 0.8072084938752129,
+      "w_gan": 0.15000000000000002
+    },
+    {
+      "val_robust_tpr": 0.8156286048354822,
+      "w_gan": 0.2
+    },
+    {
+      "val_robust_tpr": 0.8227617650059247,
+      "w_gan": 0.25
+    },
+    {
+      "val_robust_tpr": 0.8291415881286636,
+      "w_gan": 0.30000000000000004
+    },
+    {
+      "val_robust_tpr": 0.8348936303783164,
+      "w_gan": 0.35000000000000003
+    },
+    {
+      "val_robust_tpr": 0.8377657278726861,
+      "w_gan": 0.4
+    },
+    {
+      "val_robust_tpr": 0.8346268235072549,
+      "w_gan": 0.45
+    },
+    {
+      "val_robust_tpr": 0.8180847975014319,
+      "w_gan": 0.5
+    },
+    {
+      "val_robust_tpr": 0.794276207889636,
+      "w_gan": 0.55
+    },
+    {
+      "val_robust_tpr": 0.7629577895835458,
+      "w_gan": 0.6000000000000001
+    },
+    {
+      "val_robust_tpr": 0.7320317343231345,
+      "w_gan": 0.65
+    },
+    {
+      "val_robust_tpr": 0.7043309032982038,
+      "w_gan": 0.7000000000000001
+    },
+    {
+      "val_robust_tpr": 0.6759787496174461,
+      "w_gan": 0.75
+    },
+    {
+      "val_robust_tpr": 0.6518641168300205,
+      "w_gan": 0.8
+    },
+    {
+      "val_robust_tpr": 0.6324264515470875,
+      "w_gan": 0.8500000000000001
+    },
+    {
+      "val_robust_tpr": 0.6147544199697096,
+      "w_gan": 0.9
+    },
+    {
+      "val_robust_tpr": 0.6001192783658865,
+      "w_gan": 0.9500000000000001
+    },
+    {
+      "val_robust_tpr": 0.5860491395478408,
+      "w_gan": 1.0
+    }
+  ]
+}
