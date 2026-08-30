@@ -64,15 +64,39 @@ log() { echo "[$(date +%H:%M:%S)] $*"; }
 normalisation_finished() {
   # `build_dataset` prints the sub-band drop report (build_dataset.py:435)
   # AFTER the last source is normalised and BEFORE the audit/dedupe/freeze
-  # phases, which read the RAW tree and never write the normalised one. So
-  # this line is the point from which every image in $NORM is final, and the
-  # rest of the build is not a reason to wait: the corpus cannot change under
-  # an archiver any more.
+  # phases. From that line every image in $NORM is final, so the corpus cannot
+  # change under an archiver any more.
   #
   # A log line and not a file count, for the same reason the per-source wait
   # uses a successor: normalisation legally skips unreadable images (14 of
   # them here), so "count == expected" may never become true.
   grep -q "below short side" "$BUILD_LOG" 2>/dev/null
+}
+
+wait_for_build_exit() {
+  # CORRECTNESS is not the constraint here; THROUGHPUT is, and this was
+  # measured the wrong way round first.
+  #
+  # `normalisation_finished` proves the archiver cannot read a half-written
+  # image, so the first version of this script started uploading the moment it
+  # went true -- with the build still running its audit. That is safe and it is
+  # also three times slower. Measured 2026-08-30: open_images archived and
+  # uploaded beside the audit at 4.7 MiB/s end-to-end (9.3 GiB in 2002 s),
+  # against ~22 MB/s of measured network and a sequential archive that should
+  # run several times that. The audit is a SERIAL pass over all 150 GiB of the
+  # RAW tree at ~17 MB/s and 245 seeks/s; a sequential archiver interleaved
+  # with it does not get its own head, it gets every other seek.
+  #
+  # At 4.7 MiB/s the remaining 119 GiB is ~7 h. Waiting ~40 min for the build
+  # and then running uncontended is ~2 h. So the wait is not caution, it is the
+  # faster of the two orders -- and it costs the probe nothing, because the
+  # probe is gated on the same manifest and stages onto the NVMe anyway.
+  [ -n "$BUILD_PID" ] || return 0
+  kill -0 "$BUILD_PID" 2>/dev/null || return 0
+  log "build $BUILD_PID still running; waiting -- archiving beside its audit"
+  log "  was measured at 4.7 MiB/s against ~22 MB/s uncontended"
+  while kill -0 "$BUILD_PID" 2>/dev/null; do sleep 60; done
+  log "build exited; sda is free"
 }
 
 wait_for_probe_staging() {
@@ -150,8 +174,9 @@ if normalisation_finished; then
   log "normalisation is complete; every image in $NORM is final"
 else
   for i in "${!SOURCES[@]}"; do wait_for_source_done "$i"; done
-  wait_for_probe_staging
 fi
+wait_for_build_exit
+wait_for_probe_staging
 
 for name in "${UPLOAD_ORDER[@]}"; do
   if [ -f "logs/upload_union_$name.done" ]; then log "$name: already published"; continue; fi
