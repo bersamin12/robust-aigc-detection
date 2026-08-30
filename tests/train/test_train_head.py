@@ -302,3 +302,92 @@ def test_manifest_path_still_rejects_a_bank_whose_rows_were_reordered(tmp_path):
                      manifest_path=mpath)
     with pytest.raises(ValueError, match="manifest"):
         train_rung(cfg)
+
+
+def _bank_with_three_fake_families(tmp_path, n=180, dim=8):
+    """A bank whose fakes come from three families, so a lineage can be held
+    out of TRAINING without re-extracting anything."""
+    import pytest  # noqa: F401  (imported by the tests below)
+    fams = ("lineage_a1", "lineage_a2", "other")
+    w = BankWriter(str(tmp_path / "fam"), n, N_VIEWS, dim, "t", 0)
+    rng = np.random.default_rng(1)
+    for i in range(n):
+        label = i % 2
+        gen = fams[(i // 2) % 3] if label else ""
+        clean = rng.normal(loc=1.5 if label else -1.5, scale=0.5, size=dim)
+        feats = np.stack([clean] + [clean + rng.normal(0, 0.8, dim)
+                                    for _ in range(N_VIEWS - 1)]).astype(np.float32)
+        pres = np.zeros((N_VIEWS, 6), np.float32); pres[1:, 0] = 1.0
+        sev = np.zeros((N_VIEWS, 6), np.float32); sev[1:, 0] = 0.6
+        w.write_image(i, {"path": f"/p{i}", "label": label, "generator": gen,
+                          "source": "s",
+                          "split": "train" if i < n - 40 else "val_internal"},
+                      feats=feats, presence=pres, severity=sev,
+                      proxies=np.zeros((N_VIEWS, 3), np.float32),
+                      recipes=["[]"] * N_VIEWS)
+    w.close()
+    return str(tmp_path / "fam")
+
+
+def test_excluding_a_lineage_drops_its_training_rows_and_nothing_else(tmp_path):
+    """The whole point of doing this as a mask: which families are held out
+    stops being a property of the frozen manifest -- where changing it means a
+    new fingerprint and every bank on disk orphaned -- and becomes a row
+    predicate over features already cached."""
+    from aigcdet.train.train_head import _drop_generators
+
+    bank = FeatureBank.open(_bank_with_three_fake_families(tmp_path))
+    split = bank.meta["split"].to_numpy()
+    gen = bank.meta["generator"].to_numpy()
+    train_idx = np.where(split == "train")[0]
+
+    kept = _drop_generators(bank, train_idx, ("lineage_a1", "lineage_a2"))
+    assert set(gen[kept]) == {"", "other"}
+    # Every row that was NOT one of the two families survives, in order.
+    expected = train_idx[~np.isin(gen[train_idx], ["lineage_a1", "lineage_a2"])]
+    assert np.array_equal(kept, expected)
+    assert len(kept) < len(train_idx)
+
+
+def test_val_internal_is_untouched_by_the_training_mask(tmp_path):
+    """`val_internal` is the authentic population the selection metric is
+    computed against. Thinning it would move the operating point, so two rungs
+    that differ only in their training mask would stop being comparable for a
+    reason that has nothing to do with either rung."""
+    bank_dir = _bank_with_three_fake_families(tmp_path)
+    before = FeatureBank.open(bank_dir).meta
+    n_val = int((before["split"] == "val_internal").sum())
+
+    cfg = RungConfig(name="a0", bank_dir=bank_dir, epochs=3,
+                     use_augmented=False, use_consistency=False,
+                     use_degradation=False, out_dir=str(tmp_path / "o"),
+                     train_exclude_generators=("lineage_a1", "lineage_a2"))
+    res = train_rung(cfg)
+    assert "val_auc" in res
+    after = FeatureBank.open(bank_dir).meta
+    assert int((after["split"] == "val_internal").sum()) == n_val
+
+
+def test_a_family_that_matches_nothing_raises(tmp_path):
+    """A misspelled family drops zero rows, so the rung trains on exactly the
+    families it claims to hold out -- and every number downstream still calls
+    itself a held-out score. There is no honest way to report that."""
+    import pytest
+    from aigcdet.train.train_head import _drop_generators
+
+    bank = FeatureBank.open(_bank_with_three_fake_families(tmp_path))
+    train_idx = np.where(bank.meta["split"].to_numpy() == "train")[0]
+    with pytest.raises(ValueError, match="matches nothing|no training row"):
+        _drop_generators(bank, train_idx, ("lineage_a1", "typo_not_here"))
+
+
+def test_a_mask_that_empties_the_training_set_raises(tmp_path):
+    import pytest
+    from aigcdet.train.train_head import _drop_generators
+
+    bank = FeatureBank.open(_bank_with_three_fake_families(tmp_path))
+    gen = bank.meta["generator"].to_numpy()
+    train_idx = np.where(bank.meta["split"].to_numpy() == "train")[0]
+    everything = tuple(sorted(set(map(str, np.unique(gen[train_idx])))))
+    with pytest.raises(ValueError, match="every training row"):
+        _drop_generators(bank, train_idx, everything)

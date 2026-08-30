@@ -48,6 +48,25 @@ class RungConfig:
     # A bank/manifest misalignment after a re-split otherwise produces a
     # silently worse val_auc that nobody can trace back to its cause.
     manifest_path: str | None = None
+    #: Generator families to drop from the TRAINING rows only.
+    #:
+    #: Which families are held out is frozen into the manifest's `split`
+    #: column, and changing it there means a new manifest, a new fingerprint
+    #: and every bank on disk orphaned. That is the right cost for the corpus
+    #: and the wrong cost for a question we want to ask several times: the
+    #: manifest's pinned pair (`SDwithAdaptor_controlnet`, `VQGAN`) holds out
+    #: an ADAPTER while its siblings `SDwithAdaptor_lora` and
+    #: `SDwithAdaptor_lycris` stay in training, and an adapter changes the
+    #: conditioning, not the decoder that leaves the forensic trace. Asking
+    #: the harder question -- hold out the whole lineage -- is then a matter
+    #: of not TRAINING on the siblings, which is a row mask over features
+    #: already cached.
+    #:
+    #: Applied to `train` only. `val_internal` is the authentic population the
+    #: selection metric is computed against, so thinning it would move the
+    #: operating point and make two rungs incomparable for a reason that has
+    #: nothing to do with the rung.
+    train_exclude_generators: tuple[str, ...] = ()
 
 
 def manifest_rows_for_bank(bank: FeatureBank, manifest_df):
@@ -107,6 +126,37 @@ def _eval_aucs(model, bank, idx, use_recon, device) -> dict[str, float]:
             "val_auc_mean_views": float(np.mean(per_view))}
 
 
+def _drop_generators(bank, train_idx, families) -> "np.ndarray":
+    """`train_idx` without the rows whose generator is in `families`.
+
+    Two things are refused rather than absorbed, because both look like a
+    working holdout from the outside and neither is:
+
+    * A family that matches NOTHING. A misspelled or absent name would drop
+      zero rows and train on the very families the caller meant to hold out,
+      while every downstream number carries on calling itself a held-out
+      score. There is no honest way to report that, so it raises.
+    * A mask that empties the training set. A rung with no training rows is
+      not a rung.
+    """
+    gen = bank.meta["generator"].to_numpy()
+    present = set(map(str, np.unique(gen[train_idx])))
+    wanted = [str(f) for f in families]
+    absent = sorted(f for f in wanted if f not in present)
+    if absent:
+        raise ValueError(
+            f"train_exclude_generators names {absent}, which no training row "
+            f"carries. The bank's train split holds {sorted(present)}. A name "
+            "that matches nothing drops nothing, so the rung would train on "
+            "the families it claims to hold out and still report a held-out "
+            "score.")
+    keep = ~np.isin(gen[train_idx], wanted)
+    if not keep.any():
+        raise ValueError(
+            f"train_exclude_generators {wanted} removes every training row.")
+    return train_idx[keep]
+
+
 def train_rung(cfg: RungConfig) -> dict:
     bank = FeatureBank.open(cfg.bank_dir)
     bank.check_invariants()
@@ -118,6 +168,9 @@ def train_rung(cfg: RungConfig) -> dict:
     split = bank.meta["split"].to_numpy()
     train_idx = np.where(split == "train")[0]
     val_idx = np.where(split == "val_internal")[0]
+    if cfg.train_exclude_generators:
+        train_idx = _drop_generators(bank, train_idx,
+                                     cfg.train_exclude_generators)
     if len(val_idx) == 0:
         # Name what the bank DOES contain: this fires after Stage A has
         # already been paid for (8-13 h on Kaggle), so "check the manifest
