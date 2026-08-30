@@ -125,13 +125,42 @@ pull() {   # slug, dest
   touch "$dest/.pulled_$name"
 }
 
+# TWO PASSES, and the reason is availability rather than size.
+#
+# The first version pulled largest-first so the biggest archive landed while the
+# disk was emptiest -- `--unzip` writes the zip, extracts, then deletes it, so
+# the peak is everything-so-far plus 2x the one in flight. That mattered on a
+# 200 GB allocation. It does not on 500 GB, and it had a cost: the largest
+# source is also the one most likely to still be processing on Kaggle, so
+# putting it first blocked 65 GiB of ready data behind an hour of retries on
+# one that was not.
+#
+# So: try every source once, DEFER whatever is not ready, then retry only those.
+# Kaggle finalises a large dataset's downloadable version well after its files
+# are individually readable -- a whole-dataset download 404s while
+# `datasets files` lists fine and single files fetch. Observed on
+# techjam-aigc-union-ntire, 61 GiB, ~50 min after its upload returned.
+deferred=()
 for entry in "${IMAGE_SETS[@]}"; do
   slug=${entry%% *}; source=${entry##* }
   mkdir -p "$TRAIN/$source"
+  if RETRIES=1 pull "$slug" "$TRAIN/$source"; then
+    :
+  else
+    log "  $source: not ready yet -- deferred to the end"
+    deferred+=("$entry")
+  fi
+done
+
+for entry in "${deferred[@]}"; do
+  slug=${entry%% *}; source=${entry##* }
+  log "$source: retrying (up to $((RETRIES * RETRY_WAIT / 60)) min)"
   pull "$slug" "$TRAIN/$source" || die "pull failed: $slug
-     If this is techjam-aigc-union-ntire, check it has finished PROCESSING on
-     Kaggle -- a 62 GB upload is unpacked asynchronously and lists at 0 bytes
-     until it is done."
+     Kaggle had not finalised this Dataset's downloadable version. Check
+     https://www.kaggle.com/datasets/${slug#*/} -- if `kaggle datasets files`
+     lists it but a whole-dataset download 404s, it is still processing and
+     re-running this script later will pick it up (already-pulled sources are
+     skipped)."
 done
 pull "$MANIFEST_SLUG" "$ROOT" || die "manifest pull failed"
 pull "$BENCH_SLUG" "$BENCH"   || die "benchmark pull failed"
