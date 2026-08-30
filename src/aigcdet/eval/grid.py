@@ -34,7 +34,7 @@ from aigcdet.features.bank import (
     manifest_fingerprint,
 )
 from aigcdet.features.proxies import proxy_vector
-from aigcdet.augment.canonical import canonicalise
+from aigcdet.augment.canonical import DEFAULT_POLICY, CanonPolicy, canonicalise
 
 #: The benchmark subsample seed, fixed by the plan so the tier is reproducible
 #: from nothing but this constant.
@@ -69,6 +69,7 @@ def extract_eval_bank(manifest_df: pd.DataFrame, backbone_name: str, out_dir: st
                       device: str = "cuda", seed: int = BENCHMARK_SEED,
                       batch_size: int = 16, resume: bool = False,
                       checkpoint_every: int = CHECKPOINT_EVERY,
+                      policy: CanonPolicy = DEFAULT_POLICY,
                       extra_config: dict | None = None) -> str:
     """Write a bank whose view axis is the fixed evaluation condition axis.
 
@@ -112,6 +113,12 @@ def extract_eval_bank(manifest_df: pd.DataFrame, backbone_name: str, out_dir: st
                 "the bank's view axis and is written from `conditions`, not "
                 "from a caller-supplied duplicate that could disagree with it")
         extras.update(extra_config)
+    # The standardisation this bank's pixels went through. Same argument as in
+    # `extract_bank`: a crop bank and a band bank have identical shapes,
+    # dtypes and row counts, so without this nothing on disk distinguishes
+    # them -- and an eval bank read against a rung trained under the other
+    # policy would report a robustness curve for pixels the head never saw.
+    extras["canon_policy"] = policy.as_record()
 
     model, spec = load_backbone(backbone_name, device=device)
     # `manifest_root` is where this session's copy of the dataset is mounted.
@@ -155,7 +162,24 @@ def extract_eval_bank(manifest_df: pd.DataFrame, backbone_name: str, out_dir: st
         # that skips it computes features on different pixels than were
         # cached, silently and with no shape error. Wire exactly once per
         # site -- canonicalise is size-stable but NOT pixel-idempotent.
-        base = canonicalise(base)
+        #
+        # `rng=None`, so under a crop policy this is the CENTRE window and
+        # under a band policy the band is unjittered -- deterministic either
+        # way, and identical to what `infer.Predictor` does at serving time.
+        # Two reasons, and the first is the grid's whole purpose: it measures
+        # how far a score falls under `jpeg_q30`, so if the window also moved
+        # between conditions that measurement would be confounded with "a
+        # different picture". The second is that an eval number is a
+        # prediction about serving, and a bank standardised differently from
+        # the served path is predicting something else.
+        #
+        # For the same reason there is no dihedral here. The training bank
+        # applies one per view to teach orientation invariance; evaluating on
+        # a random orientation would measure that invariance by accident and
+        # differently for every image. Averaging a score OVER orientations is
+        # a real technique and it is A6's, applied at inference to both the
+        # eval set and the served path alike.
+        base = canonicalise(base, policy=policy)
         views = [r.apply(base, np.random.default_rng([seed, int(row_id), j]))
                  for j, r in enumerate(recipes)]
         writer.write_image(

@@ -68,6 +68,8 @@ from collections import namedtuple
 import numpy as np
 import pandas as pd
 
+from aigcdet.augment.canonical import (
+    CANON_CROP_SIDE, MODE_BAND, MODES, CanonPolicy)
 from aigcdet.augment.scenarios import EVAL_GRID
 from aigcdet.data.manifest import SPLITS, read_manifest
 from aigcdet.data.verify import verify_images
@@ -357,6 +359,17 @@ def build_parser() -> argparse.ArgumentParser:
                          "subsampled manifest; recombine with merge_banks.py")
     ap.add_argument("--limit", type=int, default=None,
                     help="first N rows after the subsample (smoke runs only)")
+    ap.add_argument("--canon-mode", choices=MODES, default=MODE_BAND,
+                    help="resolution standardisation. MUST match the training "
+                         "bank the rung was trained on: a robustness curve "
+                         "measured on pixels the head never saw is a curve "
+                         "for a different model. Deterministic here whatever "
+                         "the mode -- crop takes the CENTRE window and the "
+                         "band is unjittered -- so the grid measures the "
+                         "condition and not a different picture.")
+    ap.add_argument("--crop-side", type=int, default=CANON_CROP_SIDE,
+                    help="window size for --canon-mode crop; must match the "
+                         "training bank's")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--batch-size", type=int, default=16)
     ap.add_argument("--seed", type=int, default=BENCHMARK_SEED,
@@ -414,6 +427,7 @@ def main(argv: list[str] | None = None) -> int:
         df, a.backbone, a.out, conditions=conditions, device=a.device,
         seed=a.seed, batch_size=a.batch_size, resume=a.resume,
         checkpoint_every=a.checkpoint_every,
+        policy=CanonPolicy(mode=a.canon_mode, crop_side=a.crop_side),
         # The subsample changes `manifest_fingerprint`, which is what makes
         # `report._check_banks` refuse to compare a subsampled ablation bank
         # against a full final-report one. That refusal is right but mute: it

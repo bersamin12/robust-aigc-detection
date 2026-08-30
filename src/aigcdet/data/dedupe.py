@@ -11,6 +11,8 @@ it keeps the dependency list short, and it is worth having under test.
 """
 from __future__ import annotations
 
+from concurrent.futures import ProcessPoolExecutor
+
 import cv2
 import numpy as np
 from PIL import Image
@@ -45,13 +47,60 @@ def hamming(a: int, b: int) -> int:
     return int(bin(a ^ b).count("1"))
 
 
-def build_hash_index(paths: list[str]) -> dict[str, int]:
-    idx = {}
-    # ~26 minutes at 100k images, entirely serial. `disable=None` shows the
-    # bar on a TTY and stays silent in tests and logs.
-    for p in tqdm(paths, desc="phash", unit="img", disable=None):
+def _hash_one(p: str) -> tuple[str, int | None, str | None]:
+    """Hash one path. Module-level and returning its error rather than
+    raising, so it survives a process-pool boundary: an exception raised in
+    a worker arrives at the parent stripped of the path that caused it,
+    which is the one thing the caller needs.
+    """
+    try:
         with Image.open(p) as im:
-            idx[p] = phash(np.asarray(im.convert("RGB"), dtype=np.uint8))
+            return p, phash(np.asarray(im.convert("RGB"), dtype=np.uint8)), None
+    except Exception as e:
+        return p, None, f"{type(e).__name__}: {e}"
+
+
+def build_hash_index(paths: list[str], skip_unreadable: bool = False,
+                     workers: int = 1) -> dict[str, int]:
+    """Perceptual hash per path. A path absent from the result was skipped.
+
+    `skip_unreadable=False` (the default) raises on the first file it cannot
+    decode, which is right for the DEMO side: the leak guard is only as good
+    as its coverage of the set being protected, so a demo image that cannot be
+    hashed is a hole in the guard and must be fixed, not tolerated.
+
+    `skip_unreadable=True` is for the CANDIDATE side, and the caller's
+    obligation is the other half of the contract: a candidate that could not
+    be hashed was never checked against the demo set, so it must be DROPPED
+    from the corpus rather than kept unchecked. `build_dataset` does exactly
+    that, and records the count.
+
+    `workers` parallelises the decode, which is the whole cost. It was
+    measured at ~26 minutes per 100k images serially -- 50 minutes of a
+    105-minute corpus build, spent one core at a time on an embarrassingly
+    parallel loop. `workers <= 1` keeps the serial path, which is what the
+    tests use and what a caller without a fork-safe environment needs.
+
+    The option exists because the alternative is worse in both directions.
+    This runs ~90 minutes into a corpus build, after normalisation, audit and
+    the caps -- and it used to raise there, discarding all of it, on a single
+    odd file among 180,000. It did so once: a normalised PNG carrying an
+    oversized ICC profile that Pillow would write but not read back. That
+    particular bug is fixed at its root in `data.normalize`, but "one file in
+    a third-party corpus will not decode" is a permanent condition, not an
+    incident.
+    """
+    idx: dict[str, int] = {}
+    # `disable=None` shows the bar on a TTY and stays silent in tests and logs.
+    results = (map(_hash_one, paths) if workers <= 1 else
+               ProcessPoolExecutor(max_workers=workers).map(
+                   _hash_one, paths, chunksize=64))
+    for p, h, err in tqdm(results, total=len(paths), desc="phash", unit="img",
+                          disable=None):
+        if err is None:
+            idx[p] = h
+        elif not skip_unreadable:
+            raise ValueError(f"cannot hash {p}: {err}")
     return idx
 
 

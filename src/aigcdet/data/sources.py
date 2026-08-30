@@ -135,6 +135,41 @@ SOURCES: dict[str, SourceSpec] = {
         generator_buckets=False,
         exclude_from_training=True,
     ),
+    # COCO train2017, as a TRAINING source. This reverses a rule the project
+    # states explicitly elsewhere, so the reversal is recorded here rather
+    # than left to be inferred.
+    #
+    # `data/wildfake.py`'s `_COCO_FORBIDDEN` bars COCO-derived reals from
+    # training entirely -- not merely deduplicated against the benchmark --
+    # on the grounds that "train2017/test2017/val2017 are one photographic
+    # distribution, so training on any of them would let the demo-set score
+    # measure distribution memorisation instead of generalisation". The
+    # organisers' benchmark real half IS COCO val2017, so that concern is
+    # real and it has not gone away.
+    #
+    # It is reversed for ONE experiment stream (configs/datasets/coco_crop.yaml),
+    # deliberately, because that stream's question is what a genuinely
+    # in-the-wild photographic real class does to a detector -- and because
+    # the alternative on offer was WildFake's authentic half, 40,000 of whose
+    # 55,000 images come from upstreams with non-commercial terms. The
+    # protection is not the registry, it is the measurement:
+    # `scripts/stratified_auc.py --stratify-by source` reports the false
+    # positive rate separately for COCO, LAION and SID_Set reals, and a model
+    # that has memorised the COCO distribution shows a far lower rate on COCO
+    # than on the other two while the benchmark looks excellent. That gap is
+    # the number to publish beside any headline from this stream. See
+    # docs/dataset_presets.md and docs/dataset_licences.md.
+    #
+    # `coco_val2017` stays `exclude_from_training=True` and the `wildfake.py`
+    # markers stay as they are: they bar WildFake's own re-published COCO
+    # copy, which would now duplicate this one.
+    "coco_train2017": SourceSpec(
+        name="coco_train2017",
+        licence="CC BY 4.0 (images: Flickr terms) — https://cocodataset.org/#termsofuse",
+        real_buckets=frozenset({"train2017"}),
+        generator_buckets=False,
+        exclude_from_training=False,
+    ),
     # The generated half of the same demo benchmark. Spec §4.1 forbids
     # training on it exactly as it forbids COCO val2017, so it is registered
     # for the same reason: `exclude_from_training` is what makes "the demo set

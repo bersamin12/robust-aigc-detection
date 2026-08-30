@@ -205,3 +205,93 @@ def test_save_png_creates_the_destination_directory(tmp_path):
     dst = str(tmp_path / "a" / "b" / "x.png")
     assert save_png(Image.new("RGB", (2, 2)), dst) == "RGB"
     assert os.path.exists(dst)
+
+
+# ---------------------------------------------------------------------------
+# Metadata that survives the container change
+# ---------------------------------------------------------------------------
+
+def test_normalisation_writes_a_png_it_can_read_back(tmp_path):
+    """The round-trip property, which was not holding.
+
+    Pillow will WRITE an arbitrarily large iCCP chunk and then refuse to READ
+    it back (`_safe_zlib_decompress` caps it at `MAX_TEXT_CHUNK`). One COCO
+    photograph among 183,543 carried a profile that big, so normalisation
+    produced a file normalisation itself could not reopen. It passed the audit
+    -- which reads the RAW tree -- and killed the perceptual-hash pass 95
+    minutes into a corpus build, at the step whose comment says normalisation
+    has "already proved the candidate files decodable". It had proved the
+    INPUTS decodable.
+    """
+    from aigcdet.data.normalize import _without_stripped_metadata
+
+    # A JPEG source specifically, because that is the only way the bug can
+    # occur: JPEG chunks its ICC across APP2 segments and imposes no read cap,
+    # so Pillow reads a 2 MB profile back happily -- and then writes it into
+    # the PNG as one iCCP chunk it will not read. A PNG source with the same
+    # profile is unreadable at the SOURCE and is simply skipped, which is a
+    # different (already handled) case.
+    src = tmp_path / "src.jpg"
+    arr = np.random.default_rng(0).integers(0, 256, (300, 400, 3), dtype=np.uint8)
+    Image.fromarray(arr).save(src, format="JPEG", quality=90,
+                              icc_profile=b"\0" * (2 * 1024 * 1024))
+    with Image.open(src) as probe:
+        probe.load()
+        assert len(probe.info["icc_profile"]) == 2 * 1024 * 1024, (
+            "fixture must reproduce a source Pillow reads but cannot "
+            "round-trip through PNG")
+
+    dst = tmp_path / "dst.png"
+    normalize_image(str(src), str(dst))
+    with Image.open(dst) as out:      # must not raise
+        out.load()
+        assert out.size == (400, 300)
+    assert b"iCCP" not in dst.read_bytes()
+
+
+def test_save_png_would_have_written_an_unreadable_file_without_the_strip(tmp_path):
+    """The mutation: keep the profile, and the output stops being readable.
+    Without this the test above passes for any implementation that happens not
+    to write a profile, including one that never could."""
+    arr = np.random.default_rng(0).integers(0, 256, (64, 64, 3), dtype=np.uint8)
+    im = Image.fromarray(arr)
+    im.info["icc_profile"] = b"\0" * (2 * 1024 * 1024)
+    kept = tmp_path / "kept.png"
+    im.save(kept, format="PNG", optimize=False)      # no strip
+    assert b"iCCP" in kept.read_bytes()
+    with pytest.raises(ValueError, match="MAX_TEXT_CHUNK"):
+        with Image.open(kept) as x:
+            x.load()
+
+
+def test_stripping_the_profile_changes_no_pixel(tmp_path):
+    """An ICC profile is metadata, not samples. Pillow does not apply one on
+    decode and `convert("RGB")` does not either, so removing it cannot move a
+    value -- which is what makes this safe to do to a forensics corpus."""
+    from aigcdet.data.normalize import _without_stripped_metadata
+
+    arr = np.random.default_rng(1).integers(0, 256, (64, 64, 3), dtype=np.uint8)
+    im = Image.fromarray(arr)
+    im.info["icc_profile"] = b"\0" * 4096
+    kept, stripped = tmp_path / "kept.png", tmp_path / "stripped.png"
+    im.save(kept, format="PNG", optimize=False)
+    im.save(stripped, format="PNG", optimize=False, **_without_stripped_metadata(im))
+
+    assert np.array_equal(np.asarray(Image.open(kept).convert("RGB")),
+                          np.asarray(Image.open(stripped).convert("RGB")))
+    assert np.array_equal(np.asarray(Image.open(stripped).convert("RGB")), arr)
+
+
+def test_save_png_strips_the_profile_too(tmp_path):
+    """`save_png` is the acquisition-side writer. A second, differently
+    opinionated copy of this policy is how the classes start differing by
+    container -- which is what the module docstring says it exists to
+    prevent."""
+    arr = np.random.default_rng(2).integers(0, 256, (32, 32, 3), dtype=np.uint8)
+    im = Image.fromarray(arr)
+    im.info["icc_profile"] = b"\0" * (16 * 1024 * 1024)
+    dst = tmp_path / "out.png"
+    save_png(im, str(dst))
+    with Image.open(dst) as out:      # must not raise
+        out.load()
+    assert b"iCCP" not in dst.read_bytes()

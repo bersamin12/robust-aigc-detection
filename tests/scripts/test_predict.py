@@ -197,14 +197,28 @@ def test_output_order_is_stable_across_runs(tmp_path, pred):
 def test_canonicalises_every_image_before_embedding(tmp_path, pred, monkeypatch):
     """The fourth decode site. If inference skips canonicalisation it scores
     images on different pixels than the head was trained on -- no error, just
-    wrong numbers. Counted per image, not merely 'called at least once'."""
+    wrong numbers. Counted per image, not merely 'called at least once'.
+
+    Also pins that the bundle's OWN standardisation policy is what reaches it,
+    and deterministically. A head trained on 200px crops upscaled to 512 and
+    then served band-limited images is being shown a distribution it has never
+    seen, and nothing about the shapes says so -- both policies hand the
+    backbone the same size."""
     seen = []
     real = pred.infer.canonicalise
-    monkeypatch.setattr(pred.infer, "canonicalise",
-                        lambda a: (seen.append(a.shape), real(a))[1])
+
+    def spy(a, **kw):
+        seen.append((a.shape, kw.get("policy"), kw.get("rng")))
+        return real(a, **kw)
+
+    monkeypatch.setattr(pred.infer, "canonicalise", spy)
     _images(tmp_path / "in", n=4)
     pred.main(_argv(tmp_path / "in", _bundle(tmp_path), tmp_path / "p.json"))
     assert len(seen) == 4
+    # Every call carries a policy, and none carries an rng: serving must
+    # return the same score for the same file twice.
+    assert all(p is not None for _, p, _ in seen)
+    assert all(r is None for _, _, r in seen)
 
 
 def test_inference_uses_the_same_canonicalise_as_the_other_decode_sites(pred):

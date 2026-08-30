@@ -203,3 +203,32 @@ def test_a_reason_without_a_restriction_raises():
     with pytest.raises(ValueError, match="restrict"):
         SourceSpec(name="x", licence="l", real_buckets=frozenset({"real"}),
                    restriction="because")
+
+
+def test_the_two_coco_halves_are_registered_with_opposite_training_status():
+    """The pair is the point, so it is asserted as a pair.
+
+    `coco_train2017` is a training source and `coco_val2017` is not. That is a
+    deliberate reversal of the rule `data/wildfake.py:_COCO_FORBIDDEN` states
+    -- COCO-derived reals barred from training because train/val/test are one
+    photographic distribution and the benchmark's real half is COCO val2017 --
+    taken for one experiment stream, with `stratified_auc --stratify-by source`
+    as the control. If a future change makes these two agree in EITHER
+    direction, something has gone wrong: excluding train2017 silently empties
+    that stream's real side, and including val2017 trains on the scored
+    benchmark, which spec 4.1(2) forbids outright.
+    """
+    assert not is_excluded_from_training("coco_train2017")
+    assert is_excluded_from_training("coco_val2017")
+    assert SOURCES["coco_train2017"].real_buckets == frozenset({"train2017"})
+    assert SOURCES["coco_val2017"].real_buckets == frozenset({"val2017"})
+
+
+def test_neither_coco_source_declares_a_generator_bucket():
+    """Both are wholly authentic. `generator_buckets=True` would make any
+    stray directory under them read as a generator family and label its
+    contents 1 -- which is C1 exactly, in the source that produced C1."""
+    for name in ("coco_train2017", "coco_val2017"):
+        assert not SOURCES[name].generator_buckets
+        assert not SOURCES[name].pseudo_bucket
+        assert not is_safe_generator(name, "sdxl")

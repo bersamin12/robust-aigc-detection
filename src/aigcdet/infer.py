@@ -26,7 +26,7 @@ import numpy as np
 import torch
 from PIL import Image
 
-from aigcdet.augment.canonical import canonicalise
+from aigcdet.augment.canonical import DEFAULT_POLICY, CanonPolicy, canonicalise
 from aigcdet.calibrate.policy import Policy, decide
 from aigcdet.features.backbones import embed, load_backbone
 from aigcdet.features.proxies import proxy_vector
@@ -53,7 +53,8 @@ CONFIG_NAME = "config.json"
 
 
 def export_bundle(checkpoint: str, calibrator, eqi, policy: Policy, out_dir: str,
-                  backbone_name: str, use_recon: bool, dim_feat: int) -> str:
+                  backbone_name: str, use_recon: bool, dim_feat: int,
+                  canon_policy: CanonPolicy = DEFAULT_POLICY) -> str:
     """Freeze everything inference needs into one directory, and return it.
 
     The checkpoint is COPIED rather than referenced: a bundle that points at a
@@ -70,7 +71,14 @@ def export_bundle(checkpoint: str, calibrator, eqi, policy: Policy, out_dir: str
                    "eqi_threshold": policy.eqi_threshold}, f, indent=2)
     with open(os.path.join(out_dir, CONFIG_NAME), "w") as f:
         json.dump({"backbone": backbone_name, "use_recon": bool(use_recon),
-                   "dim_feat": int(dim_feat)}, f, indent=2)
+                   "dim_feat": int(dim_feat),
+                   # The standardisation the head was TRAINED under. A model
+                   # trained on 200px crops upscaled to 512 and served
+                   # band-limited images is being shown a distribution it has
+                   # never seen, and nothing about the shapes says so -- both
+                   # policies hand the backbone the same size. This is the
+                   # only place the served path can learn which one it is.
+                   "canon_policy": canon_policy.as_record()}, f, indent=2)
     return out_dir
 
 
@@ -106,10 +114,15 @@ class Predictor:
     """Bundle in, calibrated decisions out."""
 
     def __init__(self, model, backbone, spec, calibrator, eqi, policy: Policy,
-                 use_recon: bool, device: str):
+                 use_recon: bool, device: str,
+                 canon_policy: CanonPolicy = DEFAULT_POLICY):
         self.model, self.backbone, self.spec = model, backbone, spec
         self.calibrator, self.eqi, self.policy = calibrator, eqi, policy
         self.use_recon, self.device = use_recon, device
+        #: How images are standardised before the backbone sees them. Named
+        #: `canon_policy` because `policy` is already the DECISION policy
+        #: (thresholds); the two are unrelated and both are called a policy.
+        self.canon_policy = canon_policy
         self._vae = self._lpips = None
 
     @classmethod
@@ -125,8 +138,12 @@ class Predictor:
         eqi = joblib.load(os.path.join(bundle_dir, EQI_NAME))
         with open(os.path.join(bundle_dir, POLICY_NAME)) as f:
             policy = Policy(**json.load(f))
+        # A bundle exported before this key existed can only have been band
+        # mode -- there was nothing else -- so the default is not a guess.
+        canon = (CanonPolicy.from_record(cfg["canon_policy"])
+                 if "canon_policy" in cfg else DEFAULT_POLICY)
         return cls(model, backbone, spec, calibrator, eqi, policy,
-                   bool(cfg["use_recon"]), device)
+                   bool(cfg["use_recon"]), device, canon_policy=canon)
 
     def _recon_vector(self, img: np.ndarray) -> np.ndarray:
         from aigcdet.features.recon import load_recon_models, recon_features
@@ -163,7 +180,13 @@ class Predictor:
         if not imgs:
             return []
         paths = list(paths) if paths is not None else [None] * len(imgs)
-        canon = [canonicalise(i) for i in imgs]
+        # `rng` is deliberately absent: under a crop policy this is the
+        # CENTRE window, under a band policy the band is unjittered. Serving
+        # must return the same score for the same file twice, and the eval
+        # grid uses the same deterministic path so its numbers predict this
+        # one. Averaging over random windows or orientations is a real
+        # technique, and it is A6's, applied to both paths alike.
+        canon = [canonicalise(i, policy=self.canon_policy) for i in imgs]
 
         f = np.asarray(embed(self.backbone, self.spec, canon,
                              device=self.device, batch_size=len(canon)))

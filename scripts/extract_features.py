@@ -96,6 +96,8 @@ import argparse
 
 from aigcdet.data.manifest import read_manifest
 from aigcdet.features.bank import CHECKPOINT_EVERY
+from aigcdet.augment.canonical import (
+    CANON_CROP_SIDE, MODE_BAND, MODES, CanonPolicy)
 from aigcdet.features.extract import extract_bank, shard_frame
 
 
@@ -151,6 +153,27 @@ def build_parser() -> argparse.ArgumentParser:
                           "recipe pool (spec 4.6 LOTO). NOT a row filter, and "
                           "not recorded in the bank, so every shard of one "
                           "bank must pass the same value")
+    ap.add_argument("--canon-mode", choices=MODES, default=MODE_BAND,
+                    help="resolution standardisation. 'band' (default) is the "
+                         "frozen stream's policy: downscale to a common "
+                         "bandwidth ceiling, then upscale. 'crop' takes a "
+                         "random square window at NATIVE resolution instead, "
+                         "one per view, so a generator's high-frequency "
+                         "signature survives inside the window. The choice is "
+                         "recorded in the bank config, so a crop bank can "
+                         "never be resumed from, merged with or fused against "
+                         "a band one.")
+    ap.add_argument("--crop-side", type=int, default=CANON_CROP_SIDE,
+                    help="window size for --canon-mode crop. The corpus "
+                         "preset's `min_short_side` must equal this, or images "
+                         "too small for the window reach extraction and raise.")
+    ap.add_argument("--geometric", action="store_true",
+                    help="dihedral augmentation: a random flip and "
+                         "90-degree rotation per view, applied after "
+                         "standardisation and before the recipe. Needs "
+                         "--canon-mode crop, because a 90-degree rotation "
+                         "transposes a non-square image. No interpolation, so "
+                         "it moves no pixel value and no proxy.")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--batch-size", type=int, default=16)
     ap.add_argument("--resume", action="store_true",
@@ -214,6 +237,8 @@ def main(argv: list[str] | None = None) -> int:
     extract_bank(df, a.backbone, a.out, seed=20260827, device=a.device,
                  batch_size=a.batch_size,
                  exclude_families=tuple(f for f in a.exclude.split(",") if f),
+                 policy=CanonPolicy(mode=a.canon_mode, crop_side=a.crop_side),
+                 geometric=a.geometric,
                  resume=a.resume, checkpoint_every=a.checkpoint_every,
                  workers=a.workers)
     if a.shard:

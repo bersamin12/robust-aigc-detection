@@ -1,0 +1,58 @@
+# P2 -- the same images, reweighted toward the generator era the scored
+# benchmark actually lives in.
+#
+# THE QUESTION THIS ASKS
+# The organisers' demo benchmark is DALL-E 3. Our generated side is 85%
+# WildFake, whose 17 families are all 2021-2023: GANs, DDPM/DDIM/ADM, the
+# SD-1.x adaptors, VQGAN/VQVAE, MAE/MAGE. SID_Set is the only modern-era
+# (SD3.5 / Flux) generated data we hold, and in the frozen manifest it is
+# 15.3% of the trained fakes. This preset raises that to 55.7% by thinning
+# WildFake -- and pays for it, because SID_Set's own leak is the worse of the
+# two (noise_floor AUC 0.731 within the source, against WildFake's 0.694 on
+# var-Laplacian). Read against max_data, this measures whether era coverage
+# is worth more than volume and a lower confound floor.
+#
+# PREDICTED, same method as max_data
+#
+#                       max_data       this preset
+#   train+val rows      168,437          107,185
+#   real / fake      84,318/84,119    54,318/52,867   (1.35% imbalance)
+#   jpeg_quality         0.5706           0.5873
+#   laplacian_var        0.6411           0.6133
+#   noise_floor        **0.6596**       **0.6829**
+#   short side           0.5566           0.5247
+#   WORST                0.6596           0.6829
+#   modern-era share      35.0%            55.7%
+#   fake families           17               17  (smallest 949)
+#
+# Note what moves in which direction: thinning WildFake lowers laplacian_var
+# (its channel) and raises noise_floor (SID_Set's). There is no mix that
+# lowers both, which is the finding docs/dataset_presets.md records.
+name: era_forward
+note: >
+  max_data's images, thinned on the WildFake side so the modern-era SID_Set
+  generators are 55.7% of the trained fakes rather than 35%. Buys era
+  coverage at the cost of a higher noise_floor confound and 36% fewer rows;
+  read against max_data, which is its control.
+
+max_per_generator:
+  # Every WildFake family. 1,500 is the largest cap that puts SID_Set past
+  # half of the generated side while leaving all 17 families well clear of
+  # splits.MIN_HELDOUT_IMAGES (the smallest, BigGAN, lands at ~949 because the
+  # sub-band floor below removes 36% of it after the cap).
+  "*": 1500
+  # NOT capped. `sid_set` is a pseudo-generator: it names a source, not a
+  # family (sources.PSEUDO_GENERATORS), so capping it "per family" would thin
+  # a whole dataset by 95% and is the same category error as holding it out.
+  sid_set: 0
+
+max_real_per_source:
+  # Match the authentic side to the generated one. WildFake supplies 55,000 of
+  # the 84,318 authentic rows; at 25,000 the classes come out within 1.4% of
+  # each other without discarding any of SID_Set's.
+  wildfake: 25000
+
+min_short_side: 200
+
+# Identical to max_data on purpose, so the two differ in composition alone.
+heldout_generators: [SDwithAdaptor_controlnet, VQGAN]

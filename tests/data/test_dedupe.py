@@ -13,6 +13,7 @@ See `_photo` for what replaced it, and the "known limitation" note below for
 the content class on which this guard genuinely does not hold.
 """
 import numpy as np
+import pytest
 from PIL import Image
 
 from aigcdet.augment import ops
@@ -272,3 +273,83 @@ def test_find_leaks_flags_a_recompressed_duplicate(tmp_path):
 # both authentic photographs and generator outputs carry structure; a frame
 # filled edge to edge with smooth backdrop is rare. So this is a real gap in
 # a secondary net, not a hole in the main barrier.
+
+
+# ---------------------------------------------------------------------------
+# What happens when a file will not decode
+# ---------------------------------------------------------------------------
+
+def test_an_unreadable_file_raises_by_default(tmp_path):
+    """The demo side of the guard uses this. A demo image that cannot be
+    hashed is a hole in the guard on the side the guard exists to protect, so
+    it must be fixed rather than tolerated."""
+    good = tmp_path / "a.png"
+    Image.fromarray(np.random.default_rng(0).integers(
+        0, 256, (32, 32, 3), dtype=np.uint8)).save(good)
+    bad = tmp_path / "b.png"
+    bad.write_bytes(b"not a png")
+
+    with pytest.raises(ValueError, match="cannot hash"):
+        build_hash_index([str(good), str(bad)])
+
+
+def test_the_raise_names_the_file(tmp_path):
+    """A traceback from inside Pillow says what went wrong and not which of
+    180,000 files it was -- and across a process-pool boundary the path is
+    lost entirely unless it is carried deliberately."""
+    bad = tmp_path / "broken.png"
+    bad.write_bytes(b"not a png")
+    with pytest.raises(ValueError, match="broken.png"):
+        build_hash_index([str(bad)])
+
+
+def test_skip_unreadable_omits_the_file_rather_than_raising(tmp_path):
+    """The candidate side. This runs ~90 minutes into a corpus build, after
+    normalisation, the audit and the caps; raising there discards all of it
+    over one odd file. The caller's half of the contract is that a path
+    ABSENT from the result was never checked against the demo set and must be
+    dropped from the corpus -- which `build_dataset` does."""
+    good = tmp_path / "a.png"
+    Image.fromarray(np.random.default_rng(0).integers(
+        0, 256, (32, 32, 3), dtype=np.uint8)).save(good)
+    bad = tmp_path / "b.png"
+    bad.write_bytes(b"not a png")
+
+    idx = build_hash_index([str(good), str(bad)], skip_unreadable=True)
+    assert set(idx) == {str(good)}
+
+
+def test_a_missing_file_is_handled_like_an_unreadable_one(tmp_path):
+    idx = build_hash_index([str(tmp_path / "nope.png")], skip_unreadable=True)
+    assert idx == {}
+
+
+# ---------------------------------------------------------------------------
+# Parallelism must not change the answer
+# ---------------------------------------------------------------------------
+
+def test_workers_produce_the_same_index_as_the_serial_path(tmp_path):
+    """The whole point of parallelising a hash pass is that it is a pure
+    function of each file. Measured at ~26 minutes per 100k images serially --
+    50 minutes of a 105-minute corpus build, one core at a time."""
+    rng = np.random.default_rng(0)
+    paths = []
+    for i in range(12):
+        p = tmp_path / f"{i}.png"
+        Image.fromarray(rng.integers(0, 256, (48, 48, 3), dtype=np.uint8)).save(p)
+        paths.append(str(p))
+
+    assert build_hash_index(paths, workers=1) == build_hash_index(paths, workers=4)
+
+
+def test_workers_still_skip_and_still_raise(tmp_path):
+    good = tmp_path / "a.png"
+    Image.fromarray(np.random.default_rng(0).integers(
+        0, 256, (32, 32, 3), dtype=np.uint8)).save(good)
+    bad = tmp_path / "b.png"
+    bad.write_bytes(b"not a png")
+
+    assert set(build_hash_index([str(good), str(bad)], skip_unreadable=True,
+                                workers=4)) == {str(good)}
+    with pytest.raises(ValueError, match="cannot hash"):
+        build_hash_index([str(good), str(bad)], workers=4)

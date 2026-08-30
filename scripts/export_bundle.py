@@ -26,6 +26,7 @@ from aigcdet.calibrate.eqi import EQI
 from aigcdet.calibrate.policy import fit_policy, policy_report
 from aigcdet.calibrate.temperature import ConditionalTemperature
 from aigcdet.eval.grid import score_grid
+from aigcdet.augment.canonical import DEFAULT_POLICY, CanonPolicy
 from aigcdet.features.bank import FeatureBank
 from aigcdet.infer import export_bundle
 from aigcdet.train.train_head import load_detector
@@ -110,6 +111,13 @@ def main(argv: list[str] | None = None) -> int:
     out = export_bundle(a.checkpoint, cal, eqi, policy, a.out,
                         backbone_name=ck["backbone"],
                         use_recon=ck["config"]["use_recon"],
+                        # Straight off the bank the rung was trained on: the
+                        # served path must standardise images the way the head
+                        # was taught to see them, and the bank is the only
+                        # record of which way that was.
+                        canon_policy=CanonPolicy.from_record(
+                            bank.config["canon_policy"])
+                        if "canon_policy" in bank.config else DEFAULT_POLICY,
                         dim_feat=ck["dim_feat"])
     print(f"bundle written to {out}  ({len(scores)} {INTERNAL_VAL_SPLIT} rows)")
     print(json.dumps(policy_report(p, y, eqi.predict(cond), policy), indent=2,

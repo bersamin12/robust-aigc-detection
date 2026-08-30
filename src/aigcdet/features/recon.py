@@ -24,7 +24,9 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from aigcdet.augment.canonical import canonicalise
+from aigcdet.augment.canonical import (
+    DEFAULT_POLICY, MODE_CROP, CanonPolicy, canonical_rng, canonicalise)
+from aigcdet.augment.geometric import dihedral, geometric_rng, sample_dihedral
 
 # Fixed order -- this is a contract, not a convenience. `bank.RECON_DIM` (12)
 # must match this tuple's length, the bank stores this vector positionally,
@@ -194,12 +196,18 @@ def attach_recon_to_bank(bank, manifest_df, device: str = "cuda",
     bank.verify_against_manifest(manifest_df)
 
     vae, lp = load_recon_models(device)
+    # A bank written before these keys existed has neither, and that can only
+    # mean the band policy with no geometry -- there was nothing else.
+    policy = CanonPolicy.from_record(bank.config["canon_policy"]) \
+        if "canon_policy" in bank.config else DEFAULT_POLICY
+    geometric = bool(bank.config.get("geometric"))
     n, v = len(bank.meta), bank.config["n_views"]
     row_ids = bank.row_ids
     out = np.zeros((n, v, RECON_DIM), dtype=np.float32)
     for i in tqdm(range(n), desc="recon"):
         with Image.open(bank.meta.iloc[i]["path"]) as im:
-            base = np.asarray(im.convert("RGB"), dtype=np.uint8)
+            decoded = np.asarray(im.convert("RGB"), dtype=np.uint8)
+        base = decoded
         # Resolution canonicalisation, BEFORE any stored recipe is replayed
         # (docs/resolution_shortcut.md). This site is the dangerous one: it
         # re-decodes and re-runs recipes to reproduce the EXACT pixels that
@@ -207,10 +215,23 @@ def attach_recon_to_bank(bank, manifest_df, device: str = "cuda",
         # does not, reconstruction features are computed on different pixels
         # than were cached -- silently, with no shape error anywhere. All
         # three sites or none.
-        base = canonicalise(base)
+        # The policy comes from the BANK, never from the caller. This site
+        # exists to reproduce pixels that are already on disk, so the one
+        # authority on how they were made is the artefact that holds them --
+        # `extract_bank` writes `canon_policy` and `geometric` into the config
+        # for exactly this. A caller-supplied policy would be one more thing
+        # that can silently disagree with the cache.
+        base = None if policy.mode == MODE_CROP else canonicalise(
+            base, policy=policy)
         rid = int(row_ids[i])
         for j in range(v):
+            # Same three-step reconstruction as extract._prepare_image, in the
+            # same order, from the same keys: standardise, orient, degrade.
+            std = base if base is not None else canonicalise(
+                decoded, policy=policy, rng=canonical_rng(seed, rid, j))
+            if geometric:
+                std = dihedral(std, sample_dihedral(geometric_rng(seed, rid, j)))
             apply_rng = np.random.default_rng([seed, rid, j])
-            view = Recipe.from_json(bank.recipe_json(i, j)).apply(base, apply_rng)
+            view = Recipe.from_json(bank.recipe_json(i, j)).apply(std, apply_rng)
             out[i, j] = recon_features(view, vae, lp, device)
     bank.attach_recon(out)

@@ -1,0 +1,50 @@
+# P1 -- every image currently on disk, minus the one leak that has no fix.
+#
+# WHAT CHANGES vs the frozen manifest of 29 Aug
+#   * SID_Set goes from 10,049 + 10,079 rows to 29,318 + 29,439. Those images
+#     were acquired on 29 Aug and never entered the manifest, which was frozen
+#     first; they cost nothing to add because they are already on disk.
+#   * The 1,308 images below the canonicalisation band floor are dropped.
+#   * Nothing else. The held-out pair is the frozen manifest's own, so the
+#     ONLY variable between this corpus and that one is composition.
+#
+# PREDICTED (simulated from the frozen manifest's cached view-0 proxies plus a
+# resample standing in for the 38,629 unnormalised SID rows; see
+# docs/dataset_presets.md for the method and its caveat)
+#
+#                        frozen        this preset
+#   train+val rows      131,116          168,437
+#   real / fake      65,049/66,067    84,318/84,119   (0.12% imbalance)
+#   jpeg_quality         0.5532           0.5706
+#   laplacian_var      **0.6721**         0.6411
+#   noise_floor          0.6374         **0.6596**
+#   short side           0.5992           0.5566
+#   WORST                0.6721           0.6596
+#   modern-era share      15.3%            35.0%
+#   fake families           17               17  (smallest 2,240)
+#
+# This is the best worst-case confound of every composition swept, and it is
+# also the largest. Capping either source to "balance" them makes the worst
+# confound WORSE, not better -- see docs/dataset_presets.md, which records the
+# sweep. That negative result is the reason this preset caps nothing.
+name: max_data
+note: >
+  Every image on disk, including the 38,629 SID_Set rows acquired after the
+  manifest was frozen, with the sub-band tail removed. Caps nothing: a source
+  sweep showed every cap raises the worst low-level confound rather than
+  lowering it. Held-out pair is the frozen manifest's, so composition is the
+  only variable.
+
+# No caps. Deliberate, and measured -- see above.
+max_per_generator: {}
+max_real_per_source: {}
+
+# CANON_BAND_SIDE. Below it, `augment.canonical` band-limits nothing and can
+# restore nothing, so the softness is permanent. 1,308 images qualify and all
+# 1,308 are generated (1,260 are BigGAN at 128px): a label leak with no
+# authentic counterpart, which index balancing cannot touch.
+min_short_side: 200
+
+# The frozen manifest's own draw, pinned rather than redrawn, so that a result
+# read against the frozen run differs in composition and nothing else.
+heldout_generators: [SDwithAdaptor_controlnet, VQGAN]

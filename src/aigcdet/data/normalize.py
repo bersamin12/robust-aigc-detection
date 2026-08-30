@@ -34,6 +34,37 @@ PNG_MODE_OVERRIDES: dict[str, str] = {"I": "I;16"}
 #: One entry per input pair that could not be normalised: (src, reason).
 Failure = tuple[str, str]
 
+#: Ancillary PNG chunks this module refuses to carry from input to output.
+#:
+#: An embedded ICC profile is CONTAINER METADATA, and removing container
+#: metadata that differs between the classes is the entire job of this module:
+#: COCO's JPEGs carry an sRGB profile, generator PNGs usually carry none, so
+#: "has an ICC profile" is a property of the source rather than of how the
+#: image was made. Stripping it changes no sample value -- Pillow does not
+#: apply a profile on decode, and `convert("RGB")` does not either.
+#:
+#: It is also a correctness fix, and that is how it was found. Pillow will
+#: WRITE an arbitrarily large iCCP chunk and then refuse to READ it back
+#: (`_safe_zlib_decompress` caps it at `MAX_TEXT_CHUNK`), so one SID_Set image
+#: with an oversized profile produced a normalised PNG that normalisation
+#: itself could not reopen. It survived the audit, which reads the RAW files,
+#: and killed `build_hash_index` 95 minutes into a corpus build -- at the one
+#: step whose comment says normalisation has "already proved the candidate
+#: files decodable". It had proved the INPUTS decodable, not the outputs.
+_STRIPPED_INFO_KEYS = ("icc_profile",)
+
+
+def _without_stripped_metadata(im: Image.Image) -> dict:
+    """Save keywords that suppress every chunk in `_STRIPPED_INFO_KEYS`.
+
+    Passing the key explicitly as None is what suppresses it: Pillow reads
+    `im.encoderinfo.get("icc_profile", im.info.get("icc_profile"))`, so the
+    default is only consulted when the key is ABSENT from encoderinfo. Popping
+    it from `im.info` instead would not work on an image whose profile arrived
+    with the decoder.
+    """
+    return {k: None for k in _STRIPPED_INFO_KEYS}
+
 
 def png_target_mode(mode: str, bands: tuple[str, ...]) -> str:
     """The mode `save_png` will write an image of `mode` in.
@@ -83,7 +114,8 @@ def save_png(im: Image.Image, dst: str) -> str:
     os.makedirs(os.path.dirname(os.path.abspath(dst)) or ".", exist_ok=True)
     tmp = dst + ".part"
     try:
-        im.save(tmp, format="PNG", optimize=False)
+        im.save(tmp, format="PNG", optimize=False,
+                **_without_stripped_metadata(im))
         os.replace(tmp, dst)
     except BaseException:
         if os.path.exists(tmp):
@@ -111,7 +143,8 @@ def normalize_image(src: str, dst: str, short_side: int = SHORT_SIDE) -> tuple[i
             scale = short_side / min(w, h)
             w, h = max(1, round(w * scale)), max(1, round(h * scale))
             im = im.resize((w, h), Image.LANCZOS)
-        im.save(dst, format="PNG", optimize=False)
+        im.save(dst, format="PNG", optimize=False,
+                **_without_stripped_metadata(im))
     return (w, h)
 
 

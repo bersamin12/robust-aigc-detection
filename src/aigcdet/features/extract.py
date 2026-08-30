@@ -52,7 +52,9 @@ from aigcdet.features.bank import (
     manifest_fingerprint,
 )
 from aigcdet.features.proxies import proxy_vector
-from aigcdet.augment.canonical import canonicalise
+from aigcdet.augment.canonical import (
+    DEFAULT_POLICY, MODE_CROP, CanonPolicy, canonical_rng, canonicalise)
+from aigcdet.augment.geometric import dihedral, geometric_rng, sample_dihedral
 
 
 def _sample_recipe_excluding(rng: np.random.Generator, exclude: tuple[str, ...]) -> Recipe:
@@ -159,7 +161,8 @@ def shard_frame(df: pd.DataFrame, spec: str | None) -> pd.DataFrame:
 
 
 #: One image's CPU work, as a picklable argument tuple for `_prepare_image`.
-PrepareTask = tuple  # (write_idx, row_id, path, n_views, seed, exclude_families)
+PrepareTask = tuple  # (write_idx, row_id, path, n_views, seed,
+                     #  exclude_families, policy, geometric)
 
 
 def _prepare_image(task: PrepareTask) -> dict:
@@ -173,9 +176,10 @@ def _prepare_image(task: PrepareTask) -> dict:
     shared or mutated, so running it in another process is safe by
     construction and bit-identical to running it inline.
     """
-    write_idx, row_id, path, n_views, seed, exclude_families = task
+    (write_idx, row_id, path, n_views, seed, exclude_families,
+     policy, geometric) = task
     with Image.open(path) as im:
-        base = np.asarray(im.convert("RGB"), dtype=np.uint8)
+        decoded = np.asarray(im.convert("RGB"), dtype=np.uint8)
         # Resolution canonicalisation, BEFORE any recipe/condition transform
         # (docs/resolution_shortcut.md). Native resolution leaks the label:
         # 29% of the training pool sits at sizes that are 100% generated, and
@@ -189,7 +193,13 @@ def _prepare_image(task: PrepareTask) -> dict:
         # that skips it computes features on different pixels than were
         # cached, silently and with no shape error. Wire exactly once per
         # site -- canonicalise is size-stable but NOT pixel-idempotent.
-        base = canonicalise(base)
+        #
+        # Under a BAND policy this is a pure function of the pixels, so it is
+        # hoisted out of the view loop and computed once, exactly as before.
+        # Under a CROP policy it draws a window per view and cannot be, which
+        # is the point: 11 views give 11 different windows from one decode.
+        base = None if policy.mode == MODE_CROP else canonicalise(
+            decoded, policy=policy)
 
     # View 0 is always the clean view (bank invariant) -- no sampling.
     # Views 1..n_views-1 each get their own fresh generator, keyed on
@@ -208,8 +218,25 @@ def _prepare_image(task: PrepareTask) -> dict:
         sample_rng = np.random.default_rng([seed, row_id, v])
         recipes.append(_sample_recipe_excluding(sample_rng, exclude_families))
 
-    views = [r.apply(base, np.random.default_rng([seed, row_id, v]))
-             for v, r in enumerate(recipes)]
+    # Standardise, then orient, then degrade. The order is deliberate: a
+    # recipe's jpeg or blur must act on the pixels the model will actually
+    # see, as it would in the wild, not on an orientation that is rotated away
+    # underneath it afterwards.
+    #
+    # Each step re-derives its own generator from the shared
+    # (seed, row_id, view_idx) key rather than threading one stream through
+    # all of them -- the same discipline as the block above, for the same
+    # reason. That is what keeps every view's pixels a pure function of that
+    # key with the crop offset and the orientation index stored NOWHERE:
+    # `recon.attach_recon_to_bank` replays them from the key and the stored
+    # recipe alone.
+    views = []
+    for v, r in enumerate(recipes):
+        std = base if base is not None else canonicalise(
+            decoded, policy=policy, rng=canonical_rng(seed, row_id, v))
+        if geometric:
+            std = dihedral(std, sample_dihedral(geometric_rng(seed, row_id, v)))
+        views.append(r.apply(std, np.random.default_rng([seed, row_id, v])))
     labels = [r.labels() for r in recipes]
     return {
         "write_idx": write_idx,
@@ -282,6 +309,8 @@ def extract_bank(
     device: str = "cuda",
     limit: int | None = None,
     exclude_families: tuple[str, ...] = (),
+    policy: CanonPolicy = DEFAULT_POLICY,
+    geometric: bool = False,
     batch_size: int = 16,
     resume: bool = False,
     checkpoint_every: int = CHECKPOINT_EVERY,
@@ -295,6 +324,25 @@ def extract_bank(
     generator keyed on (seed, each row's manifest index label, view index)
     (see the loop below for why, and what that requires of a caller that
     slices `manifest_df`).
+
+    `policy` selects the resolution standardisation (`augment.canonical`).
+    The default is band-limiting, which is what every existing bank was built
+    with. `CanonPolicy(mode="crop")` takes a random window at native
+    resolution instead, one per view.
+
+    `geometric` turns on dihedral augmentation (`augment.geometric`): a
+    random flip-and-90-degree-rotation per view, applied after
+    standardisation and before the recipe. It requires a square
+    standardisation, i.e. crop mode, and raises otherwise -- a 90-degree
+    rotation transposes a non-square image and every op downstream is
+    shape-preserving.
+
+    "Clean" means clean of DEGRADATION. Under crop mode with `geometric`,
+    view 0 is still the empty recipe, but it is a random window at a random
+    orientation rather than the whole image upright -- which is what makes the
+    A3 consistency term ask for geometric invariance too. That is a different
+    quantity from A3 in a band-mode bank, and the bank config records which
+    one you have.
 
     `limit` truncates `manifest_df` to its first `limit` rows before anything
     else. A caller that also shards must apply its own limit BEFORE calling
@@ -337,6 +385,14 @@ def extract_bank(
             "on a slice of a larger manifest you intend to compare or merge "
             "against other shards) -- otherwise deduplicate the index first.")
 
+    if geometric and not policy.is_square:
+        raise ValueError(
+            f"geometric=True needs a standardisation that returns a square, "
+            f"and {policy.mode!r} mode does not. A 90-degree rotation "
+            "transposes a non-square image while every op in `augment.ops` is "
+            "shape-preserving, so the mismatch would surface far from here -- "
+            "or not at all. Use CanonPolicy(mode='crop').")
+
     model, spec = load_backbone(backbone_name, device=device)
     # `manifest_root` is where this session's copy of the dataset is mounted;
     # the bank stores each row's path relative to it, so a shard extracted on
@@ -357,8 +413,24 @@ def extract_bank(
                         # excluded) so two teammates who name the same families
                         # in different orders still merge, and so a missing key
                         # can only mean a bank written before this existed.
-                        extra_config={"exclude_families":
-                                      sorted(str(f) for f in exclude_families)})
+                        extra_config={
+                            "exclude_families":
+                                sorted(str(f) for f in exclude_families),
+                            # Same argument, one step earlier in the pipeline.
+                            # Two banks whose standardisation differs hold
+                            # features of different PIXELS, and nothing about
+                            # their shapes or contents says so -- a crop bank
+                            # and a band bank are the same dtype, the same
+                            # width and the same row count. Recording the
+                            # policy makes `merge_banks` refuse mismatched
+                            # shards, `resume` refuse a continuation under a
+                            # changed policy, and `assert_fusion_parents`
+                            # refuse an A5 pair that was never comparable.
+                            # Always present, so a missing key can only mean a
+                            # bank written before this existed.
+                            "canon_policy": policy.as_record(),
+                            "geometric": "dihedral8" if geometric else "",
+                        })
 
     # Each image's RNG is keyed on the row's own index label -- its position
     # in the frozen manifest -- not on write_idx (this call's local array
@@ -388,7 +460,7 @@ def extract_bank(
             "generator": row["generator"], "source": row["source"],
             "split": row["split"]}
         tasks.append((write_idx, int(row_id), row["path"], n_views, seed,
-                      exclude_families))
+                      exclude_families, policy, geometric))
 
     for prepared in tqdm(_iter_prepared(tasks, workers), total=len(tasks),
                           desc=f"extract:{backbone_name}"):

@@ -1,0 +1,95 @@
+# A second experiment stream: photographic reals, crop standardisation,
+# dihedral augmentation. Read docs/dataset_presets.md before running it.
+#
+# WHAT THIS SWAPS, AND WHAT IT COSTS
+#   * WildFake's five non-commercial authentic subsets (FFHQ, CelebA-HQ, AFHQ,
+#     ImageNet, LSUN -- 40,000 rows, every one of them at exactly short side
+#     200) are dropped, and COCO train2017 photographs take their place.
+#   * `real_laion5b` (15,000 at 512) and SID_Set's 29,318 reals stay, so the
+#     authentic side keeps THREE sources. That is deliberate and measured:
+#     COCO alone scores laplacian_var 0.7613 against the corpus's fakes, the
+#     three-source mix 0.7515.
+#   * This preset is paired with `CanonPolicy(mode="crop")` and dihedral
+#     augmentation, which are Stage A flags, not corpus fields -- see
+#     `scripts/extract_features.py --canon-mode crop --geometric`.
+#
+# THE THING TO BE HONEST ABOUT
+# This reverses the rule `data/wildfake.py:_COCO_FORBIDDEN` states: COCO-derived
+# reals barred from training because train/val/test are one photographic
+# distribution and the organisers' benchmark real half IS COCO val2017. The
+# reversal buys an in-the-wild photographic real class; it risks a benchmark
+# score that measures distribution memorisation. The protection is not this
+# file, it is the measurement --
+#
+#     python scripts/stratified_auc.py --stratify-by source ...
+#
+# which reports the false positive rate separately for COCO, LAION and SID_Set
+# reals. A model that has memorised COCO shows a far lower rate there than on
+# the other two while the benchmark looks excellent. Publish that gap next to
+# any headline from this stream.
+#
+# PREDICTED under BAND standardisation (measured 2026-08-30 from 1,500 COCO
+# images through the real normalize -> canonicalise -> proxy_vector path,
+# scored against the frozen bank's fakes):
+#
+#                        frozen      this corpus
+#   jpeg_quality         0.5532        0.5358
+#   laplacian_var      **0.6721**    **0.7515**
+#   noise_floor          0.6374        0.5388
+#
+# The sharpness confound goes UP, and most of that comes from removing
+# WildFake's soft 200px reals rather than from adding COCO. Crop
+# standardisation is the reason to expect it back down -- it preserves native
+# detail instead of box-filtering it away -- but that is a prediction. Gate 1
+# in docs/dataset_presets.md measures it on CPU before any GPU time, and it is
+# allowed to cancel the run.
+name: coco_crop
+note: >
+  COCO train2017 replaces WildFake's five non-commercial authentic subsets;
+  real_laion5b and SID_Set stay so the authentic side keeps three sources.
+  Paired with crop standardisation and dihedral augmentation at Stage A.
+  Reverses the section 4.1(2) COCO bar for this stream only -- read every
+  benchmark number against the per-source real breakdown from
+  stratified_auc.py --stratify-by source.
+
+# The five subsets whose upstream terms are non-commercial. real_laion5b is
+# NOT here: its licence covers the metadata and each image carries its own
+# rights, which is a different situation, and it is the only WildFake real
+# bucket that is not at 200px.
+#
+# This has to be a sub-path rather than `SourceSpec.restricted_buckets`,
+# because WildFake's authentic images are nested one level BELOW the bucket
+# and `classify` reads the bucket alone -- a registry restriction would take
+# all six or none. It also is not a licence bar in force for every corpus,
+# which is what the registry means; it is one composition's decision.
+exclude_subpaths:
+  - wildfake/real/real_ffhq
+  - wildfake/real/real_celebahq
+  - wildfake/real/real_afhq
+  - wildfake/real/real_imagenet
+  - wildfake/real/real_church
+
+max_real_per_source:
+  # Balances the classes: 91,119 surviving fakes minus the 44,318 authentic
+  # rows the other two sources supply. COCO is the only knob with slack --
+  # 118,169 of its images clear the floor and we need 46,800 of them.
+  #
+  # If the Kaggle upload is the binding constraint rather than the science,
+  # halve this to 23,000 and add `max_per_generator: {"*": 1800}`: a ~95k-row
+  # corpus in ~26 GB instead of ~182k in ~48 GB.
+  coco_train2017: 46800
+
+# Nothing is capped. `docs/dataset_presets.md` records the sweep showing every
+# cap raises the worst low-level confound rather than lowering it.
+max_per_generator: {}
+
+# Equal to the crop side, and that is the load-bearing relationship: a
+# 200x200 window cannot be taken from an image whose short side is under 200,
+# and `canonicalise` raises rather than upscaling to reach it. This is what
+# stops those rows ever being normalised. It also removes the 1,308 sub-band
+# images, every one of which is generated.
+min_short_side: 200
+
+# The frozen manifest's own pair, pinned rather than redrawn, so this stream
+# differs from it in corpus and policy and never in the split draw.
+heldout_generators: [SDwithAdaptor_controlnet, VQGAN]

@@ -9,6 +9,22 @@ the ruler.
 
 Reported alongside the dimensions-only CONTROL for the same rows, which is the
 number the stratified figures have to beat to mean anything.
+
+`--stratify-by source` answers a different question with the same machinery,
+and it is the control the `coco_crop` stream exists under. That corpus trains
+on COCO train2017 photographs while the organisers' scored benchmark's real
+half IS COCO val2017 -- one photographic distribution, which is why
+`data/wildfake.py:_COCO_FORBIDDEN` barred COCO from training in the first
+place. A model that has memorised "COCO-like means authentic" scores
+brilliantly on that benchmark and has learned nothing about generation.
+
+Per-source AUC cannot see it: `coco_train2017` contributes only authentic
+rows, so there is no AUC inside it at all. What does see it is the FALSE
+POSITIVE RATE per authentic source at one global threshold. A model reading
+generation artefacts has roughly the same rate on all three authentic sources;
+a model reading "is this a COCO photograph" has a far lower rate on COCO than
+on LAION and SID_Set. That gap is the number to publish beside any headline
+from this stream.
 """
 from __future__ import annotations
 
@@ -39,12 +55,74 @@ def score_bank(model, bank, idx, device="cpu", batch=4096):
     return np.concatenate(out).ravel()
 
 
+#: Operating point for the per-source breakdown. 1% FPR because that is the
+#: rate spec 6.4's selection rule (`heldout_robust_tpr_at_1pct`) is defined
+#: at, so the per-source view is read at the same place as the headline.
+SOURCE_FPR = 0.01
+
+
+def _report_by_source(meta, y, s, idx) -> dict:
+    """False positive rate per AUTHENTIC source at one global threshold.
+
+    The threshold is set on ALL authentic rows together, then applied
+    unchanged to each source. Setting it per source would normalise away
+    exactly the difference being measured.
+    """
+    source = meta["source"].to_numpy()[idx]
+    generator = meta["generator"].to_numpy()[idx]
+    real = y == 0
+    if not real.any():
+        raise SystemExit("no authentic rows in this split to set a threshold on")
+    # The score above which SOURCE_FPR of authentic rows fall.
+    thr = float(np.quantile(s[real], 1.0 - SOURCE_FPR))
+    print(f"\nthreshold at {SOURCE_FPR:.0%} FPR over all {int(real.sum())} "
+          f"authentic rows: logit {thr:.4f}")
+
+    rows = []
+    for src in sorted(set(source[real])):
+        m = real & (source == src)
+        rows.append({"authentic source": src, "n": int(m.sum()),
+                     "FPR": float((s[m] > thr).mean()),
+                     "mean logit": float(s[m].mean())})
+    df = pd.DataFrame(rows).sort_values("n", ascending=False)
+    print("\nper authentic source, at that one threshold:")
+    print(df.to_string(index=False, float_format=lambda x: f"{x:.4f}"))
+
+    spread = float(df["FPR"].max() - df["FPR"].min()) if len(df) > 1 else 0.0
+    print(f"\nFPR spread across authentic sources: {spread:.4f}")
+    if len(df) > 1:
+        print("  A model reading generation artefacts has roughly the same "
+              "rate on every\n  authentic source. A large spread means the "
+              "headline is partly a source\n  classifier -- read it against "
+              "the source whose rate is WORST, not the mean.")
+
+    gen = []
+    for g in sorted(set(generator[~real])):
+        m = (~real) & (generator == g)
+        gen.append({"generator": g, "n": int(m.sum()),
+                    "TPR": float((s[m] > thr).mean())})
+    gdf = pd.DataFrame(gen).sort_values("TPR")
+    print("\nper generator, same threshold (worst first):")
+    print(gdf.to_string(index=False, float_format=lambda x: f"{x:.4f}"))
+    return {"threshold": thr, "fpr_by_source":
+            dict(zip(df["authentic source"], df["FPR"])),
+            "fpr_spread": spread,
+            "tpr_by_generator": dict(zip(gdf["generator"], gdf["TPR"]))}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--checkpoint", required=True)
     ap.add_argument("--bank", required=True)
     ap.add_argument("--manifest", required=True)
     ap.add_argument("--split", default="val_internal")
+    ap.add_argument("--stratify-by", choices=("resolution", "source"),
+                    default="resolution",
+                    help="'resolution' (default) is the confound-free reading "
+                         "of a rung: within a short-side stratum, resolution "
+                         "explains nothing. 'source' is the memorisation "
+                         "control for a corpus whose real class overlaps the "
+                         "benchmark's -- see the module docstring.")
     ap.add_argument("--device", default="cpu")
     a = ap.parse_args(argv)
 
@@ -67,6 +145,12 @@ def main(argv=None):
     ctrl = roc_auc_score(y, short.astype(float))
     print(f"dimensions-only CONTROL     {max(ctrl, 1 - ctrl):.4f}   "
           "(short side alone; the number below must beat this)")
+
+    if a.stratify_by == "source":
+        out = _report_by_source(bank.meta, y, s, idx)
+        out["overall"] = float(roc_auc_score(y, s))
+        out["control"] = float(max(ctrl, 1 - ctrl))
+        return out
 
     rows, used, single, small = [], 0, 0, 0
     for v in np.unique(short):

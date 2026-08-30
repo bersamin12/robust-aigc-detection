@@ -178,6 +178,8 @@ would blind the instrument that reports whether this module worked.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import cv2
 import numpy as np
 
@@ -209,6 +211,122 @@ CANON_BAND_JITTER: float = 0.10
 #: and undo the point of the exercise.
 _DOWNSCALE_INTERP = cv2.INTER_AREA
 _UPSCALE_INTERP = cv2.INTER_CUBIC
+
+
+#: Side of the random window `mode="crop"` takes. 200 for the same reason
+#: `CANON_BAND_SIDE` is 200 -- it is the short side of every COCO image in the
+#: organisers' scored benchmark, so it is the most information either class is
+#: guaranteed to have -- and because `min_short_side: 200` in a corpus preset
+#: is what makes the window exist for every row.
+CANON_CROP_SIDE: int = 200
+
+#: Band-limit: downscale to a common ceiling, then upscale. Equalises the
+#: bandwidth of the whole corpus at the cost of destroying detail above the
+#: ceiling. This is the frozen stream's policy and the default.
+MODE_BAND = "band"
+
+#: Crop: take a square window at NATIVE resolution, then upscale. Equalises
+#: the number of genuine pixels each image contributes without box-filtering
+#: any of them away, so a generator's high-frequency signature survives inside
+#: the window. Costs field of view instead: the window is a whole frame for a
+#: 200px image and a detail for a 640px photograph, which trades a spectral
+#: confound for a content one. See docs/dataset_presets.md.
+MODE_CROP = "crop"
+
+MODES = (MODE_BAND, MODE_CROP)
+
+
+@dataclass(frozen=True)
+class CanonPolicy:
+    """How one stream standardises resolution, as one value that travels.
+
+    A policy rather than a set of keyword arguments because it has to reach
+    five production decode sites (`features/extract`, `eval/grid`,
+    `features/recon`, `infer`, `explain/patch_heatmap`) and be written into
+    the feature bank's config. That second part is what makes it safe:
+    `BankWriter` treats every unrecognised config key as must-match, so
+    recording the policy buys three refusals for free -- resuming a bank under
+    a changed policy, merging shards built under different ones, and fusing
+    two banks at A5 whose pixels were never comparable. Without it a crop bank
+    and a band bank are indistinguishable on disk, and the failure is silent.
+    """
+
+    mode: str = MODE_BAND
+    band_side: int = CANON_BAND_SIDE
+    nominal_side: int = CANON_NOMINAL_SIDE
+    crop_side: int = CANON_CROP_SIDE
+    jitter: float = CANON_BAND_JITTER
+
+    def __post_init__(self):
+        if self.mode not in MODES:
+            raise ValueError(
+                f"unknown canonicalisation mode {self.mode!r}; expected one of "
+                f"{list(MODES)}")
+        # Each mode is held to ITS OWN contract and not to the other's. A
+        # crop policy carries a `band_side` it never reads, and forcing that
+        # unused number to be legal against a small `nominal_side` would
+        # reject perfectly good crop configurations. `as_record` drops the
+        # unused fields for the same reason, and that one matters more: the
+        # record is a must-match key on resume, merge and fusion, so an
+        # ignored field left in it would fail comparisons over a number
+        # neither bank's pixels depend on.
+        if self.mode == MODE_BAND:
+            if not 0 < self.band_side < self.nominal_side:
+                raise ValueError(
+                    f"need 0 < band_side < nominal_side, got band_side="
+                    f"{self.band_side!r} nominal_side={self.nominal_side!r}; step 2 "
+                    "must always be an upscale, otherwise the kernel used depends "
+                    "on the input's size and the native resolution is re-recorded "
+                    "as an interpolation signature")
+            if not 0.0 <= self.jitter < 1.0:
+                raise ValueError(f"jitter must be in [0, 1), got {self.jitter!r}")
+        else:
+            if not 0 < self.crop_side < self.nominal_side:
+                raise ValueError(
+                    f"need 0 < crop_side < nominal_side, got crop_side="
+                    f"{self.crop_side!r} nominal_side={self.nominal_side!r}; the "
+                    "same argument as band_side -- the presentation resize must be "
+                    "an upscale for every image alike")
+
+    @property
+    def is_square(self) -> bool:
+        """Whether this policy's output is square for every input.
+
+        `augment.geometric.dihedral` is legal only when it is: a 90-degree
+        rotation transposes a non-square image and every op downstream is
+        shape-preserving.
+        """
+        return self.mode == MODE_CROP
+
+    def as_record(self) -> dict:
+        """The blob written into the feature bank's config.
+
+        Only the fields this mode actually reads. The record is compared
+        key-by-key on resume, on merge and at A5 fusion, so carrying an
+        ignored field would refuse two banks whose pixels are identical.
+        """
+        rec = {"mode": self.mode, "nominal_side": self.nominal_side}
+        if self.mode == MODE_BAND:
+            rec.update(band_side=self.band_side, jitter=self.jitter)
+        else:
+            rec.update(crop_side=self.crop_side)
+        return rec
+
+    @classmethod
+    def from_record(cls, rec: dict) -> "CanonPolicy":
+        """Rebuild a policy from a bank config or an exported bundle.
+
+        A bank written before this field existed has no record at all; the
+        caller passes `DEFAULT_POLICY` in that case rather than this being
+        lenient about a missing mode, because "the key was absent" and "the
+        key said band" must stay distinguishable.
+        """
+        return cls(**rec)
+
+
+#: The frozen stream's policy. Every call site defaults to it, so nothing
+#: changes for anything already built.
+DEFAULT_POLICY = CanonPolicy()
 
 
 def canonical_rng(seed: int, row_id: int, view_idx: int) -> np.random.Generator:
@@ -244,12 +362,48 @@ def _resize_short_side(img: np.ndarray, target: int, interp: int) -> np.ndarray:
     return cv2.resize(img, (nw, nh), interpolation=interp)
 
 
+def _random_square_crop(img: np.ndarray, side: int,
+                        rng: np.random.Generator | None) -> np.ndarray:
+    """Take a `side x side` window at NATIVE resolution.
+
+    `rng is None` gives the CENTRE window. That is not a fallback, it is the
+    policy for every deterministic path: inference must return the same score
+    for the same file twice, and any replay site that re-derives pixels needs
+    the draw to be reproducible or it is not a replay. Randomness is opt-in,
+    supplied by `canonical_rng(seed, row_id, view_idx)` at the two extraction
+    sites and nowhere else.
+
+    Consumes exactly two draws when random, top then left, so the sequence is
+    stable if a caller ever shares the generator.
+
+    Returns a VIEW; the caller's resize allocates. `crop_side < nominal_side`
+    is guaranteed by `CanonPolicy`, so that resize always happens and the
+    result is never a view of the caller's array.
+    """
+    h, w = img.shape[:2]
+    if min(h, w) < side:
+        raise ValueError(
+            f"cannot take a {side}x{side} window from a {h}x{w} image. Crop "
+            "standardisation has no way to invent the missing pixels, and "
+            "upscaling to reach the window would reintroduce exactly the "
+            "resampling signature this module removes. Set the corpus "
+            f"preset's `min_short_side` to {side} so build_dataset drops these "
+            "rows before they are ever normalised.")
+    if rng is None:
+        top, left = (h - side) // 2, (w - side) // 2
+    else:
+        top = int(rng.integers(0, h - side + 1))
+        left = int(rng.integers(0, w - side + 1))
+    return img[top:top + side, left:left + side]
+
+
 def canonicalise(img: np.ndarray, *,
+                 policy: CanonPolicy | None = None,
                  band_side: int = CANON_BAND_SIDE,
                  nominal_side: int = CANON_NOMINAL_SIDE,
                  rng: np.random.Generator | None = None,
                  jitter: float = CANON_BAND_JITTER) -> np.ndarray:
-    """Map any image to `nominal_side` through a common bandwidth ceiling.
+    """Map any image to `nominal_side` by one of two standardisation policies.
 
     Takes no label, no source and no path: the transform is a pure function of
     the pixels and its configuration, so it cannot be applied asymmetrically to
@@ -262,8 +416,31 @@ def canonicalise(img: np.ndarray, *,
     resampling signature; derive it with `canonical_rng` so the result stays
     reproducible from `(seed, row_id, view_idx)`.
 
+    `policy` selects between the two (see `CanonPolicy`). The loose keyword
+    arguments are the original signature, kept working so that no existing
+    call site or test had to change; they build a band-mode policy. Passing a
+    `policy` AND a loose argument raises rather than picking a winner -- two
+    sources of truth for the same number is how a bank ends up describing
+    pixels it does not contain.
+
     Returns a fresh array; the input is never modified in place.
     """
+    loose = [n for n, v, d in (("band_side", band_side, CANON_BAND_SIDE),
+                               ("nominal_side", nominal_side, CANON_NOMINAL_SIDE),
+                               ("jitter", jitter, CANON_BAND_JITTER)) if v != d]
+    if policy is not None and loose:
+        raise ValueError(
+            f"canonicalise got both policy={policy!r} and {loose}; put every "
+            "setting in the policy, which is the object that reaches the bank "
+            "config and can therefore be checked on resume, merge and fusion.")
+    if policy is None:
+        # Validation lives in CanonPolicy.__post_init__, so the loose path and
+        # the policy path cannot drift into disagreeing about what is legal.
+        policy = CanonPolicy(mode=MODE_BAND, band_side=band_side,
+                             nominal_side=nominal_side, jitter=jitter)
+    band_side, nominal_side = policy.band_side, policy.nominal_side
+    jitter = policy.jitter
+
     if img.ndim != 3 or img.shape[2] != 3:
         raise ValueError(
             f"canonicalise expects an HxWx3 RGB array, got shape {img.shape!r}; "
@@ -272,14 +449,31 @@ def canonicalise(img: np.ndarray, *,
         raise ValueError(
             f"canonicalise expects uint8, got {img.dtype!r}; every op in "
             "`augment.ops` is uint8 in / uint8 out and this runs before them")
-    if not 0 < band_side < nominal_side:
-        raise ValueError(
-            f"need 0 < band_side < nominal_side, got band_side={band_side!r} "
-            f"nominal_side={nominal_side!r}; step 2 must always be an upscale, "
-            "otherwise the kernel used depends on the input's size and the "
-            "native resolution is re-recorded as an interpolation signature")
-    if not 0.0 <= jitter < 1.0:
-        raise ValueError(f"jitter must be in [0, 1), got {jitter!r}")
+    # The band_side / nominal_side / jitter guards that used to live here now
+    # live in `CanonPolicy.__post_init__`, which both entry paths go through:
+    # the loose keyword arguments build a policy above, so the checks fire for
+    # them too, with the same messages. Keeping a copy here would also have
+    # applied band mode's contract to crop mode, where `band_side` is never
+    # read -- which is what a policy is FOR.
+
+    if policy.mode == MODE_CROP:
+        # Step 1', the crop, replaces step 1, the band-limit. It removes no
+        # detail from the pixels it keeps: a generator's high-frequency
+        # signature survives inside the window instead of being box-filtered
+        # away, which is the whole reason this mode exists. What it equalises
+        # is the NUMBER of genuine pixels every image contributes, not their
+        # bandwidth -- so a 200px image gives its whole frame and a 640px
+        # photograph gives a detail, and semantic scale becomes correlated
+        # with native resolution where spectral content no longer is. That
+        # trade is recorded in docs/dataset_presets.md; it is not free, it is
+        # different.
+        #
+        # Step 2 is unchanged and shared with band mode: one kernel, one size,
+        # every image alike. `crop_side < nominal_side` makes it an upscale
+        # for every input, so no image is routed through a different kernel
+        # because of how big it started.
+        window = _random_square_crop(img, policy.crop_side, rng)
+        return _resize_short_side(window, nominal_side, _UPSCALE_INTERP)
 
     band = band_side
     if rng is not None and jitter > 0.0:

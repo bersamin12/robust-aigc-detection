@@ -631,3 +631,264 @@ def test_the_cap_never_thins_the_authentic_side(tmp_path):
 
     assert (df["label"] == 0).sum() == N_REAL
     assert df[df["label"] == 1]["generator"].value_counts().max() <= cap
+
+
+# ---------------------------------------------------------------------------
+# corpus presets (aigcdet.data.presets)
+#
+# The knobs a preset adds -- an authentic-side cap, a sub-band floor, and a
+# per-family cap mapping -- are each a way of DELETING rows, so every test
+# below is really the same question: did it delete exactly the rows it named,
+# and did it refuse when it could not?
+# ---------------------------------------------------------------------------
+
+from aigcdet.data.presets import DatasetPreset  # noqa: E402
+
+
+def _preset(**kw) -> DatasetPreset:
+    return DatasetPreset(name=kw.pop("name", "t"),
+                         note=kw.pop("note", "a test composition"), **kw)
+
+
+def test_a_real_cap_thins_the_named_source_and_leaves_its_fakes_alone(tmp_path):
+    """`max_per_generator` deliberately never touches authentic rows, so
+    balancing a dominant authentic source needed its own knob. This is the
+    source-balancing lever `augment.canonical` asks for by name."""
+    raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
+    os.makedirs(demo_dir, exist_ok=True)
+    rng = np.random.default_rng(11)
+    _build_raw_tree_with_wildfake_real(raw_dir, rng, n_wf_real=30)
+
+    df = bd.build_dataset(raw_dir, str(tmp_path / "norm"), demo_dir,
+                          str(tmp_path / "m.parquet"), workers=4,
+                          docs_dir=str(tmp_path / "docs"),
+                          preset=_preset(max_real_per_source={"wildfake": 10}))
+
+    wf_real = df[(df["source"] == "wildfake") & (df["label"] == 0)]
+    assert len(wf_real) == 10
+    # The OTHER source's authentic rows are untouched: the cap is per source,
+    # which is the entire point of it being a mapping.
+    assert (df[(df["source"] == "sid_set") & (df["label"] == 0)].shape[0]
+            == N_REAL)
+    # And WildFake's generated families are untouched by a REAL cap.
+    assert (df[(df["source"] == "wildfake")
+               & (df["label"] == 1)].shape[0] == len(GENS) * N_PER_GEN)
+
+
+def test_the_cap_mapping_can_exempt_the_pseudo_generator(tmp_path):
+    """A single number cannot say what P1 needs to say. `sid_set` names a
+    SOURCE, not a family, so a per-family cap on it thins a whole dataset --
+    the same category error as holding it out."""
+    raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
+    os.makedirs(demo_dir, exist_ok=True)
+    rng = np.random.default_rng(12)
+    _build_raw_tree(raw_dir, rng)
+
+    cap = N_PER_GEN - 5
+    df = bd.build_dataset(raw_dir, str(tmp_path / "norm"), demo_dir,
+                          str(tmp_path / "m.parquet"), workers=4,
+                          docs_dir=str(tmp_path / "docs"),
+                          preset=_preset(max_per_generator={"*": cap,
+                                                            "sid_set": 0},
+                                         heldout_generators=["flux"]))
+    counts = df[df["label"] == 1]["generator"].value_counts()
+    for g in GENS:
+        assert counts[g] == cap
+    assert counts["sid_set"] == N_SID_FAKE           # exempt, not capped
+
+
+def test_the_sub_band_floor_drops_only_images_below_it(tmp_path):
+    """The residue `augment.canonical` calls irreducible: it band-limits to
+    CANON_BAND_SIDE and upscales, which equalises everything AT or ABOVE that
+    ceiling and can do nothing below it."""
+    raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
+    os.makedirs(demo_dir, exist_ok=True)
+    rng = np.random.default_rng(13)
+    # Two families that differ only in native size, straddling the floor.
+    _write_images(raw_dir, "wildfake", raw_subdir("wildfake", 1, "tiny"),
+                  N_PER_GEN, rng, size=64)
+    _write_images(raw_dir, "wildfake", raw_subdir("wildfake", 1, "big"),
+                  N_PER_GEN, rng, size=300)
+    _write_images(raw_dir, "sid_set", raw_subdir("sid_set", 0),
+                  N_REAL, rng, size=300)
+    _write_images(raw_dir, "sid_set", raw_subdir("sid_set", 1),
+                  N_SID_FAKE, rng, size=300)
+    _write_licences(raw_dir)
+
+    df = bd.build_dataset(raw_dir, str(tmp_path / "norm"), demo_dir,
+                          str(tmp_path / "m.parquet"), workers=4,
+                          docs_dir=str(tmp_path / "docs"),
+                          preset=_preset(min_short_side=200,
+                                         heldout_generators=["big"]))
+    counts = df["generator"].value_counts()
+    assert "tiny" not in counts                    # 64px: entirely below
+    assert counts["big"] == N_PER_GEN              # 300px: entirely above
+    assert np.minimum(df["width"], df["height"]).min() >= 200
+
+    with open(os.path.join(str(tmp_path / "docs"), "splits.json")) as f:
+        meta = json.load(f)
+    assert meta["min_short_side"] == 200
+    assert meta["below_short_side_dropped"] == {"wildfake/tiny": N_PER_GEN}
+
+
+def test_a_preset_naming_a_family_the_corpus_does_not_have_raises(tmp_path):
+    """A cap on an absent family caps nothing and a hold-out on one holds
+    nothing out -- both silently. The source registry is static so
+    `DatasetPreset` checks it; generator names come from the data, so they can
+    only be checked against the scan."""
+    raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
+    os.makedirs(demo_dir, exist_ok=True)
+    rng = np.random.default_rng(14)
+    _build_raw_tree(raw_dir, rng)
+
+    with pytest.raises(ValueError, match="dalle4"):
+        bd.build_dataset(raw_dir, str(tmp_path / "norm"), demo_dir,
+                         str(tmp_path / "m.parquet"), workers=4,
+                         docs_dir=str(tmp_path / "docs"),
+                         preset=_preset(max_per_generator={"dalle4": 10}))
+
+
+def test_a_preset_plus_an_overlapping_argument_raises(tmp_path):
+    """Two sources of truth for one knob is the thing presets exist to
+    remove: whichever won, the record of what built the corpus would be
+    ambiguous."""
+    raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
+    os.makedirs(demo_dir, exist_ok=True)
+    rng = np.random.default_rng(15)
+    _build_raw_tree(raw_dir, rng)
+
+    with pytest.raises(ValueError, match="max_per_generator"):
+        bd.build_dataset(raw_dir, str(tmp_path / "norm"), demo_dir,
+                         str(tmp_path / "m.parquet"), workers=4,
+                         docs_dir=str(tmp_path / "docs"),
+                         max_per_generator=5, preset=_preset())
+
+
+def test_the_preset_identity_reaches_splits_json(tmp_path):
+    """A manifest records the numbers it was built with but not which
+    decision they were. Without the name and note in the receipt, a bank
+    found on disk cannot be traced back to a composition."""
+    raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
+    os.makedirs(demo_dir, exist_ok=True)
+    rng = np.random.default_rng(16)
+    _build_raw_tree(raw_dir, rng)
+
+    docs = str(tmp_path / "docs")
+    bd.build_dataset(raw_dir, str(tmp_path / "norm"), demo_dir,
+                     str(tmp_path / "m.parquet"), workers=4, docs_dir=docs,
+                     preset=_preset(name="p1", note="why  this\ncorpus",
+                                    max_real_per_source={"sid_set": 20}))
+    with open(os.path.join(docs, "splits.json")) as f:
+        meta = json.load(f)
+    assert meta["preset"]["name"] == "p1"
+    assert meta["preset"]["note"] == "why this corpus"
+    assert meta["max_real_per_source"] == {"sid_set": 20}
+    assert meta["capped_real_dropped"] == {"sid_set": N_REAL - 20}
+
+
+def test_a_preset_holdout_is_used_instead_of_the_seeded_draw(tmp_path):
+    raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
+    os.makedirs(demo_dir, exist_ok=True)
+    rng = np.random.default_rng(17)
+    _build_raw_tree(raw_dir, rng)
+
+    df = bd.build_dataset(raw_dir, str(tmp_path / "norm"), demo_dir,
+                          str(tmp_path / "m.parquet"), workers=4,
+                          docs_dir=str(tmp_path / "docs"),
+                          preset=_preset(heldout_generators=["flux", "sdxl"]))
+    held = set(df[df["split"] == "heldout_generator"]["generator"])
+    assert held == {"flux", "sdxl"}
+
+
+def test_a_preset_build_is_deterministic_given_the_seed(tmp_path):
+    """Both new caps draw from one seeded generator in a fixed order, so two
+    runs of the same preset must keep the same IMAGES -- compared on
+    content_sha256, because the normalised filename is the row's position and
+    two runs that kept different images still produce identical path lists."""
+    raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
+    os.makedirs(demo_dir, exist_ok=True)
+    rng = np.random.default_rng(18)
+    _build_raw_tree_with_wildfake_real(raw_dir, rng, n_wf_real=30)
+
+    kw = dict(workers=4, docs_dir=str(tmp_path / "docs"),
+              preset=_preset(max_real_per_source={"wildfake": 10},
+                             max_per_generator={"*": N_PER_GEN - 3,
+                                                "sid_set": 0},
+                             heldout_generators=["flux"]))
+    a = bd.build_dataset(raw_dir, str(tmp_path / "n1"), demo_dir,
+                         str(tmp_path / "m1.parquet"), **kw)
+    b = bd.build_dataset(raw_dir, str(tmp_path / "n2"), demo_dir,
+                         str(tmp_path / "m2.parquet"), **kw)
+    assert a["content_sha256"].tolist() == b["content_sha256"].tolist()
+
+
+def test_a_preset_subpath_exclusion_drops_that_directory_only(tmp_path):
+    """The WildFake case, in miniature.
+
+    WildFake's authentic images are nested one level BELOW the bucket
+    (`wildfake/real/<subset>/`) so that `classify` still reads bucket "real"
+    and label 0 while the directory records which upstream they came from.
+    `restricted_buckets` therefore cannot bar five of the six subsets and keep
+    the sixth: `is_restricted_bucket` is asked with `bucket == "real"` for all
+    of them.
+    """
+    raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
+    os.makedirs(demo_dir, exist_ok=True)
+    rng = np.random.default_rng(21)
+    _build_raw_tree(raw_dir, rng)
+    real_bucket = os.path.join("wildfake", raw_subdir("wildfake", 0))
+    _write_images(raw_dir, real_bucket, "real_ffhq", 12, rng)
+    _write_images(raw_dir, real_bucket, "real_laion5b", 9, rng)
+
+    docs = str(tmp_path / "docs")
+    df = bd.build_dataset(
+        raw_dir, str(tmp_path / "norm"), demo_dir, str(tmp_path / "m.parquet"),
+        workers=4, docs_dir=docs,
+        preset=_preset(exclude_subpaths=["wildfake/real/real_ffhq"]))
+
+    # The kept subset survives; the excluded one is gone; nothing else moved.
+    wf_real = df[(df["source"] == "wildfake") & (df["label"] == 0)]
+    assert len(wf_real) == 9
+    assert (df["source"] == "sid_set").sum() == N_REAL + N_SID_FAKE
+
+    with open(os.path.join(docs, "splits.json")) as f:
+        meta = json.load(f)
+    assert meta["excluded_subpath_dropped"] == {"wildfake/real/real_ffhq/": 12}
+    assert meta["preset"]["exclude_subpaths"] == ["wildfake/real/real_ffhq"]
+
+
+def test_a_subpath_exclusion_does_not_match_a_sibling_by_prefix(tmp_path):
+    """`real_ffhq` must not also take `real_ffhq_v2`. This is what the
+    trailing separator in `excluded_prefixes` buys, and a bare `startswith`
+    would silently delete the sibling."""
+    raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
+    os.makedirs(demo_dir, exist_ok=True)
+    rng = np.random.default_rng(22)
+    _build_raw_tree(raw_dir, rng)
+    real_bucket = os.path.join("wildfake", raw_subdir("wildfake", 0))
+    _write_images(raw_dir, real_bucket, "real_ffhq", 5, rng)
+    _write_images(raw_dir, real_bucket, "real_ffhq_v2", 7, rng)
+
+    df = bd.build_dataset(
+        raw_dir, str(tmp_path / "norm"), demo_dir, str(tmp_path / "m.parquet"),
+        workers=4, docs_dir=str(tmp_path / "docs"),
+        preset=_preset(exclude_subpaths=["wildfake/real/real_ffhq"]))
+    assert ((df["source"] == "wildfake") & (df["label"] == 0)).sum() == 7
+
+
+def test_a_subpath_exclusion_that_matches_nothing_raises(tmp_path):
+    """An exclusion that excludes nothing leaves a corpus disagreeing with the
+    preset describing it. The path names a directory in someone's raw tree, so
+    it cannot be checked against the static registry -- the scan is the only
+    place it can be checked at all."""
+    raw_dir, demo_dir = str(tmp_path / "raw"), str(tmp_path / "demo")
+    os.makedirs(demo_dir, exist_ok=True)
+    rng = np.random.default_rng(23)
+    _build_raw_tree_with_wildfake_real(raw_dir, rng)
+
+    with pytest.raises(ValueError, match="matched no images"):
+        bd.build_dataset(
+            raw_dir, str(tmp_path / "norm"), demo_dir,
+            str(tmp_path / "m.parquet"), workers=4,
+            docs_dir=str(tmp_path / "docs"),
+            preset=_preset(exclude_subpaths=["wildfake/real/real_typo"]))

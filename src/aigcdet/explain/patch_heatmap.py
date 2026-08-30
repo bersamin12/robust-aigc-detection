@@ -33,7 +33,7 @@ import cv2
 import numpy as np
 import torch
 
-from aigcdet.augment.canonical import canonicalise
+from aigcdet.augment.canonical import DEFAULT_POLICY, CanonPolicy, canonicalise
 from aigcdet.features.backbones import POOL_TOKENS, model_inputs
 
 PATCH_HEATMAP_CAVEAT = (
@@ -45,7 +45,8 @@ PATCH_HEATMAP_CAVEAT = (
 
 @torch.inference_mode()
 def patch_scores(backbone, spec, model, img: np.ndarray,
-                 device: str = "cuda") -> np.ndarray:
+                 device: str = "cuda",
+                 canon_policy: CanonPolicy = DEFAULT_POLICY) -> np.ndarray:
     """A `(g, g)` map of per-patch AIGC logits, in the image's own layout.
 
     Raw logits, not probabilities: `to_overlay` normalises per image for
@@ -73,7 +74,12 @@ def patch_scores(backbone, spec, model, img: np.ndarray,
         dtype = next(backbone.parameters()).dtype
     except StopIteration:                     # a parameterless stand-in
         dtype = torch.float32
-    inputs = model_inputs(spec, [canonicalise(img)], device, dtype)
+    # The same standardisation the head was trained under, and the same
+    # deterministic form serving uses: a heatmap explaining a score has to be
+    # computed on the pixels that produced it. `Predictor.canon_policy` is
+    # where a caller gets this from.
+    inputs = model_inputs(spec, [canonicalise(img, policy=canon_policy)],
+                          device, dtype)
     h = backbone(**inputs).last_hidden_state          # (1, T, D)
     # Prefix tokens (CLS, registers) carry no position; a cell for them would
     # correspond to nowhere in the picture.

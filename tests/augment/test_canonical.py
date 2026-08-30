@@ -474,3 +474,216 @@ def test_the_nominal_stays_above_the_backbone_input():
     given, so canonicalisation never leaves it upscaling every input."""
     assert CANON_NOMINAL_SIDE > 384
     assert CANON_BAND_SIDE < CANON_NOMINAL_SIDE
+
+
+# ===========================================================================
+# CanonPolicy and crop mode
+#
+# Crop mode replaces step 1 (band-limit) with a native-resolution window and
+# keeps step 2 (present at nominal_side) exactly as it is. The tests above
+# stay green unchanged, which is the evidence that the frozen stream is
+# untouched: band mode is still the default and still does what it did.
+# ===========================================================================
+
+from aigcdet.augment.canonical import (  # noqa: E402
+    CANON_CROP_SIDE, MODE_BAND, MODE_CROP, MODES, CanonPolicy, DEFAULT_POLICY,
+)
+
+
+def _big(h=400, w=600, seed=0):
+    return np.random.default_rng(seed).integers(
+        0, 256, (h, w, 3), dtype=np.uint8)
+
+
+# --------------------------------------------------------------------------
+# the policy object
+# --------------------------------------------------------------------------
+
+def test_the_default_policy_is_the_frozen_streams_policy():
+    """Nothing already built may change meaning because this object exists."""
+    assert DEFAULT_POLICY.mode == MODE_BAND
+    assert DEFAULT_POLICY.band_side == CANON_BAND_SIDE
+    assert DEFAULT_POLICY.nominal_side == CANON_NOMINAL_SIDE
+    assert DEFAULT_POLICY.jitter == CANON_BAND_JITTER
+
+
+def test_an_unknown_mode_raises():
+    with pytest.raises(ValueError, match="unknown canonicalisation mode"):
+        CanonPolicy(mode="resize")
+
+
+def test_each_mode_is_held_only_to_its_own_contract():
+    """A crop policy carries a `band_side` it never reads. Holding it to band
+    mode's `band_side < nominal_side` would reject good crop configurations
+    for a number with no effect on a single pixel."""
+    CanonPolicy(mode=MODE_CROP, crop_side=64, nominal_side=128)   # must not raise
+    with pytest.raises(ValueError, match="band_side"):
+        CanonPolicy(mode=MODE_BAND, band_side=600, nominal_side=512)
+    with pytest.raises(ValueError, match="crop_side"):
+        CanonPolicy(mode=MODE_CROP, crop_side=600, nominal_side=512)
+
+
+def test_the_record_carries_only_the_fields_its_mode_reads():
+    """The record is a must-match key on resume, on merge and at A5 fusion, so
+    an ignored field left in it would refuse two banks whose pixels are
+    identical."""
+    assert set(CanonPolicy().as_record()) == {
+        "mode", "nominal_side", "band_side", "jitter"}
+    assert set(CanonPolicy(mode=MODE_CROP).as_record()) == {
+        "mode", "nominal_side", "crop_side"}
+
+
+def test_two_crop_policies_differing_only_in_an_unused_field_record_the_same():
+    """The property the test above exists to buy."""
+    a = CanonPolicy(mode=MODE_CROP, band_side=200)
+    b = CanonPolicy(mode=MODE_CROP, band_side=17)
+    assert a.as_record() == b.as_record()
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_a_record_round_trips_back_to_an_equal_policy(mode):
+    """Bank configs and exported bundles both rebuild a policy from JSON."""
+    p = CanonPolicy(mode=mode)
+    assert CanonPolicy.from_record(p.as_record()).as_record() == p.as_record()
+
+
+def test_only_crop_mode_promises_a_square():
+    """`augment.geometric.dihedral` is legal only under a square policy."""
+    assert CanonPolicy(mode=MODE_CROP).is_square
+    assert not CanonPolicy(mode=MODE_BAND).is_square
+
+
+def test_passing_a_policy_and_a_loose_argument_raises():
+    """Two sources of truth for one number is how a bank ends up describing
+    pixels it does not contain -- the same rule the corpus presets follow."""
+    with pytest.raises(ValueError, match="both policy"):
+        canonicalise(_big(), policy=CanonPolicy(), band_side=128)
+
+
+def test_the_loose_arguments_still_build_a_band_policy():
+    """Every pre-existing call site and test passes these; they must keep
+    meaning exactly what they meant."""
+    img = _big()
+    assert np.array_equal(canonicalise(img, band_side=128, nominal_side=256),
+                          canonicalise(img, policy=CanonPolicy(
+                              band_side=128, nominal_side=256)))
+
+
+# --------------------------------------------------------------------------
+# what crop mode actually does
+# --------------------------------------------------------------------------
+
+def test_crop_mode_output_is_square_at_the_nominal_side():
+    out = canonicalise(_big(), policy=CanonPolicy(mode=MODE_CROP))
+    assert out.shape == (CANON_NOMINAL_SIDE, CANON_NOMINAL_SIDE, 3)
+
+
+@pytest.mark.parametrize("h,w", [(400, 600), (600, 400), (300, 300), (250, 1000)])
+def test_crop_mode_squares_every_aspect_ratio(h, w):
+    """Band mode preserves aspect ratio; crop mode deliberately does not. That
+    is what makes the dihedral group legal downstream."""
+    out = canonicalise(_big(h, w), policy=CanonPolicy(mode=MODE_CROP))
+    assert out.shape[0] == out.shape[1]
+
+
+def test_crop_mode_takes_its_window_at_native_resolution():
+    """The whole point: the pixels inside the window are the source's own, not
+    a box-filtered average of them. Verified by planting a high-frequency
+    checkerboard and reading its energy back -- band mode destroys it, crop
+    mode does not."""
+    side = 400
+    yy, xx = np.mgrid[0:side, 0:side]
+    checker = (((yy + xx) % 2) * 255).astype(np.uint8)
+    img = np.repeat(checker[:, :, None], 3, axis=2)
+
+    banded = canonicalise(img, policy=CanonPolicy(band_side=100, nominal_side=512))
+    cropped = canonicalise(img, policy=CanonPolicy(mode=MODE_CROP, crop_side=100,
+                                                   nominal_side=512))
+    assert sharpness(cropped) > 10 * sharpness(banded)
+
+
+def test_crop_mode_is_deterministic_without_an_rng_and_is_the_centre():
+    """`rng=None` is the policy for inference and for every replay path, not a
+    fallback: the same file must score the same twice."""
+    img = _big(400, 600)
+    a = canonicalise(img, policy=CanonPolicy(mode=MODE_CROP, crop_side=200))
+    b = canonicalise(img, policy=CanonPolicy(mode=MODE_CROP, crop_side=200))
+    assert np.array_equal(a, b)
+    # The CENTRE window specifically, not merely a repeatable one: taken
+    # directly here and put through the same step 2.
+    want = cv2.resize(img[100:300, 200:400],
+                      (CANON_NOMINAL_SIDE, CANON_NOMINAL_SIDE),
+                      interpolation=cv2.INTER_CUBIC)
+    assert np.array_equal(a, want)
+
+
+def test_crop_mode_with_an_rng_is_reproducible_from_the_view_key():
+    policy = CanonPolicy(mode=MODE_CROP, crop_side=200)
+    img = _big(400, 600)
+    a = canonicalise(img, policy=policy, rng=canonical_rng(7, 42, 3))
+    b = canonicalise(img, policy=policy, rng=canonical_rng(7, 42, 3))
+    assert np.array_equal(a, b)
+
+
+def test_crop_mode_with_an_rng_actually_moves_the_window():
+    """A random crop that always lands in the same place is a centre crop with
+    extra steps, and would silently halve what the augmentation buys."""
+    policy = CanonPolicy(mode=MODE_CROP, crop_side=200)
+    img = _big(400, 600)
+    seen = {canonicalise(img, policy=policy,
+                         rng=canonical_rng(7, 42, v)).tobytes()
+            for v in range(11)}
+    assert len(seen) > 1
+
+
+def test_crop_mode_ignores_the_global_rng_state():
+    policy = CanonPolicy(mode=MODE_CROP, crop_side=200)
+    img = _big(400, 600)
+    np.random.seed(0)
+    a = canonicalise(img, policy=policy, rng=canonical_rng(1, 2, 3))
+    np.random.seed(999)
+    b = canonicalise(img, policy=policy, rng=canonical_rng(1, 2, 3))
+    assert np.array_equal(a, b)
+
+
+def test_crop_mode_never_returns_a_view_of_its_input():
+    img = _big(400, 600)
+    out = canonicalise(img, policy=CanonPolicy(mode=MODE_CROP, crop_side=200))
+    assert out.base is None or not np.shares_memory(out, img)
+
+
+def test_an_image_smaller_than_the_window_raises_and_names_the_fix():
+    """Crop cannot invent the missing pixels, and upscaling to reach the
+    window would reintroduce exactly the resampling signature this module
+    removes. The preset's `min_short_side` is what stops these rows ever being
+    normalised."""
+    with pytest.raises(ValueError, match="min_short_side"):
+        canonicalise(_big(150, 600),
+                     policy=CanonPolicy(mode=MODE_CROP, crop_side=200))
+
+
+def test_the_window_boundary_case_is_accepted():
+    """short side == crop_side must work, or `min_short_side: 200` with
+    `crop_side: 200` would drop every row it was meant to keep."""
+    out = canonicalise(_big(200, 600),
+                       policy=CanonPolicy(mode=MODE_CROP, crop_side=200))
+    assert out.shape == (CANON_NOMINAL_SIDE, CANON_NOMINAL_SIDE, 3)
+
+
+def test_crop_mode_still_ends_on_the_one_upscale_kernel():
+    """Step 2 is shared with band mode: one kernel, one size, every image
+    alike, so no image is routed differently because of how big it started."""
+    calls = _resize_calls(_big(400, 600),
+                          policy=CanonPolicy(mode=MODE_CROP, crop_side=200))
+    # Exactly one resize: the crop is a slice, so step 1's downscale is gone.
+    assert [c["interp"] for c in calls] == [cv2.INTER_CUBIC]
+    assert calls[-1]["dsize"] == (CANON_NOMINAL_SIDE, CANON_NOMINAL_SIDE)
+    assert calls[-1]["up"] is True
+
+
+def test_crop_mode_rejects_the_inputs_band_mode_rejects():
+    policy = CanonPolicy(mode=MODE_CROP)
+    with pytest.raises(ValueError, match="HxWx3"):
+        canonicalise(np.zeros((400, 400), dtype=np.uint8), policy=policy)
+    with pytest.raises(ValueError, match="uint8"):
+        canonicalise(np.zeros((400, 400, 3), dtype=np.float32), policy=policy)

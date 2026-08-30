@@ -541,3 +541,110 @@ def test_attach_recon_replays_bit_exactly_from_a_reset_index_manifest(tmp_path, 
             np.testing.assert_array_equal(
                 captured[i * n_views + j], expected[(i, j)],
                 err_msg=f"image {i}, view {j} replayed against different pixels")
+
+
+def test_attach_recon_to_bank_replays_crop_and_dihedral_pixels_bit_exactly(
+        tmp_path, monkeypatch):
+    """The same regression, one policy later.
+
+    `attach_recon_to_bank` is the dangerous decode site: it re-derives pixels
+    that are already cached, and a divergence produces reconstruction features
+    computed on different images than the embedding was, silently and with no
+    shape error anywhere.
+
+    Crop standardisation and dihedral augmentation add two more things it has
+    to reproduce, and NEITHER is stored on disk -- the crop offset and the
+    orientation index are pure functions of `(seed, row_id, view_idx)`. So the
+    replay now depends on the policy being read back off the BANK (which is
+    why `attach_recon_to_bank` takes it from `bank.config` rather than from a
+    caller) and on three separate generators being derived from the same key
+    in the same way at both sites.
+
+    Ground truth is recomputed here by hand, independently of the replay's
+    code path, mirroring every step `extract._prepare_image` takes.
+    """
+    from aigcdet.augment.canonical import (
+        MODE_CROP, CanonPolicy, canonical_rng, canonicalise)
+    from aigcdet.augment.geometric import dihedral, geometric_rng, sample_dihedral
+    from aigcdet.augment.recipes import Recipe
+    from aigcdet.features import extract
+    from aigcdet.features.backbones import BackboneSpec
+
+    spec = BackboneSpec("fake", "none", 64, 4, 1, 0)
+    monkeypatch.setattr(extract, "load_backbone", lambda n, device: (None, spec))
+    monkeypatch.setattr(extract, "embed",
+                        lambda m, s, imgs, device, batch_size=16:
+                            np.zeros((len(imgs), s.dim), np.float32))
+
+    img_dir = tmp_path / "imgs"
+    img_dir.mkdir()
+    rng = np.random.default_rng(0)
+    n_full = 12
+    paths = [str(img_dir / f"{i}.png") for i in range(n_full)]
+    for p in paths:
+        # Non-square and comfortably larger than the window, so the crop has
+        # somewhere to move and a transposing rotation would change the shape
+        # if the crop were skipped.
+        Image.fromarray(rng.integers(0, 256, (120, 160, 3), dtype=np.uint8)).save(p)
+
+    full = pd.DataFrame({
+        "path": paths, "label": [0] * n_full, "generator": [""] * n_full,
+        "source": ["test"] * n_full,
+        "split": ["train" if i % 3 else "val_internal" for i in range(n_full)],
+    })
+    train_df = full[full["split"] == "train"]
+    assert not np.array_equal(train_df.index.to_numpy(),
+                              np.arange(len(train_df)))
+
+    policy = CanonPolicy(mode=MODE_CROP, crop_side=64)
+    out_dir = tmp_path / "bank"
+    extract.extract_bank(train_df, "fake", str(out_dir), seed=42, device="cpu",
+                         policy=policy, geometric=True)
+    bank = FeatureBank.open(str(out_dir))
+
+    # The replay reads these off the bank, not off the caller.
+    assert bank.config["canon_policy"] == policy.as_record()
+    assert bank.config["geometric"] == "dihedral8"
+
+    has_noise = any(
+        any(o.name == "noise" for o in Recipe.from_json(bank.recipe_json(i, j)).ops)
+        for i in range(len(bank.meta)) for j in range(bank.config["n_views"]))
+    assert has_noise, "fixture must include a view with a noise op"
+
+    row_ids = train_df.index.to_numpy()
+    expected = {}
+    for i in range(len(bank.meta)):
+        with Image.open(bank.meta.iloc[i]["path"]) as im:
+            decoded = np.asarray(im.convert("RGB"), dtype=np.uint8)
+        rid = int(row_ids[i])
+        for j in range(bank.config["n_views"]):
+            std = canonicalise(decoded, policy=policy,
+                               rng=canonical_rng(42, rid, j))
+            std = dihedral(std, sample_dihedral(geometric_rng(42, rid, j)))
+            expected[(i, j)] = Recipe.from_json(bank.recipe_json(i, j)).apply(
+                std, np.random.default_rng([42, rid, j]))
+
+    # A crop that never moved, or an orientation that was always the identity,
+    # would make this test pass while proving nothing.
+    windows = {expected[(i, 0)].tobytes() for i in range(len(bank.meta))}
+    assert len(windows) == len(bank.meta), "fixture views are not distinct"
+
+    captured: list[np.ndarray] = []
+
+    def _spy_recon_features(img, vae, lp, device):
+        captured.append(img.copy())
+        return np.zeros(RECON_DIM, dtype=np.float32)
+
+    monkeypatch.setattr("aigcdet.features.recon.recon_features", _spy_recon_features)
+    monkeypatch.setattr("aigcdet.features.recon.load_recon_models",
+                        lambda device: (None, None))
+
+    attach_recon_to_bank(bank, train_df, device="cpu", seed=42)
+
+    v = bank.config["n_views"]
+    assert len(captured) == len(bank.meta) * v
+    for i in range(len(bank.meta)):
+        for j in range(v):
+            got = captured[i * v + j]
+            assert np.array_equal(got, expected[(i, j)]), (
+                f"replayed pixels differ at image {i}, view {j}")
