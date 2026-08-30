@@ -1,0 +1,49 @@
+{
+  "heldout_generators": [
+    "SDwithAdaptor_controlnet",
+    "VQGAN"
+  ],
+  "seed": 20260827,
+  "leaked_dropped": 0,
+  "unhashable_dropped": 0,
+  "normalize_skipped": 14,
+  "restricted_dropped": {},
+  "restriction_reasons": {},
+  "max_per_generator": {},
+  "capped_dropped": {},
+  "max_real_per_source": {
+    "wildfake": 40000,
+    "coco_train2017": 40000,
+    "open_images": 25000
+  },
+  "capped_real_dropped": {
+    "coco_train2017": 78287,
+    "open_images": 35000,
+    "wildfake": 15000
+  },
+  "min_short_side": 200,
+  "below_short_side_dropped": {
+    "wildfake/BigGAN": 1260,
+    "coco_train2017/real": 76,
+    "wildfake/SDwithAdaptor_lycris": 25,
+    "wildfake/SDwithAdaptor_lora": 23
+  },
+  "excluded_subpath_dropped": {},
+  "preset": {
+    "name": "union",
+    "note": "Every licensed source in one frozen manifest -- NTIRE, WildFake, SID_Set, COCO train2017 and Open Images V7 -- 376,744 rows balanced to within 106, capped as upper bounds so dataset composition can be searched over cached features instead of guessed before extraction. NTIRE carries no generator attribution; COCO and Open Images carry no generated half. Read every headline against stratified_auc.py --stratify-by source.",
+    "max_per_generator": {},
+    "max_real_per_source": {
+      "wildfake": 40000,
+      "coco_train2017": 40000,
+      "open_images": 25000
+    },
+    "min_short_side": 200,
+    "exclude_subpaths": [],
+    "heldout_generators": [
+      "SDwithAdaptor_controlnet",
+      "VQGAN"
+    ],
+    "heldout_groups": []
+  }
+}

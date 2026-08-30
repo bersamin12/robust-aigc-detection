@@ -1,0 +1,58 @@
+[
+  {
+    "src": "/mnt/berstorage/techjam/experiments/data/raw_union/ntire/real/20dc8f4233da641e7341.jpg",
+    "reason": "UnidentifiedImageError: cannot identify image file '/mnt/berstorage/techjam/experiments/data/raw_union/ntire/real/20dc8f4233da641e7341.jpg'"
+  },
+  {
+    "src": "/mnt/berstorage/techjam/experiments/data/raw_union/sid_set/real/0030601.png",
+    "reason": "ValueError: Decompressed data too large for PngImagePlugin.MAX_TEXT_CHUNK"
+  },
+  {
+    "src": "/mnt/berstorage/techjam/experiments/data/raw_union/wildfake/GigaGAN/3f53f94d4f346ec2.png",
+    "reason": "SyntaxError: broken PNG file (chunk b'\\x00\\x00\\x00\\x00')"
+  },
+  {
+    "src": "/mnt/berstorage/techjam/experiments/data/raw_union/wildfake/GigaGAN/4c2b2bf059684db3.png",
+    "reason": "UnidentifiedImageError: cannot identify image file '/mnt/berstorage/techjam/experiments/data/raw_union/wildfake/GigaGAN/4c2b2bf059684db3.png'"
+  },
+  {
+    "src": "/mnt/berstorage/techjam/experiments/data/raw_union/wildfake/GigaGAN/5bbbb3a520b85855.png",
+    "reason": "SyntaxError: broken PNG file (chunk b'\\x00\\x00\\x00\\x00')"
+  },
+  {
+    "src": "/mnt/berstorage/techjam/experiments/data/raw_union/wildfake/GigaGAN/5e4bb512b10848d8.png",
+    "reason": "SyntaxError: broken PNG file (chunk b'\\x00\\x00\\x00\\x00')"
+  },
+  {
+    "src": "/mnt/berstorage/techjam/experiments/data/raw_union/wildfake/GigaGAN/9d474cec3ebc7bb4.png",
+    "reason": "UnidentifiedImageError: cannot identify image file '/mnt/berstorage/techjam/experiments/data/raw_union/wildfake/GigaGAN/9d474cec3ebc7bb4.png'"
+  },
+  {
+    "src": "/mnt/berstorage/techjam/experiments/data/raw_union/wildfake/GigaGAN/aaa15a0b08ea5a33.png",
+    "reason": "SyntaxError: broken PNG file (chunk b'\\x00\\x00\\x00\\x00')"
+  },
+  {
+    "src": "/mnt/berstorage/techjam/experiments/data/raw_union/wildfake/GigaGAN/af2fa4a7042f914a.png",
+    "reason": "UnidentifiedImageError: cannot identify image file '/mnt/berstorage/techjam/experiments/data/raw_union/wildfake/GigaGAN/af2fa4a7042f914a.png'"
+  },
+  {
+    "src": "/mnt/berstorage/techjam/experiments/data/raw_union/wildfake/GigaGAN/d9d6250f0d087b19.png",
+    "reason": "UnidentifiedImageError: cannot identify image file '/mnt/berstorage/techjam/experiments/data/raw_union/wildfake/GigaGAN/d9d6250f0d087b19.png'"
+  },
+  {
+    "src": "/mnt/berstorage/techjam/experiments/data/raw_union/wildfake/GigaGAN/e38a6e29db35a541.png",
+    "reason": "SyntaxError: broken PNG file (chunk b'\\x00\\x00\\x00\\x00')"
+  },
+  {
+    "src": "/mnt/berstorage/techjam/experiments/data/raw_union/wildfake/GigaGAN/edb20866f08d5397.png",
+    "reason": "SyntaxError: broken PNG file (chunk b'\\x00\\x00\\x00\\x00')"
+  },
+  {
+    "src": "/mnt/berstorage/techjam/experiments/data/raw_union/wildfake/GigaGAN/ef331daa96df0700.png",
+    "reason": "UnidentifiedImageError: cannot identify image file '/mnt/berstorage/techjam/experiments/data/raw_union/wildfake/GigaGAN/ef331daa96df0700.png'"
+  },
+  {
+    "src": "/mnt/berstorage/techjam/experiments/data/raw_union/wildfake/GigaGAN/f848e0ad783fe9e6.png",
+    "reason": "UnidentifiedImageError: cannot identify image file '/mnt/berstorage/techjam/experiments/data/raw_union/wildfake/GigaGAN/f848e0ad783fe9e6.png'"
+  }
+]
