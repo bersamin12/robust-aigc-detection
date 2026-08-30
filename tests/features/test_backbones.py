@@ -35,10 +35,15 @@ def _skip_unless_gpu_has_headroom():
 def test_registry_has_the_planned_backbones():
     from aigcdet.features.backbones import POOL_SPATIAL_MS, POOL_TOKENS
 
-    assert set(BACKBONES) == {"dinov3l", "siglip2l", "clipl",
+    assert set(BACKBONES) == {"dinov3l", "dinov2l", "siglip2l", "clipl",
                               "convnextt", "resnet50"}
     for spec in BACKBONES.values():
-        assert spec.dim > 0 and spec.image_size in (224, 384)
+        # 518 is dinov2l's, and it is the ONLY entry above 384: `canonicalise`
+        # emits a 512-px nominal side, so 518 is the one registered size that
+        # upsamples into the tower instead of discarding high-frequency detail
+        # on the way in. Widening this set is a real decision -- an entry at an
+        # unintended resolution silently changes what the bank measures.
+        assert spec.dim > 0 and spec.image_size in (224, 384, 518)
         if spec.pool == POOL_TOKENS:
             # At least a CLS token to strip, except SigLIP2 which has none.
             assert spec.num_prefix_tokens >= 1 or spec.name == "siglip2l"
@@ -209,6 +214,16 @@ def _tiny_tower(name: str):
         model = DINOv3ViTModel(DINOv3ViTConfig(
             patch_size=_TINY_PATCH, image_size=_TINY_IMAGE,
             num_register_tokens=real.num_prefix_tokens - 1, **_TINY))
+    elif name == "dinov2l":
+        # Dinov2Model, and NOT DINOv3's class: the two lineages share a name and
+        # nothing else in `transformers`. DINOv2 has a CLS token and NO register
+        # tokens, so `num_prefix_tokens` must be exactly 1 -- asserting it here
+        # is what catches a 5 copied across from the dinov3l entry, which would
+        # silently drop four real patch tokens out of every pooled vector.
+        from transformers import Dinov2Config, Dinov2Model
+        assert real.num_prefix_tokens == 1
+        model = Dinov2Model(Dinov2Config(
+            patch_size=_TINY_PATCH, image_size=_TINY_IMAGE, **_TINY))
     elif name == "siglip2l":
         # SiglipVisionModel, NOT Siglip2VisionModel. SigLIP2's FIXED-RESOLUTION
         # checkpoints (`siglip2-*-patch16-384`) publish `model_type: siglip`
@@ -391,6 +406,10 @@ def test_only_dinov3_is_gated():
     assert BACKBONES["dinov3l"].gated is True
     assert BACKBONES["siglip2l"].gated is False
     assert BACKBONES["clipl"].gated is False
+    # dinov2l is ungated Apache-2.0, which is its whole reason for being in the
+    # registry beside the gated dinov3l -- if this ever flips to True the
+    # substitute has stopped being a substitute.
+    assert BACKBONES["dinov2l"].gated is False
 
 
 # --------------------------------------------------------------------------
@@ -405,6 +424,20 @@ def test_dinov3_runs_in_bfloat16_never_float16():
     assert BACKBONES["dinov3l"].dtype is torch.bfloat16
     for name, spec in BACKBONES.items():
         assert spec.dtype in (torch.bfloat16, torch.float32) or name != "dinov3l"
+
+
+def test_dinov2_runs_in_float16_because_that_was_measured():
+    """dinov2l must NOT inherit dinov3l's bfloat16 workaround.
+
+    The two share a name and a lineage, so copying the dtype across is the
+    obvious mistake. It would be wrong twice over: DINOv2-L has no float16
+    overflow (2026-08-30, 24 canonicalised images, every pooled value finite,
+    max |diff| against a float32 run 2.3e-02), and bfloat16 is measurably
+    FURTHER from float32 here at 1.0e-01. Paying bfloat16's cost would buy
+    accuracy loss, not safety.
+    """
+    import torch
+    assert BACKBONES["dinov2l"].dtype is torch.float16
 
 
 def test_load_backbone_loads_the_spec_dtype(monkeypatch):

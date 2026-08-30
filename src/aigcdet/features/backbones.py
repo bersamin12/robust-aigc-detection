@@ -162,6 +162,37 @@ BACKBONES: dict[str, BackboneSpec] = {
     "dinov3l": BackboneSpec("dinov3l", "facebook/dinov3-vitl16-pretrain-lvd1689m",
                              384, 1024, 5, 303_129_600, gated=True,
                              dtype=torch.bfloat16),
+    # DINOv2-L is here for a LICENCE reason, not an architectural one. DINOv3-L
+    # is the strongest backbone measured (a0 0.8611 against ConvNeXt's 0.4244
+    # and SigLIP2's 0.1870) but ships under Meta's custom DINOv3 licence, gated
+    # per ACCOUNT -- so a fleet of five cannot run it without five acceptances,
+    # and a submission cannot rely on it without that term. DINOv2-L is the same
+    # self-supervised lineage under Apache-2.0 and ungated. Whether it retains
+    # DINOv3's advantage is rung-level evidence nobody has yet; that is the
+    # question the entry exists to let us ask.
+    #
+    # 518, not 384. `canonicalise` delivers a 512-px nominal side, so 518 is the
+    # only registered image_size that does not throw pixels away before the
+    # tower sees them -- it upsamples 512 -> 518 rather than downsampling. That
+    # matters more here than elsewhere: the forensic cues this project detects
+    # live in high-frequency detail, which is exactly what a downsample removes.
+    # It is not free. Measured on the A4500, GPU forward only, 24 real images:
+    #   336px (576 tok) 140.4 img/s | 392 (784)  99.3 | 448 (1024) 74.3
+    #   518px (1369 tok) 54.0 img/s
+    # so 518 costs 2.6x 336's GPU time. The 131,116 x 11 bank projects to ~7.4 h
+    # of GPU against dinov3l's ~2.9 h at matched tokens; the real dinov3l run
+    # took 5 h 09, i.e. ~1.8x its GPU-only figure, because the pipeline is half
+    # CPU-bound on decode/augment/proxies. Budget ~8-9 h wall, and drop to 448
+    # if that does not fit rather than to 336.
+    #
+    # float16, and this was MEASURED rather than inherited from dinov3l's entry
+    # (2026-08-30, 24 canonicalised images, pooled vectors vs a float32 run):
+    # every value finite, max|diff| 2.3e-02 -- and CLOSER to float32 than
+    # bfloat16's 1.0e-01. Pooled |x| peaks at 12.29, well inside float16 both in
+    # the tower and in the bank's float16 storage. DINOv2 does not have DINOv3's
+    # layer-1 overflow, so it must not pay for the bfloat16 workaround.
+    "dinov2l": BackboneSpec("dinov2l", "facebook/dinov2-large",
+                             518, 1024, 1, 304_368_640),
     "siglip2l": BackboneSpec("siglip2l", "google/siglip2-large-patch16-384",
                               384, 1024, 0, 316_283_904),
     "clipl": BackboneSpec("clipl", "openai/clip-vit-large-patch14",

@@ -2,11 +2,12 @@
 
 Recorded per spec §4.5 (model-weight provenance, same discipline as dataset provenance).
 Licence text was read in full at the source below, not inferred from a model-card
-summary line. Checked 2026-08-27/28; the two convolutional backbones added 2026-08-30.
+summary line. Checked 2026-08-27/28; the two convolutional backbones and DINOv2 added 2026-08-30.
 
 | Model | HF id | Licence | Source | Permits public repo + hackathon use? |
 | --- | --- | --- | --- | --- |
 | DINOv3 ViT-L/16 | facebook/dinov3-vitl16-pretrain-lvd1689m | DINOv3 License (custom, Meta) | https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m ; full text https://ai.meta.com/resources/models-and-libraries/dinov3-license/ (mirrored at https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md, "Last Updated: August 19, 2025") | Yes |
+| DINOv2 ViT-L/14 | facebook/dinov2-large | Apache License 2.0 | https://huggingface.co/facebook/dinov2-large (`license: apache-2.0` in card metadata, read via the Hub API 2026-08-30; `gated: False`) | Yes |
 | SigLIP2-L/16-384 | google/siglip2-large-patch16-384 | Apache License 2.0 | https://huggingface.co/google/siglip2-large-patch16-384 (`license: apache-2.0` in card metadata) | Yes |
 | CLIP ViT-L/14 | openai/clip-vit-large-patch14 | MIT License | https://github.com/openai/CLIP (`LICENSE` file; the HF mirror at https://huggingface.co/openai/clip-vit-large-patch14 carries no `license:` tag of its own but ships the same weights as the MIT-licensed OpenAI repo) | Yes |
 | ConvNeXt-Tiny-224 | facebook/convnext-tiny-224 | Apache License 2.0 | https://huggingface.co/facebook/convnext-tiny-224 (`license: apache-2.0` in card metadata, read via the Hub API 2026-08-30; ungated) | Yes |
@@ -31,6 +32,14 @@ summary line. Checked 2026-08-27/28; the two convolutional backbones added 2026-
   downloading), which is an access-control step, not a use restriction. Verdict: usable
   as the primary backbone; no need to fall back to SigLIP2/DINOv2 per the brief's
   contingency.
+- **DINOv2.** Apache-2.0 and ungated, which is the entire reason it was added on
+  2026-08-30. DINOv3 is the strongest backbone we have measured, but its custom
+  Meta licence is gated per ACCOUNT: a five-person fleet needs five acceptances,
+  and any submission that depends on those weights inherits terms Apache-2.0 does
+  not impose. DINOv2 is the same self-supervised lineage without that condition.
+  Whether it retains DINOv3's accuracy is an open question, not an assumption --
+  see the backbone ladder.
+
 - **SigLIP2.** Apache-2.0 is unconditionally permissive for this use.
 - **CLIP ViT-L/14.** The HF mirror's model card omits a `license:` metadata tag, but
   the weights are the same ones distributed in OpenAI's `openai/CLIP` GitHub repository,
