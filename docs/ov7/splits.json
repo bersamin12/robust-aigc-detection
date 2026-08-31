@@ -1,0 +1,37 @@
+{
+  "heldout_generators": [
+    "klein4b_ref_image",
+    "klein4b_t2i"
+  ],
+  "seed": 20260827,
+  "leaked_dropped": 0,
+  "unhashable_dropped": 0,
+  "normalize_skipped": 0,
+  "restricted_dropped": {},
+  "restriction_reasons": {},
+  "max_per_generator": {},
+  "capped_dropped": {},
+  "max_real_per_source": {},
+  "capped_real_dropped": {},
+  "min_short_side": 200,
+  "below_short_side_dropped": {},
+  "excluded_subpath_dropped": {},
+  "preset": {
+    "name": "ov7",
+    "note": "Open-weight generators (SDXL, SD 1.5, FLUX.2-klein-4B) over CC BY 2.0 Open Images V7 portraits. Every fake is paired 1:1 with the real it was generated from, at that real's crop dimensions and through that real's JPEG quantisation tables, so content, geometry and compression history are held fixed across the pair. Held out by decoder lineage: the whole flux2_vae group. Built by scripts/generate_ov7.py; see docs/02 and src/aigcdet/generate/.",
+    "max_per_generator": {},
+    "max_real_per_source": {},
+    "min_short_side": 200,
+    "exclude_subpaths": [],
+    "heldout_generators": [
+      "klein4b_t2i",
+      "klein4b_ref_image"
+    ],
+    "heldout_groups": [
+      [
+        "klein4b_t2i",
+        "klein4b_ref_image"
+      ]
+    ]
+  }
+}
