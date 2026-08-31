@@ -1,0 +1,496 @@
+{
+  "probe": "second_holdout_lattice",
+  "off_ladder": true,
+  "holdout_generators": [
+    "styleGAN",
+    "GALIP",
+    "DF-GAN",
+    "GigaGAN",
+    "BigGAN",
+    "starGAN"
+  ],
+  "n_heldout_positive_images": 102,
+  "metric": "heldout_robust_tpr_at_1pct",
+  "max_backbones": 3,
+  "singles": {
+    "crop_dinov2regl": 0.6640866873065014,
+    "crop_dinov2l": 0.5515995872033024,
+    "crop_siglipso400m": 0.40970072239422084,
+    "band_dinov2regl": 0.6640866873065014,
+    "band_siglipso400m": 0.4422084623323014
+  },
+  "combinations": {
+    "crop_dinov2regl+crop_dinov2l": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_dinov2l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "equal": 0.6676986584107327,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.5515995872033024,
+      "max_parent": 0.6640866873065014
+    },
+    "crop_dinov2regl+crop_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.6718266253869968,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.40970072239422084,
+      "max_parent": 0.6640866873065014
+    },
+    "crop_dinov2regl+band_dinov2regl": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2regl",
+        "band_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2regl"
+      ],
+      "equal": 0.7311661506707946,
+      "fitted": 0.7368421052631577,
+      "w_fitted": [
+        0.45,
+        0.55
+      ],
+      "min_parent": 0.6640866873065014,
+      "max_parent": 0.6640866873065014
+    },
+    "crop_dinov2regl+band_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.695562435500516,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.4422084623323014,
+      "max_parent": 0.6640866873065014
+    },
+    "crop_dinov2l+crop_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2l",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "equal": 0.6037151702786376,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.40970072239422084,
+      "max_parent": 0.5515995872033024
+    },
+    "crop_dinov2l+band_dinov2regl": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "equal": 0.7249742002063982,
+      "fitted": 0.7291021671826625,
+      "w_fitted": [
+        0.45,
+        0.55
+      ],
+      "min_parent": 0.5515995872033024,
+      "max_parent": 0.6640866873065014
+    },
+    "crop_dinov2l+band_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2l",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "equal": 0.6480908152734778,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.4422084623323014,
+      "max_parent": 0.5515995872033024
+    },
+    "crop_siglipso400m+band_dinov2regl": {
+      "arity": 2,
+      "arms": [
+        "crop_siglipso400m",
+        "band_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.6615067079463364,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.40970072239422084,
+      "max_parent": 0.6640866873065014
+    },
+    "crop_siglipso400m+band_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "crop_siglipso400m",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "siglipso400m"
+      ],
+      "equal": 0.49587203302373584,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.40970072239422084,
+      "max_parent": 0.4422084623323014
+    },
+    "band_dinov2regl+band_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "band_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.6620227038183695,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.4422084623323014,
+      "max_parent": 0.6640866873065014
+    },
+    "crop_dinov2regl+crop_dinov2l+crop_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_dinov2l",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.673890608875129,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.40970072239422084,
+      "max_parent": 0.6640866873065014
+    },
+    "crop_dinov2regl+crop_dinov2l+band_dinov2regl": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_dinov2l",
+        "band_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "equal": 0.7368421052631579,
+      "fitted": 0.7368421052631577,
+      "w_fitted": [
+        0.14285714285714285,
+        0.3333333333333333,
+        0.5238095238095238
+      ],
+      "min_parent": 0.5515995872033024,
+      "max_parent": 0.6640866873065014
+    },
+    "crop_dinov2regl+crop_dinov2l+band_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_dinov2l",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.7110423116615067,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.4422084623323014,
+      "max_parent": 0.6640866873065014
+    },
+    "crop_dinov2regl+crop_siglipso400m+band_dinov2regl": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.7342621259029927,
+      "fitted": 0.7342621259029927,
+      "w_fitted": [
+        0.3333333333333333,
+        0.3333333333333333,
+        0.3333333333333333
+      ],
+      "min_parent": 0.40970072239422084,
+      "max_parent": 0.6640866873065014
+    },
+    "crop_dinov2regl+crop_siglipso400m+band_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.6609907120743034,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.40970072239422084,
+      "max_parent": 0.6640866873065014
+    },
+    "crop_dinov2regl+band_dinov2regl+band_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2regl",
+        "band_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.719298245614035,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.4422084623323014,
+      "max_parent": 0.6640866873065014
+    },
+    "crop_dinov2l+crop_siglipso400m+band_dinov2regl": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2l",
+        "crop_siglipso400m",
+        "band_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.7053663570691434,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.40970072239422084,
+      "max_parent": 0.6640866873065014
+    },
+    "crop_dinov2l+crop_siglipso400m+band_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2l",
+        "crop_siglipso400m",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "equal": 0.6336429308565531,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.40970072239422084,
+      "max_parent": 0.5515995872033024
+    },
+    "crop_dinov2l+band_dinov2regl+band_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.7162022703818369,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.4422084623323014,
+      "max_parent": 0.6640866873065014
+    },
+    "crop_siglipso400m+band_dinov2regl+band_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "crop_siglipso400m",
+        "band_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.6439628482972136,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.40970072239422084,
+      "max_parent": 0.6640866873065014
+    },
+    "crop_dinov2regl+crop_dinov2l+crop_siglipso400m+band_dinov2regl": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_dinov2l",
+        "crop_siglipso400m",
+        "band_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.7301341589267285,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.40970072239422084,
+      "max_parent": 0.6640866873065014
+    },
+    "crop_dinov2regl+crop_dinov2l+crop_siglipso400m+band_siglipso400m": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_dinov2l",
+        "crop_siglipso400m",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.7017543859649122,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.40970072239422084,
+      "max_parent": 0.6640866873065014
+    },
+    "crop_dinov2regl+crop_dinov2l+band_dinov2regl+band_siglipso400m": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.7399380804953558,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.4422084623323014,
+      "max_parent": 0.6640866873065014
+    },
+    "crop_dinov2regl+crop_siglipso400m+band_dinov2regl+band_siglipso400m": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.7162022703818368,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.40970072239422084,
+      "max_parent": 0.6640866873065014
+    },
+    "crop_dinov2l+crop_siglipso400m+band_dinov2regl+band_siglipso400m": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2l",
+        "crop_siglipso400m",
+        "band_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.719298245614035,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.40970072239422084,
+      "max_parent": 0.6640866873065014
+    },
+    "crop_dinov2regl+crop_dinov2l+crop_siglipso400m+band_dinov2regl+band_siglipso400m": {
+      "arity": 5,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_dinov2l",
+        "crop_siglipso400m",
+        "band_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.7363261093911249,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.40970072239422084,
+      "max_parent": 0.6640866873065014
+    }
+  },
+  "best": "crop_dinov2regl+crop_dinov2l+band_dinov2regl+band_siglipso400m",
+  "best_per_arity": {
+    "2": 0.7311661506707946,
+    "3": 0.7368421052631579,
+    "4": 0.7399380804953558,
+    "5": 0.7363261093911249
+  },
+  "fusion_beats_best_parent": [
+    22,
+    26
+  ],
+  "caveat": "levels are NOT comparable with the primary split; a different family at a different sample size is a different population. Read the order."
+}
