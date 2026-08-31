@@ -157,6 +157,13 @@ def main() -> int:
                     help="score the SWA average instead of the final weights")
     ap.add_argument("--limit", type=int, default=0,
                     help="rows per split, stratified by (source,label); 0 = all")
+    ap.add_argument("--path-map", action="append", default=[], metavar="OLD=NEW",
+                    help="prefix substitution applied to manifest paths, for "
+                         "scoring on a box whose corpus lives elsewhere; "
+                         "repeatable, matched against the ORIGINAL path only")
+    ap.add_argument("--shard", default=None, metavar="I/N",
+                    help="score only contiguous shard I of N per split (for "
+                         "one process per GPU); the merge step reassembles")
     a = ap.parse_args()
 
     ck = torch.load(a.ckpt, map_location="cpu", weights_only=False)
@@ -173,6 +180,26 @@ def main() -> int:
         d = m[m["split"] == sp].reset_index(drop=True)
         if len(d) == 0:
             sys.exit(f"REFUSING: split {sp!r} has no rows in {a.manifest}")
+        if a.path_map:
+            maps = [pm.split("=", 1) for pm in a.path_map]
+            src = np.asarray([str(x) for x in d["path"]], dtype=object)
+            out, hit = src.copy(), np.zeros(len(src), dtype=bool)
+            for old_p, new_p in maps:
+                h = np.fromiter((x.startswith(old_p) for x in src),
+                                dtype=bool, count=len(src))
+                out[h] = [new_p + x[len(old_p):] for x in src[h]]
+                hit |= h
+            if not hit.all():
+                sys.exit(f"REFUSING {sp}: {int((~hit).sum())} paths matched "
+                         f"no --path-map prefix, e.g. "
+                         f"{src[~hit][:2].tolist()}")
+            d = d.assign(path=out)
+        if a.shard:
+            i, n = (int(x) for x in a.shard.split("/"))
+            base, rem = divmod(len(d), n)
+            start = i * base + min(i, rem)
+            stop = start + base + (1 if i < rem else 0)
+            d = d.iloc[start:stop].reset_index(drop=True)
         if a.limit:
             # Explicit loop: pandas 3.0's groupby.apply strips the grouping
             # columns from what it hands the callable, and the sampled frames
@@ -193,7 +220,10 @@ def main() -> int:
             out, index=False)
         metrics["splits"][sp] = split_metrics(d)
         ms = metrics["splits"][sp]
-        print(f"{sp}: n={ms['n']:,} AUC={ms['auc']:.4f} "
+        # A contiguous shard of a source-ordered split can be single-class,
+        # so AUC can legitimately be None here; the merge computes the real one.
+        auc = "n/a" if ms["auc"] is None else f"{ms['auc']:.4f}"
+        print(f"{sp}: n={ms['n']:,} AUC={auc} "
               f"TPR@1%FPR={ms['tpr_at_1pct_fpr']:.4f} acc={ms['acc_at_0.5']:.4f}"
               f" -> {out}")
 
