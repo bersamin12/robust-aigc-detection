@@ -88,13 +88,25 @@ class Detector(nn.Module):
     """Degradation head + classifier head over a cached embedding."""
 
     def __init__(self, dim_feat: int, use_recon: bool = False,
-                 recon_dim: int = 12, use_film: bool = False):
+                 recon_dim: int = 12, use_film: bool = False,
+                 hidden: int = 512):
         super().__init__()
         self.use_recon = use_recon
         self.use_film = use_film
+        self.hidden = hidden
         dim_in = dim_feat + (recon_dim if use_recon else 0)
-        self.degradation = DegradationHead(dim_in)
-        self.classifier = ClassifierHead(dim_in, use_film=use_film)
+        # The degradation trunk keeps its historical HALF-width relation to the
+        # classifier (256 against 512). Sweeping `hidden` therefore scales both
+        # heads together, which is what "a bigger readout" means here; scaling
+        # only the classifier would confound capacity with the auxiliary task's
+        # share of the shared input.
+        self.degradation = DegradationHead(dim_in, hidden=hidden // 2)
+        # FiLM conditions on the degradation trunk's OUTPUT, so its cond_dim
+        # has to follow `hidden // 2` too. Leaving it at the 256 default made
+        # `hidden` safe to sweep only at 512, and silently wrong elsewhere.
+        self.classifier = ClassifierHead(dim_in, hidden=hidden,
+                                         use_film=use_film,
+                                         cond_dim=hidden // 2)
 
     def forward(self, f: torch.Tensor, r: torch.Tensor | None = None) -> dict[str, torch.Tensor]:
         if self.use_recon:
