@@ -16,6 +16,19 @@ DEPTH=${DEPTH:-40}          # ViT-g/14 has 40 blocks; 40 == full unfreeze
 EPOCHS=${EPOCHS:-3}
 CHUNK=${CHUNK:-1}
 GPUS=${GPUS:-$(nvidia-smi -L | wc -l)}
+# Decode and canonicalisation are the CPU floor and they do not shrink when the
+# tower grows, so the worker count is set from the box, not from a default that
+# was right on a 24-core one. One BLAS thread per worker: a fat box otherwise
+# multiplies WORKERS x OMP into more threads than it has cores.
+WORKERS=${WORKERS:-24}
+OMP=${OMP:-1}
+# Canonicalisation. 518 is the giant's native side, so CROPSIDE=NOMINAL=518
+# with CLAMP=1 takes the native window whenever the image is big enough and
+# upscales only the images that are smaller -- one resample, never two.
+CROPSIDE=${CROPSIDE:-200}
+NOMINAL=${NOMINAL:-518}
+CLAMP=${CLAMP:-0}
+CLAMP_FLAG=""; [ "$CLAMP" = "1" ] && CLAMP_FLAG="--crop-clamp"
 BANK=${BANK:-data/banks/full_crop_dinov2regl}
 ROOT=${ROOT:-/workspace/data/union}
 PY=${PY:-/venv/main/bin/python}
@@ -44,29 +57,36 @@ b = FeatureBank.open(bank_dir)
 n_train = int((b.meta["split"].to_numpy() == "train").sum())
 if n_train == 0:
     sys.exit(f"REFUSING: {bank_dir} has no train rows")
+# Mirror `LiveViewSampler` (train/finetune.py:204) EXACTLY. It resolves
+# `rel_path` against the root when present and takes `path` as already
+# absolute otherwise, which is what a bank built with --path-map carries:
+# rewriting paths across machines makes any single root a lie.
 col = "rel_path" if "rel_path" in b.meta.columns else "path"
-if col != "rel_path":
-    sys.exit("REFUSING: bank has no rel_path column, so it cannot be rebased "
-             "onto this box's corpus root")
+if col not in b.meta.columns:
+    sys.exit("REFUSING: bank has neither a rel_path nor a path column")
+absolute = col == "path"
 paths = b.meta[col].to_numpy()
-miss = [p for p in paths[:400] if not os.path.exists(os.path.join(root, str(p)))]
+resolve = (lambda p: p) if absolute else (lambda p: os.path.join(root, p))
+miss = [p for p in paths[:400] if not os.path.exists(resolve(str(p)))]
 if miss:
-    sys.exit(f"REFUSING: {len(miss)}/400 sampled rows do not resolve under "
-             f"{root}, e.g. {miss[:2]}")
-print(f"preflight OK: {len(b.meta):,} rows, {n_train:,} train, corpus resolves")
+    sys.exit(f"REFUSING: {len(miss)}/400 sampled rows do not resolve "
+             f"({col}, absolute={absolute}, root={root}), e.g. {miss[:2]}")
+print(f"preflight OK: {len(b.meta):,} rows, {n_train:,} train, "
+      f"corpus resolves via {col} (absolute={absolute})")
 PY
 
-echo "[$(date +%H:%M:%S)] $NM depth=$DEPTH epochs=$EPOCHS gpus=$GPUS chunk=$CHUNK" | tee -a "$LOG"
+echo "[$(date +%H:%M:%S)] $NM depth=$DEPTH epochs=$EPOCHS gpus=$GPUS chunk=$CHUNK workers=$WORKERS omp=$OMP sched=$SCHED swa=$SWA crop=$CROPSIDE nominal=$NOMINAL clamp=$CLAMP" | tee -a "$LOG"
 echo "[$(date +%H:%M:%S)] NOTE: prints nothing until epoch 1 completes. Silence is normal." | tee -a "$LOG"
 
-OMP_NUM_THREADS=4 $PY -m torch.distributed.run \
+OMP_NUM_THREADS=$OMP $PY -m torch.distributed.run \
   --nproc_per_node="$GPUS" --master_port=29585 \
   scripts/train_unfreeze.py \
   --bank "$BANK" --root "$ROOT" \
   --backbone dinov2regg --depth "$DEPTH" --name "$NM" \
   --out-dir outputs/unfreeze --epochs "$EPOCHS" \
-  --canon-mode crop --crop-side 200 \
-  --device cuda --workers 24 --src-chunk "$CHUNK" --resume \
+  --canon-mode crop --crop-side "$CROPSIDE" \
+  --nominal-side "$NOMINAL" $CLAMP_FLAG \
+  --device cuda --workers "$WORKERS" --src-chunk "$CHUNK" --resume \
   --lr-schedule "$SCHED" --warmup-frac "$WARMUP" \
   --min-lr-frac "$MINLR" $SWA_FLAG --swa-start-frac "$SWA_START" \
   >> "$LOG" 2>&1
