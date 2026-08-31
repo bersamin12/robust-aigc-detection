@@ -39,8 +39,8 @@ from aigcdet.features.bank import FeatureBank
 from aigcdet.models.heads import Detector
 from aigcdet.train.finetune import (
     FinetuneConfig, LiveViewSampler, _dist_init, _forward_tower, _GradReducer,
-    _owned_chunks, _prepare_batch, _shard_task, _step_loss,
-    _stratified_subsample, unfreeze_last_n,
+    _LRSchedule, _owned_chunks, _prepare_batch, _shard_task, _step_loss,
+    _stratified_subsample, _WeightAverager, unfreeze_last_n,
 )
 
 
@@ -61,7 +61,7 @@ _RESUME_INVARIANT = ("name", "bank_dir", "backbone", "depth", "seed", "lr",
 
 
 def _write_ckpt(path, *, head, towers, opt, sampler, epoch, history, cfg,
-                dim_feat, names, unfrozen) -> None:
+                dim_feat, names, unfrozen, averager=None) -> None:
     """Atomic per-epoch checkpoint holding BOTH towers.
 
     Both state dicts are required, and in a fixed order: the eval bank for this
@@ -70,8 +70,12 @@ def _write_ckpt(path, *, head, towers, opt, sampler, epoch, history, cfg,
     second tower's features.
     """
     tmp = path + ".tmp"
+    swa = averager.state_dicts() if averager is not None else None
     torch.save({"state_dict": head.state_dict(),
                 "tower_state_dicts": [t.state_dict() for t in towers],
+                "swa_state_dict": None if swa is None else swa[0],
+                "swa_tower_state_dicts": None if swa is None else swa[1:],
+                "swa_n": 0 if averager is None else averager.n,
                 "optimizer_state_dict": opt.state_dict(),
                 "sampler_rng_state": sampler.rng.bit_generator.state,
                 "epoch": epoch, "history": history,
@@ -156,6 +160,12 @@ def train_dual(cfg: DualFinetuneConfig) -> dict:
 
     amp = getattr(torch, b.amp_dtype)
     pdtypes = [next(t.parameters()).dtype for t in towers]
+    steps_per_epoch = len(sampler)
+    sched = _LRSchedule(opt, steps_per_epoch * b.epochs, kind=b.lr_schedule,
+                        warmup_frac=b.warmup_frac, min_lr_frac=b.min_lr_frac)
+    swa_start = int(b.swa_start_frac * steps_per_epoch * b.epochs)
+    # Head first, then the towers in the SAME order the checkpoint stores them.
+    averager = _WeightAverager([head, *towers]) if b.swa else None
     out_dir = os.path.join(b.out_dir, b.name)
     ckpt = os.path.join(out_dir, "checkpoint.pt")
     if rank == 0:
@@ -182,6 +192,7 @@ def train_dual(cfg: DualFinetuneConfig) -> dict:
         start_epoch, history = int(ck.get("epoch", 0)), list(ck.get("history") or [])
         print(f"resuming {b.name} from epoch {start_epoch}/{b.epochs}", flush=True)
 
+    gstep = start_epoch * steps_per_epoch
     for epoch in range(start_epoch, b.epochs):
         tasks = sampler.batch_tasks()
         with ThreadPoolExecutor(max_workers=max(1, b.workers)) as pool:
@@ -223,7 +234,11 @@ def train_dual(cfg: DualFinetuneConfig) -> dict:
                         parts[k] += part[k] * share
                 if reducer is not None:
                     reducer.reduce()
+                sched.apply(gstep)
                 opt.step()
+                if averager is not None and gstep >= swa_start:
+                    averager.update()
+                gstep += 1
         if world > 1:
             import torch.distributed as dist
             t_ = torch.tensor([parts[k] for k in ("cls", "deg", "con", "total")],
@@ -235,7 +250,7 @@ def train_dual(cfg: DualFinetuneConfig) -> dict:
             _write_ckpt(ckpt, head=head, towers=towers, opt=opt,
                         sampler=sampler, epoch=epoch + 1, history=history,
                         cfg=cfg, dim_feat=dim_feat, names=(name1, name2),
-                        unfrozen=unfrozen)
+                        unfrozen=unfrozen, averager=averager)
         if world > 1:
             import torch.distributed as dist
             dist.barrier()
@@ -248,7 +263,8 @@ def train_dual(cfg: DualFinetuneConfig) -> dict:
     if rank == 0:
         _write_ckpt(ckpt, head=head, towers=towers, opt=opt, sampler=sampler,
                     epoch=b.epochs, history=history, cfg=cfg,
-                    dim_feat=dim_feat, names=(name1, name2), unfrozen=unfrozen)
+                    dim_feat=dim_feat, names=(name1, name2), unfrozen=unfrozen,
+                    averager=averager)
     result = {"unfrozen": unfrozen, "history": history, "world_size": world,
               "backbones": [name1, name2], "dim_feat": dim_feat}
     with open(os.path.join(out_dir, "result.json"), "w") as f:

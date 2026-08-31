@@ -49,6 +49,17 @@ def main() -> int:
     ap.add_argument("--crop-side", type=int, default=200)
     ap.add_argument("--train-subsample-frac", type=float, default=1.0)
     ap.add_argument("--no-checkpointing", action="store_true")
+    ap.add_argument("--lr-schedule", default="constant",
+                    choices=("constant", "cosine"),
+                    help="cosine adds warmup + decay; OFF by default because a "
+                         "scheduled arm is not one flag from the constant-LR "
+                         "ladder and may not be quoted against it")
+    ap.add_argument("--warmup-frac", type=float, default=0.03)
+    ap.add_argument("--min-lr-frac", type=float, default=0.01)
+    ap.add_argument("--swa", action="store_true",
+                    help="average weights over the tail; saved BESIDE the "
+                         "final weights, both scorable")
+    ap.add_argument("--swa-start-frac", type=float, default=0.75)
     ap.add_argument("--resume", action="store_true")
     a = ap.parse_args()
 
@@ -59,6 +70,8 @@ def main() -> int:
         src_chunk=a.src_chunk, workers=a.workers, seed=a.seed,
         device=a.device, policy_mode=a.canon_mode, crop_side=a.crop_side,
         grad_checkpointing=not a.no_checkpointing, resume=a.resume,
+        lr_schedule=a.lr_schedule, warmup_frac=a.warmup_frac,
+        min_lr_frac=a.min_lr_frac, swa=a.swa, swa_start_frac=a.swa_start_frac,
         train_subsample_frac=a.train_subsample_frac)
     cfg = DualFinetuneConfig(base=base, backbone2=a.backbone2,
                              perturb_tower2=a.perturb_tower2)

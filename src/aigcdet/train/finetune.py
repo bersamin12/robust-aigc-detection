@@ -288,6 +288,33 @@ class FinetuneConfig:
     weights: LossWeights = field(default_factory=LossWeights)
     device: str = "cuda"
     workers: int = 16
+    #: "constant" (every measurement in this repo to date) or "cosine".
+    #:
+    #: OFF BY DEFAULT, and that is load-bearing rather than timid: D0..D24, the
+    #: cached rungs and the four d24 arms all ran constant-LR with no warmup, so
+    #: an arm with a schedule is NOT one flag different from them. It may be
+    #: compared with other scheduled arms; it may not be quoted against the
+    #: ladder.
+    lr_schedule: str = "constant"
+    #: Fraction of total steps spent warming linearly from 0 to the peak LR.
+    #: Applied as a single multiplier across BOTH param groups, so the 100x
+    #: head:tower ratio is preserved at every point of the schedule -- warming
+    #: the groups independently would silently make the ratio a function of the
+    #: step.
+    warmup_frac: float = 0.03
+    #: Cosine floor, as a fraction of peak. 0.01 rather than 0 so the tower is
+    #: still moving at the end; at tower_lr=1e-5 a true zero floor spends the
+    #: last steps not training the thing the experiment is about.
+    min_lr_frac: float = 0.01
+    #: Stochastic weight averaging: keep an equal-weight running average of the
+    #: weights over the tail of training and save it BESIDE the final weights,
+    #: never instead of them. Both are then scorable and the comparison is free.
+    swa: bool = False
+    #: Fraction of training after which averaging starts. Tail averaging under a
+    #: continued cosine decay, not the canonical constant-SWALR phase -- with
+    #: 3-5 epochs there is no room for a long high-LR exploration phase, and the
+    #: decaying tail is what the average is meant to smooth.
+    swa_start_frac: float = 0.75
     #: Pick up from `<out_dir>/<name>/checkpoint.pt` if one is there, instead of
     #: starting at epoch 0. Off by default: silently continuing a run whose
     #: config has since changed would produce a checkpoint that no single
@@ -566,6 +593,85 @@ def _stratified_subsample(bank, idx, frac, rng):
     return np.sort(np.concatenate(keep))
 
 
+class _LRSchedule:
+    """Linear warmup then cosine decay, as a single multiplier on every group.
+
+    Deliberately NOT a `torch.optim.lr_scheduler`: those own the LR and would
+    have to be told about the two param groups' different base rates, and the
+    one property that must hold here -- head and tower stay exactly 100x apart
+    at every step -- is easier to guarantee by scaling both from their recorded
+    bases than by trusting a scheduler's per-group bookkeeping.
+
+    `kind="constant"` returns 1.0 always, so a run with the default config takes
+    the identical code path and produces identical numbers to one from before
+    this class existed.
+    """
+
+    def __init__(self, opt, total_steps: int, *, kind: str,
+                 warmup_frac: float, min_lr_frac: float):
+        if kind not in ("constant", "cosine"):
+            raise ValueError(f"unknown lr_schedule {kind!r}")
+        self.opt, self.kind = opt, kind
+        self.base = [g["lr"] for g in opt.param_groups]
+        self.total = max(1, int(total_steps))
+        self.warmup = max(0, int(round(warmup_frac * self.total)))
+        self.floor = float(min_lr_frac)
+
+    def scale(self, step: int) -> float:
+        if self.kind == "constant":
+            return 1.0
+        if self.warmup and step < self.warmup:
+            # (step + 1) so step 0 is not a dead step at lr exactly 0.
+            return (step + 1) / self.warmup
+        import math
+        prog = (step - self.warmup) / max(1, self.total - self.warmup)
+        prog = min(1.0, max(0.0, prog))
+        return self.floor + (1 - self.floor) * 0.5 * (1 + math.cos(math.pi * prog))
+
+    def apply(self, step: int) -> float:
+        f = self.scale(step)
+        for g, b in zip(self.opt.param_groups, self.base):
+            g["lr"] = b * f
+        return f
+
+
+class _WeightAverager:
+    """Equal-weight running average of one or more modules' float tensors.
+
+    Kept on CPU in float32. The tower is 1.1B parameters in the giant arm, and
+    a second GPU-resident copy of it is 4.5 GiB that the optimiser states have
+    already made scarce; the update is once per optimiser step, not per
+    micro-batch, so the transfer is not the bottleneck.
+
+    Integer and boolean entries are copied from the last update rather than
+    averaged -- position-embedding index buffers and the like are not
+    quantities an average is meaningful over.
+    """
+
+    def __init__(self, modules):
+        self.modules = list(modules)
+        self.n = 0
+        self.avg: list[dict] = [{} for _ in self.modules]
+
+    def update(self) -> None:
+        self.n += 1
+        for slot, m in zip(self.avg, self.modules):
+            for k, v in m.state_dict().items():
+                cpu = v.detach().to("cpu")
+                if not cpu.is_floating_point():
+                    slot[k] = cpu.clone()
+                    continue
+                cpu = cpu.float()
+                if k not in slot:
+                    slot[k] = cpu.clone()
+                else:
+                    # running mean: a_n = a_{n-1} + (x - a_{n-1}) / n
+                    slot[k].add_((cpu - slot[k]) / self.n)
+
+    def state_dicts(self) -> list[dict] | None:
+        return self.avg if self.n else None
+
+
 #: Config fields a resume may NOT differ on. Everything else (epochs, workers,
 #: src_chunk, device) is a scheduling detail that can legitimately change
 #: between the run that crashed and the one picking it up; these six change what
@@ -576,7 +682,7 @@ _RESUME_INVARIANT = ("name", "bank_dir", "backbone", "depth", "seed", "lr",
 
 
 def _write_ckpt(path, *, head, tower, opt, sampler, epoch, history, cfg,
-                dim_feat, backbone_name, unfrozen) -> None:
+                dim_feat, backbone_name, unfrozen, averager=None) -> None:
     """One epoch's checkpoint, written atomically.
 
     `torch.save` straight onto the live path is not safe here: these files are
@@ -591,11 +697,16 @@ def _write_ckpt(path, *, head, tower, opt, sampler, epoch, history, cfg,
     and the resumed run is quietly a different experiment.
     """
     tmp = path + ".tmp"
+    swa = averager.state_dicts() if averager is not None else None
     torch.save({"state_dict": head.state_dict(),
                 "tower_state_dict": tower.state_dict(),
                 "optimizer_state_dict": opt.state_dict(),
                 "sampler_rng_state": sampler.rng.bit_generator.state,
                 "torch_rng_state": torch.get_rng_state(),
+                # Beside the final weights, never instead of them.
+                "swa_state_dict": None if swa is None else swa[0],
+                "swa_tower_state_dict": None if swa is None else swa[1],
+                "swa_n": 0 if averager is None else averager.n,
                 "epoch": epoch, "history": history,
                 "config": asdict(cfg), "dim_feat": dim_feat,
                 "backbone": backbone_name, "unfrozen": unfrozen}, tmp)
@@ -689,6 +800,15 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
     amp = getattr(torch, cfg.amp_dtype)
     param_dtype = next(tower.parameters()).dtype
 
+    # `len(sampler)` is batches per epoch, and one optimiser step is one batch,
+    # so this is the exact horizon the cosine has to close over. Getting it
+    # wrong does not error -- it just decays to the wrong place.
+    steps_per_epoch = len(sampler)
+    sched = _LRSchedule(opt, steps_per_epoch * cfg.epochs, kind=cfg.lr_schedule,
+                        warmup_frac=cfg.warmup_frac, min_lr_frac=cfg.min_lr_frac)
+    swa_start = int(cfg.swa_start_frac * steps_per_epoch * cfg.epochs)
+    averager = _WeightAverager([head, tower]) if cfg.swa else None
+
     # Resolved BEFORE the loop, because the per-epoch checkpoint is written
     # inside it. This used to be computed only after every epoch had run,
     # which is precisely why a kill lost the whole run.
@@ -704,6 +824,10 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
               flush=True)
         if start_epoch >= cfg.epochs:
             print("already complete; nothing to do", flush=True)
+    # Counted from the RESUMED epoch, not from zero: a resume that restarted
+    # the step count would replay the warmup and re-open the cosine, handing
+    # the tower a large LR again halfway through training.
+    gstep = start_epoch * steps_per_epoch
     for epoch in range(start_epoch, cfg.epochs):
         tasks = sampler.batch_tasks()
         # Threads, not processes: the work inside `_prepare_batch` is PIL
@@ -765,7 +889,11 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
                         parts[k] += part[k] * share
                 if reducer is not None:
                     reducer.reduce()
+                sched.apply(gstep)
                 opt.step()
+                if averager is not None and gstep >= swa_start:
+                    averager.update()
+                gstep += 1
         if world > 1:
             # Each rank only accumulated its own chunks' share, so the loss
             # printed by a rank alone would be a quarter of the batch's.
@@ -782,7 +910,7 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
             _write_ckpt(ckpt, head=head, tower=tower, opt=opt, sampler=sampler,
                         epoch=epoch + 1, history=history, cfg=cfg,
                         dim_feat=spec.dim, backbone_name=backbone_name,
-                        unfrozen=unfrozen)
+                        unfrozen=unfrozen, averager=averager)
         if world > 1:
             # Ranks must not race ahead into epoch N+1 while rank 0 is still
             # serialising N, or a kill mid-write leaves the replicas at
@@ -811,7 +939,7 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
     _write_ckpt(ckpt, head=head, tower=tower, opt=opt, sampler=sampler,
                 epoch=cfg.epochs, history=history, cfg=cfg,
                 dim_feat=spec.dim, backbone_name=backbone_name,
-                unfrozen=unfrozen)
+                unfrozen=unfrozen, averager=averager)
     result = {"unfrozen": unfrozen, "history": history, "world_size": world}
     with open(os.path.join(out_dir, "result.json"), "w") as f:
         json.dump(result, f, indent=2)

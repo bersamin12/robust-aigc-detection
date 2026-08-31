@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Experiment 1: dinov2reg GIANT (1.136B) at 518, crop, full unfreeze, 375k.
 #
-# Sized for 8x RTX 5090 (32 GiB). The memory risk here is real and is the
+# TARGET: taiwan8 (8x RTX 4090, 24 GiB) as of the 2026-09-01 swap.
+# The memory risk here is real and is the
 # reason src-chunk defaults to 1: AdamW holds fp32 master weights plus two
 # moments, so 1.136B parameters cost ~13.6 GiB of optimiser state before a
 # single activation, and the tower sees 1369 tokens at 518. If this OOMs, the
@@ -14,10 +15,19 @@ NM=${NM:-giant_d40}
 DEPTH=${DEPTH:-40}          # ViT-g/14 has 40 blocks; 40 == full unfreeze
 EPOCHS=${EPOCHS:-3}
 CHUNK=${CHUNK:-1}
-GPUS=${GPUS:-8}
+GPUS=${GPUS:-$(nvidia-smi -L | wc -l)}
 BANK=${BANK:-data/banks/full_crop_dinov2regl}
 ROOT=${ROOT:-/workspace/data/union}
 PY=${PY:-/venv/main/bin/python}
+# Schedule is ON here even though the library default is off: these two
+# arms are new shipping candidates, not rungs of the constant-LR ladder,
+# so they are comparable with each other and NOT with D0..D24.
+SCHED=${SCHED:-cosine}
+WARMUP=${WARMUP:-0.03}
+MINLR=${MINLR:-0.01}
+SWA=${SWA:-1}
+SWA_START=${SWA_START:-0.75}
+SWA_FLAG=""; [ "$SWA" = "1" ] && SWA_FLAG="--swa"
 LOG=logs/${NM}.log
 mkdir -p logs outputs/unfreeze
 
@@ -57,5 +67,7 @@ OMP_NUM_THREADS=4 $PY -m torch.distributed.run \
   --out-dir outputs/unfreeze --epochs "$EPOCHS" \
   --canon-mode crop --crop-side 200 \
   --device cuda --workers 24 --src-chunk "$CHUNK" --resume \
+  --lr-schedule "$SCHED" --warmup-frac "$WARMUP" \
+  --min-lr-frac "$MINLR" $SWA_FLAG --swa-start-frac "$SWA_START" \
   >> "$LOG" 2>&1
 echo "[$(date +%H:%M:%S)] exit=$? -> outputs/unfreeze/$NM/checkpoint.pt" | tee -a "$LOG"
