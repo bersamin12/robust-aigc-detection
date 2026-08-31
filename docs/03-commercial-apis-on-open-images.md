@@ -143,8 +143,8 @@ quality distribution as the reals** before it is stored.
 card is charged.** If it does not clear, nothing below matters.
 
 **The task 02 solution does not transfer, and this is the part to think about.**
-`docs/03-ai-ov7-generation-plan.md` §3 clears this gate by never resampling at
-all — a local model is told to render at the real's exact dimensions, and the
+Task 02's generation plan (on branch `feat/ai-ov7-generation`) clears this
+gate by never resampling at all — a local model is told to render at the real's exact dimensions, and the
 geometry is then centre-*cropped* to a multiple of 8. Measured `jpeg_quality`
 AUC **0.5031**. That works because the generator's output size is a parameter.
 

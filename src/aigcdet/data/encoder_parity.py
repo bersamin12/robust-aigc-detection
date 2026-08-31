@@ -3,9 +3,8 @@ with, at acquisition time, before anything else touches it.
 
 WHY THIS EXISTS
 ---------------
-`docs/02-open-weight-generators-on-open-images.md` §1 makes this mandatory and
-`docs/03-commercial-apis-on-open-images.md` §3.1 makes it the gate that clears
-before money is spent. The reasoning is short: the Open Images reals are
+`docs/03-commercial-apis-on-open-images.md` §3.1 makes this the gate that
+clears before money is spent. The reasoning is short: the Open Images reals are
 `Thumbnail300KURL` thumbnails, i.e. *re-encoded JPEGs*, and this project has
 already measured that JPEG history leaks the label
 (`docs/low_level_confounds.md`: `jpeg_quality` AUC 0.5532 pooled). A generator
@@ -179,8 +178,9 @@ def crop_to_aspect(im: Image.Image, aspect: float) -> Image.Image:
 #:   LANCZOS, and different kernels leave different high-frequency structure
 #:   (`docs/resolution_shortcut.md`).
 #: - CROP takes a target-sized window and resamples nothing at all. This is
-#:   what `docs/03-ai-ov7-generation-plan.md` §3 does locally, where the
-#:   generator can simply be told to render at the target size. Against API
+#:   what task 02's local generation does (its plan is on branch
+#:   `feat/ai-ov7-generation`), where the generator is simply told to render
+#:   at the target size. Against API
 #:   output it costs field of view instead: a 427x640 window out of a 1024x1536
 #:   frame is a fragment of the scene rather than the scene.
 #:
