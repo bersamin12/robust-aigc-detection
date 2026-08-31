@@ -244,14 +244,23 @@ not a leak that has been removed.
 
 ## 10. Corpus as frozen
 
-9,978 pairs / 19,956 rows, from 9,978 distinct reals -- each real used by
-exactly **one** family, so the arms are disjoint rather than stacked.
+11,978 pairs / 23,956 rows over **nine families and five decoder lineages**,
+from 11,978 distinct reals -- each used by exactly one family, so the arms are
+disjoint rather than stacked. 8.5 GPU-hours on one RTX A4500.
 
 | | pairs | rows |
 |---|---|---|
-| `train` | 7,328 | 14,656 |
-| `val_internal` | 850 | 1,700 |
+| `train` | 9,133 | 18,266 |
+| `val_internal` | 1,045 | 2,090 |
 | `heldout_generator` (`flux2_vae`) | 1,800 | 3,600 |
+
+| lineage | decoder | pairs |
+|---|---|---|
+| `sdxl_vae` | AutoencoderKL 4ch | 5,400 |
+| `sd_vae` | AutoencoderKL 4ch | 2,778 |
+| `flux2_vae` | AutoencoderKL 16ch | 1,800 (held out) |
+| `movq` | VQModel, vector-quantised | 1,000 |
+| `dc_ae` | AutoencoderDC 32x, 32ch | 1,000 |
 
 Every split is exactly 50/50 by label, which is the `pair_split_by_stem` draw
 working: groups of two move together, so balance is a consequence rather than
@@ -264,9 +273,28 @@ long as `find_leaks` is only ever run against the demo set.
 
 Audited on the raw tree before the build: **0 orphaned files, 0 rows whose
 files are missing, 0 reals used twice**, and encoder parity re-asserted on a
-random 40 pairs with 0 failures. Normalised size 7.1 GB; raw JPEG pairs 1.7 GB.
-Zero square and zero landscape rows across all 19,956; sizes run 400x560 to
-448x640.
+random 60 pairs with 0 failures. Normalised size ~8.5 GB; raw JPEG pairs
+~1.8 GB. Zero square and zero landscape rows across all 23,956; sizes run
+400x560 to 448x640.
+
+### Gate, all nine families (n=4,000, band mode)
+
+| proxy | 7 families | **9 families** | frozen corpus |
+|---|---|---|---|
+| `jpeg_quality` | 0.5038 | 0.5152 | 0.5532 |
+| `laplacian_var` | 0.5998 | **0.5632** | 0.6721 |
+| `noise_floor` | 0.5229 | **0.5072** | 0.6374 |
+| `short_side` | 0.5022 | **0.5015** | 0.5992 |
+
+**The supplement improved the corpus, and most on the statistic that needed
+it.** Sharpness -- the worst confound both here and on the frozen corpus --
+fell from 0.5998 to 0.5632, and the noise floor to 0.5072, effectively chance.
+The mechanism is the obvious one and worth stating because it is the general
+argument for more lineages: a single sharpness threshold separates two classes
+well only while the generated class is narrow. MoVQ and DC-AE decode unlike
+SDXL and SD 1.5, so the generated distribution widened and the threshold lost
+purchase. `jpeg_quality` moved the other way, 0.5038 to 0.5152, still far
+under the 0.5532 baseline and close enough to chance to be unremarkable.
 
 ## 11. The lineage supplement (`--suite ov7_lineage`)
 
@@ -338,6 +366,12 @@ python scripts/generate_ov7.py --suite ov7_lineage --total 2000 \
     --shard 1 --n-shards 5 --out data/raw_ov7_src \
     --captions data/ov7_captions.parquet
 ```
+
+Run 2026-08-31: **2,000 of 2,000, zero failures.** Kandinsky 2.07 s/image,
+Sana **1.17 s/image** -- the fastest family in the corpus, once resolution
+binning is off and it generates at the real's own size rather than at
+1216x832. Neither produced a single near-constant frame, against SD 1.5's
+0.79%.
 
 ## 12. Still owed
 

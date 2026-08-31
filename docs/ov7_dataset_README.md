@@ -24,12 +24,14 @@ alone* as we could build.
 open_images_v7/           the dataset: raw JPEG pairs, exactly as generated
   real/<ImageID>.jpg        the photograph, losslessly cropped
   sdxl_t2i/<ImageID>.jpg    its generated counterpart, one per family
-  sd15_t2i/<ImageID>.jpg
+  sd15_t2i/...              nine families in all, five decoder lineages
   sdxl_self_cond/...
   sdxl_img2img/...
   sd15_img2img/...
   klein4b_t2i/...
   klein4b_ref_image/...
+  kandinsky22_t2i/...
+  sana1600m_t2i/...
 
 pairs.parquet / pairs.csv one row per pair: seed, steps, guidance, strength,
                           prompt, prompt source, crop box, the real's measured
@@ -90,19 +92,22 @@ real-world inputs are not.
 
 | family | model | licence | decoder lineage | conditioning | pairs |
 |---|---|---|---|---|---|
+| `kandinsky22_t2i` | `kandinsky-community/kandinsky-2-2-decoder` | **Apache-2.0** | `movq` | text-to-image | 1,000 |
 | `klein4b_ref_image` | `black-forest-labs/FLUX.2-klein-4B` | **Apache-2.0** | `flux2_vae` | reference-image conditioning | 600 |
 | `klein4b_t2i` | `black-forest-labs/FLUX.2-klein-4B` | **Apache-2.0** | `flux2_vae` | text-to-image | 1,200 |
+| `sana1600m_t2i` | `Efficient-Large-Model/Sana_1600M_1024px_diffusers` | **Apache-2.0** | `dc_ae` | text-to-image | 1,000 |
 | `sd15_img2img` | `stable-diffusion-v1-5/stable-diffusion-v1-5` | CreativeML OpenRAIL-M | `sd_vae` | SDEdit @ strength 0.75 | 795 |
 | `sd15_t2i` | `stable-diffusion-v1-5/stable-diffusion-v1-5` | CreativeML OpenRAIL-M | `sd_vae` | text-to-image | 1,983 |
 | `sdxl_img2img` | `stabilityai/stable-diffusion-xl-base-1.0` | OpenRAIL++-M | `sdxl_vae` | SDEdit @ strength 0.75 | 1,000 |
 | `sdxl_self_cond` | `diffusers/stable-diffusion-xl-1.0-inpainting-0.1` | OpenRAIL++-M | `sdxl_vae` | zero-mask regeneration | 1,400 |
 | `sdxl_t2i` | `stabilityai/stable-diffusion-xl-base-1.0` | OpenRAIL++-M | `sdxl_vae` | text-to-image | 3,000 |
-| | | | | **total** | **9,978** |
+| | | | | **total** | **11,978** |
 
-Conditioning is 76% fully synthetic (text-to-image and zero-mask
-regeneration) and 24% image-conditioned.
+Conditioning is 80% fully synthetic (text-to-image and zero-mask
+regeneration) and 20% image-conditioned.
 
-Decoder **lineage** is recorded per row (`sdxl_vae`, `sd_vae`, `flux2_vae`)
+Decoder **lineage** is recorded per row (`sdxl_vae`, `sd_vae`, `flux2_vae`,
+`movq`, `dc_ae`)
 and matters more than the model name: families sharing a VAE share most of
 their decoder fingerprint. The frozen split holds out the **entire `flux2_vae`
 lineage** — a different decoder *and* a different architecture (flow-matching
@@ -117,13 +122,30 @@ on opposite sides of a boundary. Held-out membership propagates the same way.
 
 | split | pairs | rows |
 |---|---|---|
-| `train` | 7,328 | 14,656 |
-| `val_internal` | 850 | 1,700 |
+| `train` | 9,133 | 18,266 |
+| `val_internal` | 1,045 | 2,090 |
 | `heldout_generator` (`flux2_vae`) | 1,800 | 3,600 |
-| **total** | **9,978** | **19,956** |
+| **total** | **11,978** | **23,956** |
 
 Every split is exactly 50/50 real and fake, which is a consequence of the
 pairing rather than a sampling choice.
+
+### Decoder lineages
+
+Five, and this is the axis that matters more than the model name: families
+sharing a VAE share most of their decoder fingerprint.
+
+| lineage | decoder | pairs |
+|---|---|---|
+| `sdxl_vae` | `AutoencoderKL`, 4 latent channels | 5,400 |
+| `sd_vae` | `AutoencoderKL`, 4 latent channels | 2,778 |
+| `flux2_vae` | `AutoencoderKL`, 16 latent channels | 1,800 (held out) |
+| `movq` | `VQModel` &mdash; vector-quantised | 1,000 |
+| `dc_ae` | `AutoencoderDC` &mdash; 32&times; compression, 32 channels | 1,000 |
+
+Five lineages means leave-one-lineage-out can be **rotated**, so
+"generalises to an unseen decoder" is a distribution rather than a single
+point estimate.
 
 ## 5. Licensing
 
@@ -134,8 +156,8 @@ photograph and **must travel with the images**; our normalisation pass strips
 image metadata, so the CSV is the only place that information survives.
 
 **Generated images: ours to release.** Produced from weights under
-`apache-2.0` (FLUX.2-klein-4B), `openrail++` (SDXL) and
-`creativeml-openrail-m` (SD 1.5). All three grant ownership of the outputs and
+`apache-2.0` (FLUX.2-klein-4B, Kandinsky 2.2, Sana 1.6B), `openrail++` (SDXL)
+and `creativeml-openrail-m` (SD 1.5). All three grant ownership of the outputs and
 permit commercial use; their use-based restrictions bind how you may use the
 *model*, not how these images may be redistributed. The per-row `licence_tag`
 in `pairs.parquet` lets you cut a pure-Apache subset without regenerating
@@ -156,26 +178,31 @@ and fakes come from different sources in the ordinary way:
 
 | statistic | AI-OV7 | our frozen corpus |
 |---|---|---|
-| JPEG quality | **0.5038** | 0.5532 |
-| sharpness (var-Laplacian) | **0.5998** | 0.6721 |
-| noise floor | **0.5229** | 0.6374 |
-| image dimensions | **0.5022** | 0.5992 |
+| JPEG quality | **0.5152** | 0.5532 |
+| sharpness (var-Laplacian) | **0.5632** | 0.6721 |
+| noise floor | **0.5072** | 0.6374 |
+| image dimensions | **0.5015** | 0.5992 |
 
-4,000 images sampled across all seven families (`scripts/gate_confounds.py --n 4000`, band canonicalisation).
+4,000 images sampled across all nine families (`scripts/gate_confounds.py --n 4000`, band canonicalisation).
 
 **Every statistic comes in below the frozen corpus, and two are at chance.**
-JPEG quality at 0.5038 is the encoder parity working: a detector cannot find
-the label in the compression history because both halves of a pair share one.
-Image dimensions at 0.5022 is the geometry parity working; the earlier attempt
+JPEG quality at 0.5152 is the encoder parity working: a detector cannot find
+the label in the compression history, because both halves of a pair share one.
+Image dimensions at 0.5015 is the geometry parity working; an earlier attempt
 at this corpus separated the classes at ~100% on dimensions alone.
 
-Sharpness at 0.5998 is the residual, and it is the honest one. It is well
+Sharpness at 0.5632 is the residual, and it is the honest one. It is well
 below the 0.6721 our frozen corpus carries, but it is not chance: at matched
 content, matched size and matched compression, these generators still produce
 images that are measurably smoother than the photographs they were made from.
 That is a property of the generators, not an artefact of how the corpus was
 assembled -- which is exactly what a corpus like this is for. Treat it as the
 floor a detector has to beat rather than as a leak that has been removed.
+
+It is also the number that moved most when the corpus grew from seven families
+to nine: 0.5998 to 0.5632. A single sharpness threshold separates two classes
+well only while the generated class is narrow, and the two decoders added last
+(MoVQ, and Sana's 32x deep-compression autoencoder) decode unlike the rest.
 
 ## 7. Three things to know before you train on this
 
