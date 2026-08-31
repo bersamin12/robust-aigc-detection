@@ -82,6 +82,21 @@ class ModelSpec:
     #: separable on one statistic. Off, which makes 32-divisibility a hard
     #: error instead -- see `size_multiple`.
     call_kwargs: tuple[tuple[str, object], ...] = ()
+    #: How to run a model whose weights exceed free VRAM. "sequential" moves
+    #: one SUBMODULE at a time and fits almost anything at a large speed cost;
+    #: "model" moves one COMPONENT at a time and is far faster, but needs the
+    #: single largest component to fit on its own. Neither quantises --
+    #: `docs/03` §3 refuses that, because a 4-bit model's traces are partly
+    #: the compute budget's and this corpus exists to isolate the generator.
+    offload_mode: str = "sequential"
+    #: The call kwarg that carries `FamilySpec.guidance`. Wuerstchen's
+    #: combined pipeline has no `guidance_scale` at all -- it splits into
+    #: `prior_guidance_scale` and `decoder_guidance_scale` -- and diffusers
+    #: pipelines swallow unknown kwargs, so passing the usual name would not
+    #: raise. It would generate the whole family at the pipeline's DEFAULT
+    #: guidance while the manifest recorded ours, which is a silent lie in
+    #: every row rather than a failure.
+    guidance_kw: str = "guidance_scale"
     note: str = ""
 
 
@@ -141,6 +156,34 @@ MODELS: dict[str, ModelSpec] = {
              "8x KL-VAE. Apache-2.0 including the bundled text encoder. "
              "Measured 8.5 GB resident, ~4 s/image at 20 steps. Read "
              "call_kwargs before changing anything about how it is called."),
+    "wuerstchen": ModelSpec(
+        hf_id="warp-ai/wuerstchen",
+        companion_ids=("warp-ai/wuerstchen-prior",),
+        licence_tag="mit", commercial=True,
+        lineage="paella_vq", arch="wuerstchen", vram_gb=6.0, size_multiple=128,
+        guidance_kw="prior_guidance_scale",
+        call_kwargs=(("decoder_guidance_scale", 0.0),
+                     ("prior_num_inference_steps", 30)),
+        note="Sixth lineage, and the most compressed decoder here: a "
+             "PaellaVQModel at 4 latent channels behind a WuerstchenDiffNeXt, "
+             "roughly 42x spatial against everyone else's 8x. MIT, and both "
+             "repos are (the prior is a separate one, hence companion_ids). "
+             "2023-era, so it buys decoder diversity rather than modern-"
+             "generator coverage -- but the held-out rung measures the "
+             "decoder. NOT in AutoPipelineForText2Image's mapping, so "
+             "`run.load` dispatches it explicitly on arch."),
+    "cogview4_6b": ModelSpec(
+        hf_id="THUDM/CogView4-6B",
+        licence_tag="apache-2.0", commercial=True,
+        lineage="cogview_vae", arch="cogview_dit", vram_gb=29.0,
+        size_multiple=32, offload_mode="model",
+        note="Seventh lineage: its own AutoencoderKL at 16 latent channels "
+             "and scaling_factor 1.0, which is neither SDXL's 4-channel nor "
+             "FLUX's 16-channel/0.3611. Apache-2.0. 29 GiB across the repo -- "
+             "13 GiB of transformer plus an 18 GiB GLM-4 text encoder -- so "
+             "it needs offload on a 20 GB card; MODEL offload, not "
+             "sequential, because the largest single component still fits and "
+             "sequential would cost far more than it needs to."),
     # --- Refused. Kept so the next person does not re-derive the refusal. ---
     "sdxl_turbo": ModelSpec(
         hf_id="stabilityai/sdxl-turbo",
@@ -162,6 +205,36 @@ MODELS: dict[str, ModelSpec] = {
         lineage="flux2_vae", arch="flow_dit", vram_gb=34.0,
         note="REFUSED. Only the 4B of this family is Apache; every 9B variant "
              "is under the FLUX non-commercial licence."),
+    "shuttle3": ModelSpec(
+        hf_id="shuttleai/shuttle-3-diffusion",
+        licence_tag="apache-2.0", commercial=True,
+        lineage="flux1_vae", arch="flow_dit", vram_gb=23.8,
+        note="REFUSED, and it is the near-miss worth recording: apache-2.0 "
+             "and UNGATED, which FLUX.1-schnell no longer is, so it is the "
+             "only reachable route to the flux1_vae lineage. But its VAE "
+             "config is 16ch/0.3611 -- FLUX's -- and its transformer is "
+             "FLUX-dev sized, 53.6 GiB of repo, which on a 20 GB card means "
+             "offload for a lineage we would be adding for variety. Take it "
+             "on a 40 GB card."),
+    "kolors": ModelSpec(
+        hf_id="Kwai-Kolors/Kolors-diffusers",
+        licence_tag="apache-2.0", commercial=True,
+        lineage="sdxl_vae", arch="unet", vram_gb=10.0,
+        note="REFUSED as redundant, not as unusable. Apache-2.0 and a "
+             "genuinely different model, but its VAE is AutoencoderKL 4ch at "
+             "scaling_factor 0.13025 -- SDXL's. It would add volume to a "
+             "lineage that already has 5,400 pairs and nothing to the "
+             "held-out axis."),
+    "lumina2": ModelSpec(
+        hf_id="Alpha-VLLM/Lumina-Image-2.0",
+        licence_tag="apache-2.0", commercial=True,
+        lineage="flux1_vae", arch="flow_dit", vram_gb=5.2,
+        note="REFUSED as redundant. Apache-2.0, 5.2 GB, brand-new "
+             "architecture -- and its vae/config.json is AutoencoderKL 16ch "
+             "at scaling_factor 0.3611, which is FLUX's VAE. Held out it "
+             "would measure a cousin of flux2_vae. ARCHITECTURE NOVELTY IS "
+             "NOT DECODER NOVELTY, and docs/02 §3.4 made that mistake once "
+             "already."),
     "flux1_dev": ModelSpec(
         hf_id="black-forest-labs/FLUX.1-dev",
         licence_tag="other", commercial=False,
@@ -250,10 +323,19 @@ LINEAGE_SUPPLEMENT: dict[str, FamilySpec] = {
     "sana1600m_t2i":   FamilySpec("sana_1600m",  "t2i", 0.5, 20, 4.5),
 }
 
+#: Third run, same additive shape, two more decoder classes. `steps` is the
+#: DECODER step count for Wuerstchen; its prior runs separately and is set in
+#: that model's `call_kwargs`.
+LINEAGE_SUPPLEMENT_2: dict[str, FamilySpec] = {
+    "wuerstchen_t2i": FamilySpec("wuerstchen",  "t2i", 0.5, 12, 4.0),
+    "cogview4_t2i":   FamilySpec("cogview4_6b", "t2i", 0.5, 30, 5.0),
+}
+
 #: Runnable suites by name (`generate_ov7.py --suite`).
 SUITES: dict[str, dict[str, FamilySpec]] = {
     "ov7": SUITE,
     "ov7_lineage": LINEAGE_SUPPLEMENT,
+    "ov7_lineage2": LINEAGE_SUPPLEMENT_2,
 }
 
 #: Which already-generated suites each one is generated INTO. A supplement is
@@ -262,6 +344,7 @@ SUITES: dict[str, dict[str, FamilySpec]] = {
 SUITE_EXTENDS: dict[str, tuple[str, ...]] = {
     "ov7": (),
     "ov7_lineage": ("ov7",),
+    "ov7_lineage2": ("ov7", "ov7_lineage"),
 }
 
 #: Held out as a whole lineage or not at all (`presets.heldout_groups`).

@@ -83,6 +83,11 @@ def load(model_key: str, methods: set[str], device: str = "cuda"):
         # pipeline class, so t2i and ref_image are one object.
         from diffusers import Flux2KleinPipeline
         base = Flux2KleinPipeline.from_pretrained(spec.hf_id, **kw)
+    elif spec.arch == "wuerstchen":
+        # Not in AutoPipelineForText2Image's mapping, so the auto class would
+        # raise on it. The combined pipeline pulls the prior repo itself.
+        from diffusers import WuerstchenCombinedPipeline
+        base = WuerstchenCombinedPipeline.from_pretrained(spec.hf_id, **kw)
     elif "self_cond" in methods:
         base = AutoPipelineForInpainting.from_pretrained(spec.hf_id, **kw)
     else:
@@ -104,8 +109,16 @@ def load(model_key: str, methods: set[str], device: str = "cuda"):
     free = _free_vram_gb(device)
     if spec.vram_gb > free:
         print(f"  {model_key}: {spec.vram_gb} GB weights vs {free:.1f} GB free "
-              f"-> sequential CPU offload (slow, but not quantised)", flush=True)
-        base.enable_sequential_cpu_offload()
+              f"-> {spec.offload_mode} CPU offload (slower, but not quantised)",
+              flush=True)
+        if spec.offload_mode == "model":
+            base.enable_model_cpu_offload()
+        elif spec.offload_mode == "sequential":
+            base.enable_sequential_cpu_offload()
+        else:
+            raise ValueError(
+                f"{model_key}: unknown offload_mode {spec.offload_mode!r}; "
+                f"expected 'model' or 'sequential'")
     else:
         base = base.to(device)
     base.set_progress_bar_config(disable=True)
@@ -157,8 +170,13 @@ def generate(pipe, fam: FamilySpec, real: Image.Image, prompt: str,
     rw, rh = _round_up(w, mult), _round_up(h, mult)
     g = torch.Generator(device if str(device).startswith("cuda") else "cpu")
     g.manual_seed(seed % (2 ** 63))
-    kw = dict(prompt=prompt, num_inference_steps=fam.steps,
-              guidance_scale=fam.guidance, generator=g)
+
+    # `guidance_kw` because Wuerstchen has no `guidance_scale` -- it splits
+    # into prior/decoder -- and diffusers swallows unknown kwargs rather than
+    # raising, so the usual name would silently generate at the pipeline
+    # default while the manifest recorded ours.
+    kw = {"prompt": prompt, "num_inference_steps": fam.steps,
+          spec.guidance_kw: fam.guidance, "generator": g}
     if fam.negative:
         kw["negative_prompt"] = fam.negative
     # Per-model call arguments. Sana's `use_resolution_binning=False` lives

@@ -219,3 +219,67 @@ def test_kandinsky_declares_the_second_repo_its_pipeline_pulls():
     hf_id licence-clears half the weights that made the image."""
     assert registry.MODELS["kandinsky22"].companion_ids == (
         "kandinsky-community/kandinsky-2-2-prior",)
+
+
+# --- the second lineage supplement -----------------------------------------
+
+def test_supplement_2_brings_two_more_decoder_classes():
+    have = {registry.lineage_of(n, registry.corpus_of("ov7_lineage"))
+            for n in registry.corpus_of("ov7_lineage")}
+    new = {registry.lineage_of(n, registry.LINEAGE_SUPPLEMENT_2)
+           for n in registry.LINEAGE_SUPPLEMENT_2}
+    assert new.isdisjoint(have)
+    assert new == {"paella_vq", "cogview_vae"}
+
+
+def test_seven_lineages_after_the_second_supplement():
+    c = registry.corpus_of("ov7_lineage2")
+    assert len({registry.lineage_of(n, c) for n in c}) == 7
+
+
+def test_supplement_2_validates_against_everything_before_it():
+    registry.validate_suite(registry.LINEAGE_SUPPLEMENT_2,
+                            corpus=registry.corpus_of("ov7_lineage2"))
+    with pytest.raises(ValueError, match="held-out lineage"):
+        registry.validate_suite(registry.LINEAGE_SUPPLEMENT_2)
+
+
+def test_wuerstchen_carries_guidance_under_its_own_kwarg():
+    """Its combined pipeline has NO `guidance_scale` -- prior and decoder are
+    separate -- and diffusers swallows unknown kwargs instead of raising. The
+    usual name would generate the whole family at the pipeline default while
+    the manifest recorded ours: a silent lie in every row."""
+    m = registry.MODELS["wuerstchen"]
+    assert m.guidance_kw == "prior_guidance_scale"
+    assert dict(m.call_kwargs)["decoder_guidance_scale"] == 0.0
+    assert m.companion_ids == ("warp-ai/wuerstchen-prior",)
+
+
+def test_every_other_model_uses_the_ordinary_guidance_kwarg():
+    for k, m in registry.MODELS.items():
+        if k != "wuerstchen":
+            assert m.guidance_kw == "guidance_scale", k
+
+
+def test_cogview4_uses_model_offload_not_sequential():
+    """29 GiB across the repo, but the largest single component still fits, so
+    sequential would cost far more than it needs to."""
+    m = registry.MODELS["cogview4_6b"]
+    assert m.offload_mode == "model" and m.vram_gb > 20
+
+
+def test_offload_mode_is_one_of_the_two_supported():
+    for k, m in registry.MODELS.items():
+        assert m.offload_mode in ("model", "sequential"), k
+
+
+def test_the_redundant_lineages_are_recorded_not_deleted():
+    """Each is apache-2.0 and usable, and each would add volume to a lineage
+    the corpus already has. The reason has to survive, or the next person
+    re-derives it."""
+    for k, lineage in (("lumina2", "flux1_vae"), ("kolors", "sdxl_vae"),
+                       ("shuttle3", "flux1_vae")):
+        m = registry.MODELS[k]
+        assert m.lineage == lineage
+        assert "REFUSED" in m.note
+        assert k not in registry.corpus_of("ov7_lineage2")
