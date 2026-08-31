@@ -165,6 +165,61 @@ PrepareTask = tuple  # (write_idx, row_id, path, n_views, seed,
                      #  exclude_families, policy, geometric)
 
 
+def recipe_for_view(view_idx: int, row_id: int, seed: int,
+                    exclude_families: tuple[str, ...] = ()) -> Recipe:
+    """The recipe cached view `view_idx` of `row_id` was built from.
+
+    View 0 is the clean view by the bank's own invariant and has the empty
+    recipe -- never sampled, so it consumes no draws. Every other view derives
+    a FRESH generator from `(seed, row_id, view_idx)`, which is what makes a
+    recipe recoverable from that key alone rather than from a position in a
+    stream. Both facts are relied on twice over: by `recon.attach_recon_to_bank`
+    replaying cached views, and by `train.finetune`, which rebuilds one view's
+    pixels live without materialising the other ten.
+    """
+    if view_idx == 0:
+        return Recipe(())
+    return _sample_recipe_excluding(
+        np.random.default_rng([seed, row_id, view_idx]), exclude_families)
+
+
+def build_view(decoded: np.ndarray, view_idx: int, row_id: int, seed: int, *,
+               policy, geometric: bool = False,
+               exclude_families: tuple[str, ...] = (),
+               recipe: Recipe | None = None,
+               base: np.ndarray | None = None) -> tuple[np.ndarray, Recipe]:
+    """One cached view's pixels, from the decoded image and nothing else.
+
+    `(pixels, recipe)`. Standardise, then orient, then degrade -- the same
+    order, from the same keys, as the loop in `_prepare_image`, because this
+    IS that loop's body. A view's pixels are a pure function of
+    `(seed, row_id, view_idx)` and the file, with the crop offset and the
+    orientation index stored nowhere, so a caller that wants view 7 alone gets
+    byte-for-byte what a full extraction would have written into column 7.
+
+    That property is what makes the unfreeze ladder's D0 rung a control rather
+    than an approximation of one: a frozen tower fed these pixels computes the
+    features already in the bank, so D0 and the cached rung it is the baseline
+    for are the same model twice, not two similar ones.
+    """
+    r = recipe_for_view(view_idx, row_id, seed, exclude_families) if recipe is None else recipe
+    # `base` is the caller's already-standardised image, and it is ONLY valid
+    # under a band policy, where canonicalisation is a pure function of the
+    # pixels and every view shares one result. Under crop each view draws its
+    # own window from its own key, so there is nothing to share and passing a
+    # base would hand all 11 views the same window -- silently, with no shape
+    # error, which is why the caller does not get to decide: crop ignores it.
+    if base is not None and policy.mode != MODE_CROP:
+        std = base
+    else:
+        std = canonicalise(decoded, policy=policy,
+                           rng=canonical_rng(seed, row_id, view_idx)
+                           if policy.mode == MODE_CROP else None)
+    if geometric:
+        std = dihedral(std, sample_dihedral(geometric_rng(seed, row_id, view_idx)))
+    return r.apply(std, np.random.default_rng([seed, row_id, view_idx])), r
+
+
 def _prepare_image(task: PrepareTask) -> dict:
     """Everything for one image that runs on the CPU, before the GPU forward.
 
@@ -232,11 +287,8 @@ def _prepare_image(task: PrepareTask) -> dict:
     # recipe alone.
     views = []
     for v, r in enumerate(recipes):
-        std = base if base is not None else canonicalise(
-            decoded, policy=policy, rng=canonical_rng(seed, row_id, v))
-        if geometric:
-            std = dihedral(std, sample_dihedral(geometric_rng(seed, row_id, v)))
-        views.append(r.apply(std, np.random.default_rng([seed, row_id, v])))
+        views.append(build_view(decoded, v, row_id, seed, policy=policy,
+                                geometric=geometric, recipe=r, base=base)[0])
     labels = [r.labels() for r in recipes]
     return {
         "write_idx": write_idx,
