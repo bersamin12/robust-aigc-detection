@@ -323,6 +323,28 @@ BACKBONES: dict[str, BackboneSpec] = {
                                 "facebook/dinov2-with-registers-large",
                                 518, 1024, 5, 304_372_736),
 
+    # The SAME tower at 224 instead of 518, for the two-tower experiment. It is
+    # a separate registry entry rather than an `--input-size` flag on purpose:
+    # `image_size` is recorded in every bank's config and is what makes a bank
+    # and a checkpoint comparable, so a run that could silently change it would
+    # let two banks claim the same backbone while holding embeddings of
+    # different-resolution images.
+    #
+    # 224/14 = 16, so the tower sees 256 patches + 1 CLS + 4 registers against
+    # 518's 1369 + 5 -- a 5.3x cut in tokens, which is the whole reason two of
+    # these fit on one card where one at 518 barely does. DINOv2 interpolates
+    # its position embeddings, so 224 needs no checkpoint surgery.
+    #
+    # What it costs is NOT free and must be said: `canonicalise` delivers a
+    # 512-px nominal side and the true information content is capped at the
+    # 200-px crop either way, so at 518 the tower UPSAMPLES 512 -> 518 and at
+    # 224 it DOWNSAMPLES 512 -> 224. This entry therefore throws away real
+    # resolution that `dinov2regl` keeps, and a comparison between the two is a
+    # resolution ablation, not a free speedup.
+    "dinov2regl224": BackboneSpec("dinov2regl224",
+                                  "facebook/dinov2-with-registers-large",
+                                  224, 1024, 5, 304_372_736),
+
     # EVA-02-L/14 at 448. A third pretraining PARADIGM, which is why it is here
     # rather than as a fourth ViT: masked image modelling distilled from a CLIP
     # teacher, then supervised fine-tuning on IN-22k/IN-1k -- neither DINOv2's
@@ -398,6 +420,82 @@ BACKBONES: dict[str, BackboneSpec] = {
                                   "google/siglip-so400m-patch14-384",
                                   384, 1152, 0, 428_225_600,
                                   mean=SIGLIP_MEAN, std=SIGLIP_STD),
+
+    # SigLIP2-L/16 at 512. The SAME TOWER as `siglip2l`, at the resolution
+    # `canonicalise` actually emits.
+    #
+    # This is a resolution entry, not a capacity one, and the parameter counts
+    # say so: 316,742,656 against the 384 variant's 316,283,904. The whole
+    # difference is 458,752 values of position embedding. Raising the input
+    # side costs COMPUTE -- (512/16)^2 = 1024 tokens against 576, so ~1.78x --
+    # and buys no parameters at all, which is why "use the bigger SigLIP2" is
+    # not the same proposal as "use a bigger backbone".
+    #
+    # It is here because `canonicalise` emits a 512 nominal side and `siglip2l`
+    # therefore throws away 25% of it before the tower ever sees it -- the same
+    # handicap `eva02l` carries at 448, except that here it is avoidable. If a
+    # SigLIP2 arm is going to be ranked against DINOv2 at 518, it should be
+    # ranked at a resolution that is not a self-inflicted wound.
+    #
+    # NORMALISATION IS ITS OWN, AND THAT COSTS A COMPARISON. This entry takes
+    # SigLIP's [0.5]*3 because it is correct and because no bank on disk
+    # constrains it. `siglip2l` keeps ImageNet's statistics only because its
+    # banks were built that way (see IMAGENET_MEAN). So `siglip2l` ->
+    # `siglip2l512` varies BOTH resolution and normalisation and is not a clean
+    # resolution A/B; the comparison this entry can carry is against
+    # `siglipso400m`, which shares its statistics.
+    #
+    # float16 MEASURED, not inherited (2026-08-31, 24 canonicalised images vs a
+    # float32 run of the same path): every value finite, max|diff| 2.709e-02,
+    # pooled |x| peaks at 15.38 -- far inside float16 both in the tower and in
+    # the bank's float16 storage. Notably tighter than `siglipso400m`'s 36.66
+    # despite the longer sequence. docs/backbone_dtype_probe_new.json.
+    "siglip2l512": BackboneSpec("siglip2l512",
+                                 "google/siglip2-large-patch16-512",
+                                 512, 1024, 0, 316_742_656,
+                                 mean=SIGLIP_MEAN, std=SIGLIP_STD),
+
+    # DINOv2-with-registers ViT-g/14 at 518. THE CAPACITY QUESTION, asked once.
+    #
+    # Every tower in this registry sits between 300M and 660M, so the ablation
+    # has never actually tested whether capacity is what binds. Two results say
+    # it might be the only thing that does: A1/A2 beat A3 on the frozen corpus
+    # -- the training-side variations bought nothing -- and the DINOv3 head
+    # ablation found the frozen features so strong that fitting the classifier
+    # barely moved the number. If the head is not where the signal is decided,
+    # the backbone is, and 300M is where we have been looking for it.
+    #
+    # `dinov2regl` -> `dinov2regg` is a ONE-VARIABLE capacity comparison: same
+    # lineage, same self-distillation objective, same 518 input, same
+    # ImageNet normalisation, and the same 5 prefix tokens
+    # (`num_register_tokens: 4` plus CLS -- confirmed from the published config,
+    # not assumed from the large's entry). Only width (1024 -> 1536) and depth
+    # (24 -> 40) move.
+    #
+    # WHAT IT COSTS. Roughly depth x width^2: (40/24) * (1536/1024)^2 = 3.75x a
+    # ViT-L. Against dinov2l's measured 7.4 img/s at 518 on a 4090 that is
+    # ~2 img/s, so a 20k probe arm is ~2h45 and the 375,358-row union is ~13h
+    # across four cards. This is the one entry whose full extraction is a whole
+    # night, and it must earn that from the probe first.
+    #
+    # WHAT IT FORBIDS. At 1,136,486,912 it can only ship beside a partner of
+    # ~780M or less once the SD 1.5 VAE (84M) and LPIPS (2.5M) are counted. Two
+    # giants are 2.30B and are barred outright -- see
+    # tests/features/test_backbones.py::test_the_heaviest_shippable_configuration_stays_under_2b.
+    #
+    # float16 MEASURED (2026-08-31, same 24 images): finite, max|diff|
+    # 7.612e-03, pooled |x| peaks at 6.85 -- the TIGHTEST of any entry in this
+    # registry, and the expectation going in was the opposite. 40 layers is 40
+    # chances to accumulate and DINOv3's NaN bank was an overflow in layer 1 of
+    # a tower half this deep, so depth was the stated risk. It did not
+    # materialise: the overflow is a property of DINOv3's checkpoint, not of
+    # ViT depth, and DINOv2's lineage does not inherit it at any scale.
+    # docs/backbone_dtype_probe_new.json. This is exactly why the probe exists
+    # rather than a rule of thumb -- the rule of thumb would have cost this
+    # entry a needless bfloat16 fallback and ~3x its runtime on a T4.
+    "dinov2regg": BackboneSpec("dinov2regg",
+                                "facebook/dinov2-with-registers-giant",
+                                518, 1536, 5, 1_136_486_912),
 }
 
 

@@ -288,6 +288,13 @@ class FinetuneConfig:
     weights: LossWeights = field(default_factory=LossWeights)
     device: str = "cuda"
     workers: int = 16
+    #: Pick up from `<out_dir>/<name>/checkpoint.pt` if one is there, instead of
+    #: starting at epoch 0. Off by default: silently continuing a run whose
+    #: config has since changed would produce a checkpoint that no single
+    #: config describes, and the saved config is what every downstream reader
+    #: trusts. `train_finetune` therefore REFUSES a resume whose stored config
+    #: differs from this one in any field that changes the model or the data.
+    resume: bool = False
     #: Source images per micro-batch. The optimiser still steps once per FULL
     #: batch -- this is gradient accumulation, not a smaller batch.
     #:
@@ -559,6 +566,70 @@ def _stratified_subsample(bank, idx, frac, rng):
     return np.sort(np.concatenate(keep))
 
 
+#: Config fields a resume may NOT differ on. Everything else (epochs, workers,
+#: src_chunk, device) is a scheduling detail that can legitimately change
+#: between the run that crashed and the one picking it up; these six change what
+#: is being trained or what it is trained on, and a checkpoint that silently
+#: mixed two of them would be unattributable.
+_RESUME_INVARIANT = ("name", "bank_dir", "backbone", "depth", "seed", "lr",
+                     "tower_lr", "n_src", "m_deg", "head_hidden", "use_film")
+
+
+def _write_ckpt(path, *, head, tower, opt, sampler, epoch, history, cfg,
+                dim_feat, backbone_name, unfrozen) -> None:
+    """One epoch's checkpoint, written atomically.
+
+    `torch.save` straight onto the live path is not safe here: these files are
+    1.2 GB and a kill part-way through leaves a truncated checkpoint where the
+    resume logic expects a valid one, turning a recoverable interruption into a
+    lost run -- which is the exact failure this function exists to prevent. The
+    temp file is on the same filesystem so the rename is atomic.
+
+    The sampler's RNG state is part of the checkpoint. Without it a resumed run
+    re-draws epoch N's batches from a fresh stream, so the union of epochs seen
+    across the crash is not the union the uninterrupted run would have seen,
+    and the resumed run is quietly a different experiment.
+    """
+    tmp = path + ".tmp"
+    torch.save({"state_dict": head.state_dict(),
+                "tower_state_dict": tower.state_dict(),
+                "optimizer_state_dict": opt.state_dict(),
+                "sampler_rng_state": sampler.rng.bit_generator.state,
+                "torch_rng_state": torch.get_rng_state(),
+                "epoch": epoch, "history": history,
+                "config": asdict(cfg), "dim_feat": dim_feat,
+                "backbone": backbone_name, "unfrozen": unfrozen}, tmp)
+    os.replace(tmp, path)
+
+
+def _load_resume(path, cfg, head, tower, opt, sampler):
+    """Restore a run, or refuse. Returns the epoch to start from."""
+    ck = torch.load(path, map_location=cfg.device, weights_only=False)
+    stored = ck.get("config") or {}
+    differing = {k: (stored.get(k), getattr(cfg, k)) for k in _RESUME_INVARIANT
+                 if stored.get(k) != getattr(cfg, k)}
+    if differing:
+        raise ValueError(
+            f"refusing to resume {path}: it was written by a run that differs "
+            f"on {differing} (stored, requested). Resuming would produce a "
+            "checkpoint no single config describes. Rename the output "
+            "directory, or drop --resume to start over.")
+    head.load_state_dict(ck["state_dict"])
+    tower.load_state_dict(ck["tower_state_dict"])
+    if "optimizer_state_dict" in ck:
+        # AdamW's moment estimates are most of what the first epochs bought;
+        # restarting the optimiser from zero would throw that away and give the
+        # resumed epochs a different effective step size from the original.
+        opt.load_state_dict(ck["optimizer_state_dict"])
+    if ck.get("sampler_rng_state") is not None:
+        sampler.rng.bit_generator.state = ck["sampler_rng_state"]
+    if ck.get("torch_rng_state") is not None:
+        torch.set_rng_state(ck["torch_rng_state"].cpu()
+                            if hasattr(ck["torch_rng_state"], "cpu")
+                            else ck["torch_rng_state"])
+    return int(ck.get("epoch", 0)), list(ck.get("history") or [])
+
+
 def train_finetune(cfg: FinetuneConfig) -> dict:
     """Train one depth rung end to end and write its checkpoint."""
     from concurrent.futures import ThreadPoolExecutor
@@ -617,8 +688,23 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
 
     amp = getattr(torch, cfg.amp_dtype)
     param_dtype = next(tower.parameters()).dtype
-    history = []
-    for epoch in range(cfg.epochs):
+
+    # Resolved BEFORE the loop, because the per-epoch checkpoint is written
+    # inside it. This used to be computed only after every epoch had run,
+    # which is precisely why a kill lost the whole run.
+    out_dir = os.path.join(cfg.out_dir, cfg.name)
+    ckpt = os.path.join(out_dir, "checkpoint.pt")
+    if rank == 0:
+        os.makedirs(out_dir, exist_ok=True)
+
+    history, start_epoch = [], 0
+    if cfg.resume and os.path.exists(ckpt):
+        start_epoch, history = _load_resume(ckpt, cfg, head, tower, opt, sampler)
+        print(f"resuming {cfg.name} from epoch {start_epoch}/{cfg.epochs}",
+              flush=True)
+        if start_epoch >= cfg.epochs:
+            print("already complete; nothing to do", flush=True)
+    for epoch in range(start_epoch, cfg.epochs):
         tasks = sampler.batch_tasks()
         # Threads, not processes: the work inside `_prepare_batch` is PIL
         # decode and OpenCV/numpy augmentation, all of which release the GIL,
@@ -689,9 +775,21 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
             dist.all_reduce(t, op=dist.ReduceOp.SUM)
             parts = dict(zip(("cls", "deg", "con", "total"), t.tolist()))
         history.append({"epoch": epoch, **parts})
+        # Write EVERY epoch, not just the last. A 375k-row arm is hours per
+        # epoch; the cost of one 1.2 GB atomic write against losing all of them
+        # is not a trade worth thinking about.
+        if rank == 0:
+            _write_ckpt(ckpt, head=head, tower=tower, opt=opt, sampler=sampler,
+                        epoch=epoch + 1, history=history, cfg=cfg,
+                        dim_feat=spec.dim, backbone_name=backbone_name,
+                        unfrozen=unfrozen)
+        if world > 1:
+            # Ranks must not race ahead into epoch N+1 while rank 0 is still
+            # serialising N, or a kill mid-write leaves the replicas at
+            # different epochs with one checkpoint between them.
+            import torch.distributed as dist
+            dist.barrier()
 
-    out_dir = os.path.join(cfg.out_dir, cfg.name)
-    ckpt = os.path.join(out_dir, "checkpoint.pt")
     if world > 1 and rank != 0:
         # The replicas are identical, so a second writer could only race the
         # first to the same bytes.
@@ -704,10 +802,16 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
     # The TOWER is saved too, and it has to be: at depth > 0 the head alone no
     # longer describes the model, and the eval bank this rung is scored on can
     # only be extracted by the tower that produced its training features.
-    torch.save({"state_dict": head.state_dict(),
-                "tower_state_dict": tower.state_dict(),
-                "config": asdict(cfg), "dim_feat": spec.dim,
-                "backbone": backbone_name, "unfrozen": unfrozen}, ckpt)
+    #
+    # Written through the same writer as the per-epoch checkpoints, with
+    # `epoch=cfg.epochs`, so a finished run and an interrupted one produce the
+    # SAME file shape. A final save in the old shape would carry no `epoch`
+    # key, and `--resume` would read that as epoch 0 and retrain a completed
+    # arm from scratch.
+    _write_ckpt(ckpt, head=head, tower=tower, opt=opt, sampler=sampler,
+                epoch=cfg.epochs, history=history, cfg=cfg,
+                dim_feat=spec.dim, backbone_name=backbone_name,
+                unfrozen=unfrozen)
     result = {"unfrozen": unfrozen, "history": history, "world_size": world}
     with open(os.path.join(out_dir, "result.json"), "w") as f:
         json.dump(result, f, indent=2)

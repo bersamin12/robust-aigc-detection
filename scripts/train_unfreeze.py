@@ -50,6 +50,10 @@ def main() -> int:
                     help="keep this fraction of train rows, stratified by "
                          "(generator, label); for data-scaling reads")
     ap.add_argument("--no-checkpointing", action="store_true")
+    ap.add_argument("--resume", action="store_true",
+                    help="continue from <out-dir>/<name>/checkpoint.pt if it "
+                         "exists; refuses if its config differs on anything "
+                         "that changes the model or the data")
     a = ap.parse_args()
 
     cfg = FinetuneConfig(
@@ -58,7 +62,7 @@ def main() -> int:
         epochs=a.epochs, lr=a.lr, tower_lr=a.tower_lr, n_src=a.n_src,
         m_deg=a.m_deg, src_chunk=a.src_chunk, workers=a.workers, seed=a.seed,
         device=a.device, policy_mode=a.canon_mode, crop_side=a.crop_side,
-        grad_checkpointing=not a.no_checkpointing,
+        grad_checkpointing=not a.no_checkpointing, resume=a.resume,
         train_subsample_frac=a.train_subsample_frac)
 
     res = train_finetune(cfg)

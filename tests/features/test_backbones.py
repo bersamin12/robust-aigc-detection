@@ -39,7 +39,22 @@ def test_registry_has_the_planned_backbones():
                               "convnextt", "resnet50",
                               # backbone-probe candidates, added 2026-08-31
                               "dinov2regl", "eva02l", "convnextv2h",
-                              "siglipso400m"}
+                              "siglipso400m",
+                              # resolution and capacity arms, added 2026-08-31.
+                              # siglip2l512 is siglip2l's tower at the side
+                              # canonicalise actually emits; dinov2regg is the
+                              # first entry above 1B, and asks whether capacity
+                              # is what binds at all.
+                              "siglip2l512", "dinov2regg",
+                              # The two-tower arm, added 2026-09-01.
+                              # dinov2regl224 is dinov2regl's tower at 224
+                              # instead of 518 -- 256 patches against 1369, so
+                              # two of them fit where one at 518 barely does.
+                              # It is a registry entry rather than a runtime
+                              # flag because image_size is recorded in every
+                              # bank config and is what makes a bank and a
+                              # checkpoint comparable.
+                              "dinov2regl224"}
     for spec in BACKBONES.values():
         # 518 is dinov2l's and dinov2regl's: `canonicalise` emits a 512-px
         # nominal side, so 518 is the one registered size that upsamples into
@@ -52,12 +67,17 @@ def test_registry_has_the_planned_backbones():
         #
         # Widening this set is a real decision -- an entry at an unintended
         # resolution silently changes what the bank measures.
-        assert spec.dim > 0 and spec.image_size in (224, 384, 448, 518)
+        # 512 is siglip2l512's, and it is the ONE entry that sees the nominal
+        # side exactly: `canonicalise` emits 512, so 518 upsamples into the
+        # tower, 448 and 384 discard, and 512 does neither. That it took until
+        # 2026-08-31 to register a backbone at the resolution the pipeline
+        # actually produces is itself the reason the entry exists.
+        assert spec.dim > 0 and spec.image_size in (224, 384, 448, 512, 518)
         if spec.pool == POOL_TOKENS:
             # At least a CLS token to strip, except the SigLIP towers, whose
             # architecture has no prefix token at all.
             assert (spec.num_prefix_tokens >= 1
-                    or spec.name in ("siglip2l", "siglipso400m"))
+                    or spec.name in ("siglip2l", "siglip2l512", "siglipso400m"))
         else:
             # A feature map has no token axis, so there is nothing to strip;
             # __post_init__ rejects a non-zero count outright.
@@ -105,8 +125,19 @@ def test_the_heaviest_shippable_configuration_stays_under_2b():
     # A5 fusion loads at most two towers, and Task 4 attaches the SD 1.5 VAE
     # (~84M) and LPIPS AlexNet (~2.5M) alongside, so the worst case is the two
     # heaviest entries plus both auxiliaries.
+    # TWO autoencoders since 2026-08-31, not one. The reconstruction branch
+    # now has a second block (`a4vq`/`a4both`): a bundle that ships the VQ
+    # features carries the VQ autoencoder alongside the KL one, and a bundle
+    # shipping `a4both` carries both. Counted at the measured values rather
+    # than round numbers, and raised HERE on purpose rather than discovered as
+    # a red test after an extraction:
+    #
+    #     SD 1.5 KL VAE                       83,653,863
+    #     CompVis LDM VQ autoencoder          55,322,782
+    #     LPIPS (AlexNet), shared by both      2,470,848
+    KL_VAE, VQ_AE, LPIPS = 83_653_863, 55_322_782, 2_470_848
     heaviest = sorted((spec.params for spec in BACKBONES.values()), reverse=True)
-    worst_case = sum(heaviest[:2]) + 84_000_000 + 2_500_000
+    worst_case = sum(heaviest[:2]) + KL_VAE + VQ_AE + LPIPS
     assert worst_case < 2_000_000_000, f"{worst_case:,} parameters"
 
 
@@ -122,8 +153,16 @@ def test_backbone_params_are_positive_and_real_looking():
     # so that sentence is a property of convnextt and resnet50 and not of the
     # paradigm. It now lives on their own registry entries, where it is still
     # exactly right, and what is left here is a plausibility check.
+    #
+    # The upper bound moved from 1B to 1.5B on 2026-08-31 for `dinov2regg`
+    # (1,136,486,912). It is a plausibility guard, not a budget: the budget is
+    # test_the_heaviest_shippable_configuration_stays_under_2b, and THAT test
+    # is now nearly binding -- dinov2regg + convnextv2h + the two auxiliaries
+    # is 1.880B against the 2B cap, where before this entry the worst pair left
+    # 828M of headroom and now leaves 119M. A third auxiliary model would break
+    # it. Widening this band does not widen that one.
     for spec in BACKBONES.values():
-        assert 10_000_000 < spec.params < 1_000_000_000, spec.name
+        assert 10_000_000 < spec.params < 1_500_000_000, spec.name
 
 
 def test_squish_ignores_aspect_ratio():
@@ -264,7 +303,12 @@ def _tiny_tower(name: str):
         from transformers import CLIPVisionConfig, CLIPVisionModel
         model = CLIPVisionModel(CLIPVisionConfig(
             patch_size=_TINY_PATCH, image_size=_TINY_IMAGE, **_TINY))
-    elif name == "dinov2regl":
+    elif name in ("dinov2regl", "dinov2regl224"):
+        # `dinov2regl224` is the SAME tower and the same recipe -- only the
+        # registry's `image_size` differs, and the tiny stand-in overrides that
+        # with `_TINY_IMAGE` anyway, so sharing the branch is honest rather
+        # than a shortcut: the contract being checked (register count, prefix
+        # stripping, tensor shapes) is genuinely identical.
         # Dinov2WithRegistersModel, and NOT Dinov2Model: the registers are the
         # entire reason this entry exists beside `dinov2l`. num_register_tokens
         # 4 plus the CLS token == the registry's num_prefix_tokens of 5, so the
@@ -277,6 +321,26 @@ def _tiny_tower(name: str):
         model = Dinov2WithRegistersModel(Dinov2WithRegistersConfig(
             patch_size=_TINY_PATCH, image_size=_TINY_IMAGE,
             num_register_tokens=real.num_prefix_tokens - 1, **_TINY))
+    elif name == "dinov2regg":
+        # Identical recipe to dinov2regl, and that is the point: dinov2regl ->
+        # dinov2regg is a one-variable capacity comparison, so if the giant
+        # needed a DIFFERENT tower class here the comparison would be varying
+        # the architecture too. `num_register_tokens: 4` is confirmed from the
+        # giant's own published config, not inherited from the large's entry.
+        from transformers import Dinov2WithRegistersConfig, Dinov2WithRegistersModel
+        assert real.num_prefix_tokens == 5
+        model = Dinov2WithRegistersModel(Dinov2WithRegistersConfig(
+            patch_size=_TINY_PATCH, image_size=_TINY_IMAGE,
+            num_register_tokens=real.num_prefix_tokens - 1, **_TINY))
+    elif name == "siglip2l512":
+        # SiglipVisionModel, same class as siglip2l: the 512 checkpoint is the
+        # SAME TOWER at a longer position embedding and publishes the same
+        # `model_type: siglip`. A different class here would mean the entry was
+        # mis-registered as a capacity change rather than a resolution one.
+        from transformers import SiglipVisionConfig, SiglipVisionModel
+        model = SiglipVisionModel(SiglipVisionConfig(
+            patch_size=_TINY_PATCH, image_size=_TINY_IMAGE,
+            num_channels=3, **_TINY))
     elif name == "eva02l":
         # Through TimmWrapperModel, which is what `load_backbone` actually gets
         # back from AutoModel for a `timm/*` repo -- a bare timm module has
