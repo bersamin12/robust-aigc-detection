@@ -23,6 +23,9 @@ cd "$(dirname "$0")/.."
 export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
 
 NM=${NM:-dual_d24}
+# dinov2regl224 is the 224 experiment; dinov2regl (518) is the same
+# weights read at native resolution -- the 2026-09-01 dual@518 arm.
+BACKBONE=${BACKBONE:-dinov2regl224}
 DEPTH=${DEPTH:-24}          # ViT-L/14 has 24 blocks; 24 == full unfreeze, per tower
 EPOCHS=${EPOCHS:-3}
 CHUNK=${CHUNK:-8}
@@ -90,14 +93,14 @@ print(f"preflight OK: {len(b.meta):,} rows, {n_train:,} train, "
       f"corpus resolves via {col} (absolute={absolute})")
 PY
 
-echo "[$(date +%H:%M:%S)] $NM 2x dinov2regl224 depth=$DEPTH epochs=$EPOCHS gpus=$GPUS workers=$WORKERS chunk=$CHUNK omp=$OMP sched=$SCHED swa=$SWA crop=$CROPSIDE nominal=$NOMINAL clamp=$CLAMP" | tee -a "$LOG"
+echo "[$(date +%H:%M:%S)] $NM 2x $BACKBONE depth=$DEPTH epochs=$EPOCHS gpus=$GPUS workers=$WORKERS chunk=$CHUNK omp=$OMP sched=$SCHED swa=$SWA crop=$CROPSIDE nominal=$NOMINAL clamp=$CLAMP" | tee -a "$LOG"
 echo "[$(date +%H:%M:%S)] NOTE: prints nothing until epoch 1 completes. Silence is normal." | tee -a "$LOG"
 
 OMP_NUM_THREADS=$OMP $PY -m torch.distributed.run \
   --nproc_per_node="$GPUS" --master_port=29586 \
   scripts/train_dual.py \
   --bank "$BANK" --root "$ROOT" \
-  --backbone dinov2regl224 --depth "$DEPTH" --name "$NM" \
+  --backbone "$BACKBONE" --depth "$DEPTH" --name "$NM" \
   --perturb-tower2 "$PERTURB" \
   --out-dir outputs/dual --epochs "$EPOCHS" \
   --canon-mode crop --crop-side "$CROPSIDE" \
