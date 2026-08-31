@@ -49,13 +49,18 @@ def check_licence(model_key: str) -> None:
     """
     from huggingface_hub import model_info
     spec = MODELS[model_key]
-    published = (model_info(spec.hf_id).cardData or {}).get("license")
-    if published != spec.licence_tag:
-        raise RuntimeError(
-            f"{spec.hf_id} publishes license={published!r}, registry claims "
-            f"{spec.licence_tag!r}. Re-audit before generating anything with "
-            f"it -- the whole licence position of this corpus rests on the "
-            f"registry being true.")
+    # Every repo the pipeline pulls, not only the one it is addressed by: a
+    # combined pipeline (Kandinsky 2.2) loads its prior from a second repo,
+    # and checking one of the two licence-clears half the weights that made
+    # the image.
+    for hf_id in (spec.hf_id, *spec.companion_ids):
+        published = (model_info(hf_id).cardData or {}).get("license")
+        if published != spec.licence_tag:
+            raise RuntimeError(
+                f"{hf_id} publishes license={published!r}, registry claims "
+                f"{spec.licence_tag!r}. Re-audit before generating anything "
+                f"with it -- the whole licence position of this corpus rests "
+                f"on the registry being true.")
 
 
 def load(model_key: str, methods: set[str], device: str = "cuda"):
@@ -126,23 +131,44 @@ def _free_vram_gb(device: str) -> float:
     return free / 2 ** 30
 
 
+def _round_up(n: int, mult: int) -> int:
+    """Smallest multiple of `mult` that is >= n. Never rounds DOWN: a smaller
+    output cannot be cropped up to the real's box, and `generate` raises."""
+    if mult < 1:
+        raise ValueError(f"size_multiple must be >= 1, got {mult}")
+    return -(-n // mult) * mult
+
+
 def generate(pipe, fam: FamilySpec, real: Image.Image, prompt: str,
              seed: int, size: tuple[int, int], device: str = "cuda") -> Image.Image:
     """Produce one fake at exactly `size` (w, h)."""
     import torch
 
     w, h = size
+    # Ask at the model's own latent granularity and crop back to the real's
+    # box below. Kandinsky 2.2 silently rounds a request up to a multiple of
+    # 64 -- measured: 432x640 and 416x640 both came back 448x640, the same
+    # image twice -- and Sana's 32x deep-compression autoencoder will not
+    # accept a size 32 does not divide. Requesting the real's exact box and
+    # hoping is how a family ends up with a dimension the pair does not
+    # share, which is the leak `geometry.crop_box` exists to prevent.
+    spec = MODELS[fam.model]
+    mult = spec.size_multiple
+    rw, rh = _round_up(w, mult), _round_up(h, mult)
     g = torch.Generator(device if str(device).startswith("cuda") else "cpu")
     g.manual_seed(seed % (2 ** 63))
     kw = dict(prompt=prompt, num_inference_steps=fam.steps,
               guidance_scale=fam.guidance, generator=g)
     if fam.negative:
         kw["negative_prompt"] = fam.negative
+    # Per-model call arguments. Sana's `use_resolution_binning=False` lives
+    # here, and it is load-bearing: see `ModelSpec.call_kwargs`.
+    kw.update(dict(spec.call_kwargs))
 
     if fam.method == "t2i":
-        out = pipe(height=h, width=w, **kw)
+        out = pipe(height=rh, width=rw, **kw)
     elif fam.method == "ref_image":
-        out = pipe(image=[real], height=h, width=w, **kw)
+        out = pipe(image=[real], height=rh, width=rw, **kw)
     elif fam.method == "img2img":
         out = pipe(image=real, strength=fam.strength, **kw)
     elif fam.method == "self_cond":
@@ -152,13 +178,15 @@ def generate(pipe, fam: FamilySpec, real: Image.Image, prompt: str,
         # not "inpaint this region" -- the pipeline composites nothing back,
         # so every output pixel is generated.
         mask = Image.new("L", (w, h), 0)
-        out = pipe(image=real, mask_image=mask, height=h, width=w,
+        out = pipe(image=real, mask_image=mask, height=rh, width=rw,
                    strength=1.0, **kw)
     else:
         raise KeyError(f"unknown method {fam.method!r}")
 
     img = out.images[0].convert("RGB")
     if img.size != (w, h):
+        # Includes the rounding above, and anything else the pipeline decided
+        # on its own; either way the pair must end at the real's exact box.
         # Crop, never resize: a resample leaves the spectral signature
         # `docs/resolution_shortcut.md` measured, on the generated class only.
         if img.size[0] < w or img.size[1] < h:
@@ -289,18 +317,26 @@ def run_family(family: str, sel: pd.DataFrame, captions: dict[str, str],
 
 def run(sel: pd.DataFrame, captions: dict[str, str], out_root: str | Path,
         rows_dir: str | Path, seed: int, *,
-        suite: dict[str, FamilySpec] | None = None, device: str = "cuda") -> list[dict]:
+        suite: dict[str, FamilySpec] | None = None,
+        corpus: dict[str, FamilySpec] | None = None,
+        device: str = "cuda") -> list[dict]:
     """Generate the whole selection, one MODEL at a time.
 
     Model-major rather than family-major so a 15 GB set of weights is loaded
     once and serves every family that needs it, and so only one model is
     resident at a time -- klein-4B alone is 15 GB of a 20 GB card.
+
+    `corpus` is every family the manifest will hold once this run lands; the
+    held-out invariants are properties of that and not of one run's slice
+    (`registry.validate_suite`). Revalidated here and not merely at the CLI
+    because `run` is the entry point that spends the GPU, and a caller that
+    built its own suite dict never went through the CLI at all.
     """
     import gc
     import torch
 
     suite = SUITE if suite is None else suite
-    validate_suite(suite)
+    validate_suite(suite, corpus=corpus)
     out_root, rows_dir = Path(out_root), Path(rows_dir)
     families = [f for f in sel["family"].unique() if f in suite]
 

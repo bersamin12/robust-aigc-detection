@@ -5,6 +5,8 @@ surface at the end, after the GPU time was spent.
 """
 import pytest
 
+from aigcdet.generate import registry
+
 from aigcdet.generate.registry import (HELDOUT_LINEAGE, METHODS, MODELS, SUITE,
                                        FamilySpec, family_of, heldout_groups,
                                        lineage_of, resolve_suite, validate_suite)
@@ -135,3 +137,85 @@ def test_pair_split_by_stem_is_off_by_default():
     the manifest it was extracted against."""
     from aigcdet.data.presets import load_preset
     assert load_preset("configs/datasets/union.yaml").pair_split_by_stem is False
+
+
+# --- the additive lineage supplement ---------------------------------------
+
+def test_the_supplement_brings_lineages_the_frozen_suite_does_not_have():
+    """The point of the supplement is decoder diversity, not image count. A
+    family whose decoder is already in the corpus adds volume and nothing to
+    the held-out axis."""
+    have = {registry.lineage_of(n, registry.SUITE) for n in registry.SUITE}
+    new = {registry.lineage_of(n, registry.LINEAGE_SUPPLEMENT)
+           for n in registry.LINEAGE_SUPPLEMENT}
+    assert new.isdisjoint(have), f"{new & have} is already in the corpus"
+    assert new == {"movq", "dc_ae"}
+
+
+def test_the_supplement_validates_only_against_the_corpus_it_extends():
+    """Standalone it holds out a lineage it does not contain, which is exactly
+    the refusal we want -- checked here so nobody 'fixes' it by loosening
+    validate_suite."""
+    registry.validate_suite(registry.LINEAGE_SUPPLEMENT,
+                            corpus=registry.corpus_of("ov7_lineage"))
+    with pytest.raises(ValueError, match="held-out lineage"):
+        registry.validate_suite(registry.LINEAGE_SUPPLEMENT)
+
+
+def test_corpus_of_is_the_union_and_leaves_the_frozen_suite_alone():
+    c = registry.corpus_of("ov7_lineage")
+    assert set(c) == set(registry.SUITE) | set(registry.LINEAGE_SUPPLEMENT)
+    assert registry.corpus_of("ov7") == registry.SUITE
+    # the frozen corpus is on disk; a mutation here re-cuts it
+    assert set(registry.SUITE) == {
+        "sdxl_t2i", "sd15_t2i", "sdxl_self_cond", "sdxl_img2img",
+        "sd15_img2img", "klein4b_t2i", "klein4b_ref_image"}
+
+
+def test_five_lineages_make_leave_one_out_a_distribution():
+    """Three lineages give one rotation and a point estimate. The supplement
+    exists to make that a distribution, and `validate_suite` needs two
+    trainable lineages left for each one held out."""
+    c = registry.corpus_of("ov7_lineage")
+    lineages = {registry.lineage_of(n, c) for n in c}
+    assert len(lineages) == 5
+    for held in lineages:
+        assert len(lineages - {held}) >= 2
+
+
+def test_every_supplement_model_is_commercial_and_apache():
+    for fam in registry.LINEAGE_SUPPLEMENT.values():
+        m = registry.MODELS[fam.model]
+        assert m.commercial and m.licence_tag == "apache-2.0", m.hf_id
+
+
+def test_the_supplement_is_t2i_only():
+    """An image-conditioned fake shares composition with its real, so it
+    carries less of its decoder's fingerprint. For an arm whose only job is to
+    represent a decoder, that dilutes the measurement."""
+    assert {f.method for f in registry.LINEAGE_SUPPLEMENT.values()} == {"t2i"}
+
+
+# --- the two hazards the smoke run found ------------------------------------
+
+def test_sana_disables_resolution_binning():
+    """Left on, a 432x640 request is generated at 1216x832 and resized back --
+    var-Laplacian 2083.8 against 555.9 native. That is a resample on the
+    generated class only, in a corpus whose worst confound is sharpness."""
+    assert dict(registry.MODELS["sana_1600m"].call_kwargs)[
+        "use_resolution_binning"] is False
+
+
+def test_the_models_that_round_their_own_size_declare_it():
+    assert registry.MODELS["sana_1600m"].size_multiple == 32
+    assert registry.MODELS["kandinsky22"].size_multiple == 64
+    # everything in the frozen suite must stay at 8, or its sizes change
+    for fam in registry.SUITE.values():
+        assert registry.MODELS[fam.model].size_multiple == 8
+
+
+def test_kandinsky_declares_the_second_repo_its_pipeline_pulls():
+    """The combined pipeline loads its prior from another repo; checking only
+    hf_id licence-clears half the weights that made the image."""
+    assert registry.MODELS["kandinsky22"].companion_ids == (
+        "kandinsky-community/kandinsky-2-2-prior",)

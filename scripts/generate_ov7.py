@@ -29,6 +29,37 @@ PORTRAIT = "/mnt/berstorage/techjam/open_images/portrait"
 ATTRIBUTION = "/mnt/berstorage/techjam/open_images/attribution.csv"
 
 
+def used_elsewhere(rows_dir: Path, sel: pd.DataFrame) -> list[tuple[str, str, str]]:
+    """Reals this run would generate for that ALREADY have a fake elsewhere.
+
+    `pool.select` promises one real produces exactly one fake for exactly one
+    family, and it keeps that promise within a single deal. Across two deals
+    it cannot: the family pattern is built from the suite's shares, so running
+    a different suite re-deals every real in the block. A real that is
+    `sdxl_t2i` under one suite can come out `sana1600m_t2i` under the next,
+    and nothing downstream would object -- `_done_ids` is per family, so the
+    second fake is simply generated. The corpus then carries one scene twice
+    on the generated side against one real, and any content the head
+    memorises from it arrives with a label prior attached.
+
+    Returns (image_id, family that already owns it, family newly dealt it).
+    Re-selecting the same real for the SAME family is a resume, not a clash.
+    """
+    owner: dict[str, str] = {}
+    for path in sorted(Path(rows_dir).glob("rows_*.jsonl")):
+        fam = path.name[len("rows_"):-len(".jsonl")]
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                owner[json.loads(line)["image_id"]] = fam
+            except json.JSONDecodeError:
+                continue  # truncated final line; `_done_ids` tolerates it too
+    return [(i, owner[i], f) for i, f in zip(sel["image_id"], sel["family"])
+            if owner.get(i, f) != f]
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -47,6 +78,13 @@ def main(argv=None) -> int:
     ap.add_argument("--shard", type=int, default=0)
     ap.add_argument("--n-shards", type=int, default=1)
     ap.add_argument("--device", default="cuda")
+    ap.add_argument("--suite", default="ov7", choices=sorted(registry.SUITES),
+                    help="which suite to run. 'ov7_lineage' is the additive "
+                         "supplement: two new decoder lineages over reals the "
+                         "first run never touched. Give it a --shard clear of "
+                         "the reals already used, or the family deal is "
+                         "recomputed and a real that already has a fake gets "
+                         "a second one from another family.")
     ap.add_argument("--families", default=None,
                     help="comma-separated subset, for a smoke run")
     ap.add_argument("--smoke", action="store_true",
@@ -65,7 +103,8 @@ def main(argv=None) -> int:
                  "the only way to crop a real without re-encoding it. "
                  "Debian/Ubuntu: libjpeg-turbo-progs.")
 
-    suite = dict(registry.SUITE)
+    suite = dict(registry.SUITES[args.suite])
+    corpus = registry.corpus_of(args.suite)
     if args.families:
         want = [f.strip() for f in args.families.split(",")]
         unknown = set(want) - set(suite)
@@ -78,9 +117,10 @@ def main(argv=None) -> int:
         per = max(1, args.total // len(suite))
         counts = {k: per for k in suite}
     else:
-        registry.validate_suite(suite)
-        counts = registry.resolve_suite(args.total, suite)
-    print(f"[suite] {counts}  (total {sum(counts.values())})", flush=True)
+        registry.validate_suite(suite, corpus=corpus)
+        counts = registry.resolve_suite(args.total, suite, corpus=corpus)
+    print(f"[suite] {args.suite}: {counts}  (total {sum(counts.values())})",
+          flush=True)
 
     pool_path = Path(args.pool)
     if pool_path.exists():
@@ -103,6 +143,20 @@ def main(argv=None) -> int:
     print(f"[select] {len(sel)} reals, disjoint across "
           f"{sel.family.nunique()} families", flush=True)
 
+    clashes = used_elsewhere(rows_dir, sel)
+    if clashes:
+        head = ", ".join(f"{i} ({was} -> {now})" for i, was, now in clashes[:5])
+        ap.error(
+            f"{len(clashes)} of {len(sel)} reals already have a fake under a "
+            f"different family: {head}"
+            + (" ..." if len(clashes) > 5 else "")
+            + f". One real produces one fake for one family; generating these "
+              f"would put a scene in the corpus twice on the generated side "
+              f"against one real. This is what happens when a second suite "
+              f"re-deals reals the first one used -- run the supplement on a "
+              f"--shard clear of them (--shard 1 --n-shards 5 starts at "
+              f"position 10925, past the 0-9999 the ov7 suite consumed).")
+
     caps = caption_pool(dict(zip(sel["image_id"], sel["path"])), args.captions,
                         device=args.device)
     caps = dict(zip(caps["image_id"], caps["caption"]))
@@ -112,7 +166,7 @@ def main(argv=None) -> int:
               f"skipped rather than generated on an empty prompt", flush=True)
 
     stats = run(sel, caps, out_root, rows_dir, args.seed,
-                suite=suite, device=args.device)
+                suite=suite, corpus=corpus, device=args.device)
 
     ok = sum(s["ok"] for s in stats)
     failed = sum(s["failed"] for s in stats)

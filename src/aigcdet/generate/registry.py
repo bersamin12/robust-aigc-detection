@@ -50,6 +50,38 @@ class ModelSpec:
     #: lineage, because "recon separates fakes" does not generalise off the
     #: lineage that shares the probe's VAE.
     recon_probe_collision: bool = False
+    #: The latent downsampling factor the pipeline requires the requested
+    #: height and width to be a multiple of. 8 for every KL-VAE UNet here;
+    #: Sana's deep-compression autoencoder is 32, and asking it for a size
+    #: this does not divide either raises or silently returns a different
+    #: one. `run.generate` rounds the request UP to this and crops the output
+    #: back to the real's exact box, because the pair is void the moment the
+    #: two sides differ in size (`geometry.crop_box`, and the leak it exists
+    #: to prevent). Cropping and not resampling, per
+    #: `docs/resolution_shortcut.md`.
+    size_multiple: int = 8
+    #: Every OTHER repo the pipeline pulls weights from. Kandinsky 2.2's
+    #: combined pipeline loads a separate prior repo, and `check_licence`
+    #: verified only `hf_id` -- so half the weights that made an image were
+    #: licence-checked and half were not. This corpus's entire licence
+    #: position rests on the registry being true, so it must name every repo
+    #: the pipeline touches, not just the one it is addressed by.
+    companion_ids: tuple[str, ...] = ()
+    #: Extra keyword arguments for the pipeline CALL, as pairs so the spec
+    #: stays hashable.
+    #:
+    #: Sana defaults `use_resolution_binning=True`, which maps the request to
+    #: the nearest 1024-based aspect bin, generates there, and resizes the
+    #: result back (`pipeline_sana.py`, `resize_and_crop_tensor`). Measured on
+    #: this corpus's own geometry: a 432x640 request is generated at 1216x832
+    #: -- LANDSCAPE, for a portrait request -- and squashed down, which leaves
+    #: var-Laplacian at 2083.8 against 555.9 for the native generation, near
+    #: 4x sharper. That is the resample `docs/resolution_shortcut.md` bans,
+    #: applied to the generated class only, in a corpus whose worst remaining
+    #: confound IS sharpness (0.5998). It would have handed the head a family
+    #: separable on one statistic. Off, which makes 32-divisibility a hard
+    #: error instead -- see `size_multiple`.
+    call_kwargs: tuple[tuple[str, object], ...] = ()
     note: str = ""
 
 
@@ -86,12 +118,29 @@ MODELS: dict[str, ModelSpec] = {
              "why it is here and FLUX.1-schnell (12B, 23.8 GB) is not."),
     "kandinsky22": ModelSpec(
         hf_id="kandinsky-community/kandinsky-2-2-decoder",
+        companion_ids=("kandinsky-community/kandinsky-2-2-prior",),
         licence_tag="apache-2.0", commercial=True,
-        lineage="movq", arch="unet_prior", vram_gb=6.0,
-        note="AVAILABLE, NOT IN THE SUITE. A genuinely distinct decoder "
-             "(MoVQ) and the natural fourth lineage, but it needs a separate "
-             "prior pipeline and its own resolution handling, which did not "
-             "fit the session that built this. Enable it here first."),
+        lineage="movq", arch="unet_prior", vram_gb=10.0, size_multiple=64,
+        note="The fourth lineage, and the only VECTOR-QUANTISED decoder here: "
+             "MoVQ is a VQModel, not a KL-VAE, so holding it out is a jump "
+             "between decoder classes rather than between two continuous "
+             "latents. AutoPipelineForText2Image resolves it to "
+             "KandinskyV22CombinedPipeline, which pulls the prior from a "
+             "SECOND repo -- hence companion_ids; both are apache-2.0. "
+             "Measured 9.2 GB resident, ~1.9 s/image at 20 steps, and it "
+             "SILENTLY rounds a request up to a multiple of 64: 432x640 and "
+             "416x640 both came back 448x640, the same image twice."),
+    "sana_1600m": ModelSpec(
+        hf_id="Efficient-Large-Model/Sana_1600M_1024px_diffusers",
+        licence_tag="apache-2.0", commercial=True,
+        lineage="dc_ae", arch="sana_dit", vram_gb=9.0, size_multiple=32,
+        call_kwargs=(("use_resolution_binning", False),),
+        note="The fifth lineage and the most architecturally distant decoder "
+             "in the registry: AutoencoderDC, a 32x deep-compression "
+             "autoencoder with 32 latent channels, against everything else's "
+             "8x KL-VAE. Apache-2.0 including the bundled text encoder. "
+             "Measured 8.5 GB resident, ~4 s/image at 20 steps. Read "
+             "call_kwargs before changing anything about how it is called."),
     # --- Refused. Kept so the next person does not re-derive the refusal. ---
     "sdxl_turbo": ModelSpec(
         hf_id="stabilityai/sdxl-turbo",
@@ -180,8 +229,54 @@ SUITE: dict[str, FamilySpec] = {
     "klein4b_ref_image": FamilySpec("flux2_klein_4b", "ref_image", 0.06, 20, 1.0),
 }
 
+#: Additive second run: two NEW decoder lineages over reals the first run
+#: never touched (`--shard`). It exists to make the held-out rung a
+#: measurement instead of an anecdote -- with three lineages there is exactly
+#: one leave-one-lineage-out rotation and its result is a point estimate;
+#: with five there are five, and "generalises to an unseen decoder" becomes a
+#: distribution.
+#:
+#: t2i only, and deliberately: image-conditioned methods share composition
+#: with the real, so a fake that is 30% redraw carries less of its decoder's
+#: fingerprint than one generated from noise. For an arm whose entire job is
+#: to represent a decoder, that dilutes the thing being measured.
+#:
+#: These are TRAINING lineages, not new held-out ones. `HELDOUT_LINEAGE` stays
+#: flux2_vae; which lineage a given rung actually holds out is a rung-level
+#: choice (`RungConfig.train_exclude_generators`), and adding these is what
+#: makes rotating that choice possible at all.
+LINEAGE_SUPPLEMENT: dict[str, FamilySpec] = {
+    "kandinsky22_t2i": FamilySpec("kandinsky22", "t2i", 0.5, 25, 4.0),
+    "sana1600m_t2i":   FamilySpec("sana_1600m",  "t2i", 0.5, 20, 4.5),
+}
+
+#: Runnable suites by name (`generate_ov7.py --suite`).
+SUITES: dict[str, dict[str, FamilySpec]] = {
+    "ov7": SUITE,
+    "ov7_lineage": LINEAGE_SUPPLEMENT,
+}
+
+#: Which already-generated suites each one is generated INTO. A supplement is
+#: additive, so its run has to be validated against every family the manifest
+#: will end up holding, not against its own two -- see `validate_suite`.
+SUITE_EXTENDS: dict[str, tuple[str, ...]] = {
+    "ov7": (),
+    "ov7_lineage": ("ov7",),
+}
+
 #: Held out as a whole lineage or not at all (`presets.heldout_groups`).
 HELDOUT_LINEAGE = "flux2_vae"
+
+
+def corpus_of(suite_name: str) -> dict[str, FamilySpec]:
+    """Every family the manifest holds once `suite_name` has run."""
+    if suite_name not in SUITES:
+        raise KeyError(f"unknown suite {suite_name!r}; known: {sorted(SUITES)}")
+    out: dict[str, FamilySpec] = {}
+    for base in SUITE_EXTENDS[suite_name]:
+        out.update(SUITES[base])
+    out.update(SUITES[suite_name])
+    return out
 
 
 def family_of(name: str, suite: dict[str, FamilySpec] | None = None) -> FamilySpec:
@@ -204,13 +299,28 @@ def heldout_groups(suite: dict[str, FamilySpec] | None = None) -> list[list[str]
 
 
 def validate_suite(suite: dict[str, FamilySpec] | None = None,
-                   *, tol: float = 1e-9) -> None:
+                   *, tol: float = 1e-9,
+                   corpus: dict[str, FamilySpec] | None = None) -> None:
     """Raise unless the suite is runnable, licence-clean and held-out-sane.
 
     Called by `run.py` before a single model loads, because every failure here
     is one a six-hour generation run would otherwise surface at the end.
+
+    `corpus` is every family the MANIFEST will contain once this run lands,
+    and the held-out invariants -- that `HELDOUT_LINEAGE` is represented, and
+    that two or more lineages are left to train on -- are properties of that
+    rather than of one run's slice. A supplement run adding two new lineages
+    to an existing corpus is a perfectly valid run and an invalid corpus on
+    its own; checked against itself it would be refused for holding out a
+    lineage it was never meant to contain. The per-family and share checks
+    stay on `suite`, because those ARE properties of the run: the shares have
+    to sum to 1 for `resolve_suite` to divide `--total` by them.
+
+    Defaults to `suite`, which is the single-run case and reproduces the
+    original behaviour exactly.
     """
     suite = SUITE if suite is None else suite
+    corpus = suite if corpus is None else corpus
     if not suite:
         raise ValueError("empty suite")
     for name, fam in suite.items():
@@ -232,11 +342,11 @@ def validate_suite(suite: dict[str, FamilySpec] | None = None,
     total = sum(f.share for f in suite.values())
     if abs(total - 1.0) > tol:
         raise ValueError(f"shares sum to {total!r}, not 1.0")
-    groups = heldout_groups(suite)
+    groups = heldout_groups(corpus)
     if not groups[0]:
         raise ValueError(f"no family has the held-out lineage "
                          f"{HELDOUT_LINEAGE!r}; the split would hold out nothing")
-    trained = {lineage_of(n, suite) for n in suite} - {HELDOUT_LINEAGE}
+    trained = {lineage_of(n, corpus) for n in corpus} - {HELDOUT_LINEAGE}
     if len(trained) < 2:
         raise ValueError(
             f"only {len(trained)} lineage(s) left in training ({trained}); "
@@ -244,12 +354,13 @@ def validate_suite(suite: dict[str, FamilySpec] | None = None,
             f"single decoder, which is not the unseen-generator question")
 
 
-def resolve_suite(total: int, suite: dict[str, FamilySpec] | None = None
+def resolve_suite(total: int, suite: dict[str, FamilySpec] | None = None,
+                  *, corpus: dict[str, FamilySpec] | None = None
                   ) -> dict[str, int]:
     """Split `total` images across the suite by share, largest-remainder, so the
     counts sum to exactly `total` and no family silently rounds to zero."""
     suite = SUITE if suite is None else suite
-    validate_suite(suite)
+    validate_suite(suite, corpus=corpus)
     if total < len(suite):
         raise ValueError(f"total {total} cannot cover {len(suite)} families")
     exact = {n: f.share * total for n, f in suite.items()}

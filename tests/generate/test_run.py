@@ -10,7 +10,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from aigcdet.generate.run import MIN_DELTA, MIN_STD, _done_ids, check
+from aigcdet.generate.run import (MIN_DELTA, MIN_STD, _done_ids, _round_up,
+                                  check)
 
 
 def _img(seed=0, w=64, h=96):
@@ -82,3 +83,64 @@ def test_done_ids_survives_a_truncated_last_line(tmp_path):
 
 def test_done_ids_on_a_fresh_run(tmp_path):
     assert _done_ids(tmp_path / "nope.jsonl", tmp_path, "x") == set()
+
+
+# --- size granularity -------------------------------------------------------
+# Kandinsky 2.2 was measured silently rounding a request UP to a multiple of
+# 64: 432x640 and 416x640 both came back 448x640 -- the same image twice. A
+# pipeline that decides its own size is how a family ends up with a dimension
+# its real does not share, which is the leak the whole corpus exists to avoid.
+
+def test_round_up_is_a_no_op_for_the_sizes_the_frozen_suite_uses():
+    """`crop_box` emits multiples of 16, and every model in the frozen suite
+    has size_multiple 8. Rounding must therefore change nothing for them, or
+    this would silently re-cut the corpus already on disk."""
+    for n in (400, 416, 432, 448, 560, 640):
+        assert _round_up(n, 8) == n
+
+
+def test_round_up_never_rounds_down():
+    """A smaller output cannot be cropped up to the real's box; `generate`
+    raises on it. So the rounding has to go the safe way."""
+    for n, mult in ((432, 64), (416, 64), (433, 32), (1, 32)):
+        assert _round_up(n, mult) >= n
+        assert _round_up(n, mult) % mult == 0
+
+
+def test_round_up_matches_what_kandinsky_actually_did():
+    assert _round_up(432, 64) == 448 and _round_up(416, 64) == 448
+
+
+def test_round_up_refuses_a_nonsense_multiple():
+    with pytest.raises(ValueError, match="size_multiple"):
+        _round_up(64, 0)
+
+
+# --- licence ----------------------------------------------------------------
+
+def test_check_licence_verifies_every_repo_the_pipeline_pulls(monkeypatch):
+    """A combined pipeline loads its prior from a SECOND repo. Checking only
+    `hf_id` licence-clears half the weights that made the image, and the
+    corpus's whole licence position is the registry being true."""
+    import aigcdet.generate.run as run_mod
+    from aigcdet.generate.registry import MODELS, ModelSpec
+
+    spec = ModelSpec(hf_id="org/decoder", licence_tag="apache-2.0",
+                     commercial=True, lineage="x", arch="unet",
+                     companion_ids=("org/prior",))
+    monkeypatch.setitem(MODELS, "_probe", spec)
+
+    seen = []
+
+    class _Info:
+        def __init__(self, lic):
+            self.cardData = {"license": lic}
+
+    def fake_info(hf_id, *a, **k):
+        seen.append(hf_id)
+        return _Info("apache-2.0" if hf_id == "org/decoder" else "other")
+
+    monkeypatch.setattr("huggingface_hub.model_info", fake_info)
+    with pytest.raises(RuntimeError, match="org/prior"):
+        run_mod.check_licence("_probe")
+    assert seen == ["org/decoder", "org/prior"]

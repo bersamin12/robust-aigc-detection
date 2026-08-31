@@ -268,7 +268,78 @@ random 40 pairs with 0 failures. Normalised size 7.1 GB; raw JPEG pairs 1.7 GB.
 Zero square and zero landscape rows across all 19,956; sizes run 400x560 to
 448x640.
 
-## 11. Still owed
+## 11. The lineage supplement (`--suite ov7_lineage`)
+
+Three decoder lineages give exactly one leave-one-lineage-out rotation, so
+"generalises to an unseen decoder" is a point estimate. The supplement adds
+two more, over reals the first run never touched, so it becomes a
+distribution over five.
+
+| family | model | licence | lineage | decoder class |
+|---|---|---|---|---|
+| `kandinsky22_t2i` | Kandinsky 2.2 | apache-2.0 | `movq` | `VQModel` -- vector-quantised |
+| `sana1600m_t2i` | Sana 1.6B | apache-2.0 | `dc_ae` | `AutoencoderDC` -- 32x, 32 latent ch |
+
+Both are t2i only. An image-conditioned fake shares composition with its real
+and so carries less of its decoder's fingerprint; for an arm whose only job is
+to represent a decoder, that dilutes the measurement.
+
+These are TRAINING lineages. `HELDOUT_LINEAGE` stays `flux2_vae`; which
+lineage a rung actually holds out is a rung-level choice
+(`RungConfig.train_exclude_generators`), and adding these is what makes
+rotating it possible.
+
+**Lumina-Image 2.0 was rejected, and the reason is the point of the exercise.**
+Apache-2.0, 5.2 GB, a brand-new architecture -- and its `vae/config.json` is
+`AutoencoderKL`, 16 latent channels, `scaling_factor` 0.3611, which is FLUX's
+VAE. As a held-out lineage it is a cousin of `flux2_vae`, not a jump. That is
+`docs/02` §3.4's mistake with newer weights: **architecture novelty is not
+decoder novelty**, and only the second is what the held-out rung measures.
+PixArt-Σ is out for the same reason (SDXL's VAE); SD 3.5, Stable Cascade and
+HunyuanDiT on licence; Qwen-Image at 40.9 GB on hardware.
+
+### Three things the smoke run found
+
+1. **Sana resizes by default, and it would have been the worst confound in the
+   corpus.** `use_resolution_binning` defaults True: the request is mapped to
+   the nearest 1024-based aspect bin, generated there, and resized back
+   (`pipeline_sana.py`, `resize_and_crop_tensor`). Measured on this corpus's
+   geometry, a 432x640 request is generated at **1216x832 -- landscape, for a
+   portrait request** -- and squashed down, leaving var-Laplacian **2083.8
+   against 555.9** native. Nearly 4x sharper, on the generated class only, in
+   a corpus whose worst remaining confound is sharpness at 0.5998. Turned off
+   in `ModelSpec.call_kwargs`, which makes 32-divisibility a hard error
+   instead.
+2. **Kandinsky silently rounds the requested size up to a multiple of 64.**
+   432x640 and 416x640 both came back 448x640 -- the same image twice.
+   `ModelSpec.size_multiple` now declares each model's granularity,
+   `run.generate` asks at it and crops back to the real's exact box, and the
+   frozen suite is pinned at 8 so its sizes cannot move.
+3. **`check_licence` was verifying half the weights.** Kandinsky's combined
+   pipeline pulls its prior from a second repo that the registry never named.
+   `ModelSpec.companion_ids` closes that; both Kandinsky repos are apache-2.0.
+
+### Running it
+
+The supplement MUST run on a shard clear of the reals the first suite used.
+The family deal is a repeating stratum pattern built from the suite's shares
+(`pool.select`), so a different suite re-deals every real in the block: one
+that is `sdxl_t2i` today can come out `sana1600m_t2i` tomorrow, and nothing
+downstream objects because `_done_ids` is per family. The corpus would then
+hold one scene twice on the generated side against one real.
+
+The ov7 suite consumed order positions 0-9,999 of 54,624 eligible.
+`--shard 1 --n-shards 5` starts at 10,925. `generate_ov7.used_elsewhere`
+enforces this rather than trusting it, and refuses the run naming the
+offending reals.
+
+```bash
+python scripts/generate_ov7.py --suite ov7_lineage --total 2000 \
+    --shard 1 --n-shards 5 --out data/raw_ov7_src \
+    --captions data/ov7_captions.parquet
+```
+
+## 12. Still owed
 
 1. Per-source FPR, reported separately for Open Images, WildFake and SID_Set.
    Needs a trained checkpoint -- `scripts/stratified_auc.py --stratify-by
