@@ -81,8 +81,17 @@ export AIGCDET_DATA_ROOT=${AIGCDET_DATA_ROOT:-/workspace/data/probe}
 
 # The replay is embarrassingly parallel and nothing else wants these cores.
 NSHARD=${NSHARD:-32}
-CROP_ARMS="crop_dinov2regl crop_siglipso400m"
-BAND_ARMS="band_dinov2regl band_siglipso400m"
+# Overridable so a new arm can be added without editing the audited body.
+# Every arm named in CROP_ARMS gets the frequency block and an a3+aF ladder;
+# BAND_ARMS are reused as-is and never get the block (freq._require_crop).
+CROP_ARMS="${CROP_ARMS:-crop_dinov2regl crop_siglipso400m}"
+BAND_ARMS="${BAND_ARMS:-band_dinov2regl band_siglipso400m}"
+
+# The four-arm lattice in step 3 names its arms explicitly, so it is only valid
+# for the default set. Adding an arm means measuring the LADDER first and
+# deciding what to fuse afterwards -- not silently fusing a new arm into a
+# lattice whose --arm lines still describe the old one.
+SKIP_LATTICE="${SKIP_LATTICE:-0}"
 
 # --- 0. preflight -----------------------------------------------------------
 log "=== preflight ==="
@@ -184,6 +193,12 @@ for a in $CROP_ARMS; do
 done
 
 # --- 3. the mixed-rung fusion lattice ---------------------------------------
+if [ "$SKIP_LATTICE" = "1" ]; then
+  log "=== (3/3) SKIPPED (SKIP_LATTICE=1): the lattice's --arm lines describe"
+  log "    the default four arms only; re-run without it once the ladder is read"
+  log "=== aF FUSION CHAIN DONE ==="
+  exit 0
+fi
 log "=== (3/3) fusion lattice over the MIXED arm set ==="
 # `fusion_lattice` derives use_recon / use_recon_vq / use_freq from each
 # checkpoint's own config (`aux_flags`), so a3 and aF arms can sit in the same
