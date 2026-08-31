@@ -9,6 +9,7 @@ to know it worked, and what would make it a negative result worth reporting.
 | 02 | [Open-weight generators on Open Images V7](02-open-weight-generators-on-open-images.md) | unassigned | the Open Images harvest finishing |
 | 03 | [Commercial APIs on Open Images V7](03-commercial-apis-on-open-images.md) | unassigned | a costing decision (§3.2) |
 | 08 | [The ablation rungs, one at a time](08-ablation-rungs.md) | unassigned | nothing — needs the ~17 GB bank bundle, see its §0 |
+| 09 | [Generating more AI-OV7 on a second box](09-generate-ov7-on-another-box.md) | unassigned | nothing — needs a GPU and the 5.2 GB photograph set, see its §2 |
 
 ## House rules these all inherit
 
