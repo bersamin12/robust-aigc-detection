@@ -1,0 +1,5073 @@
+{
+  "probe": "fusion_lattice",
+  "metric": "heldout_robust_tpr_at_1pct",
+  "target_fpr": 0.01,
+  "max_backbones_for_legal": 2,
+  "fit_splits_for_weight": [
+    "val_internal"
+  ],
+  "caveat": "primary split only; single-arm ordering is known to invert across held-out families, so this is a shortlist, not a selection",
+  "singles": {
+    "band_dinov2l": 0.6564561403508773,
+    "crop_dinov2l": 0.7355438596491229,
+    "band_dinov2regl": 0.7242105263157894,
+    "crop_dinov2regl": 0.7857894736842105,
+    "band_siglipso400m": 0.7110877192982457,
+    "crop_siglipso400m": 0.6165614035087719,
+    "band_eva02l": 0.4036140350877193,
+    "band_convnextv2h": 0.5137894736842105
+  },
+  "combinations": {
+    "band_dinov2l+crop_dinov2l": {
+      "arity": 2,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l"
+      ],
+      "backbones": [
+        "dinov2l"
+      ],
+      "n_backbones": 1,
+      "legal": true,
+      "equal": 0.8243508771929825,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl": {
+      "arity": 2,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.7437543859649123,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2regl": {
+      "arity": 2,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8714736842105263,
+      "fitted": 0.8471578947368421,
+      "w_fitted": [
+        0.6,
+        0.4
+      ],
+      "fit_gain_on_FIT_split": 0.0007427843803057277,
+      "fit_flat_within_1e-4": 1,
+      "fit_grid_points": 21
+    },
+    "band_dinov2l+band_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "band_dinov2l",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8476140350877193,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "band_dinov2l",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8320350877192982,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_eva02l": {
+      "arity": 2,
+      "arms": [
+        "band_dinov2l",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "eva02l"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.6668070175438596,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_convnextv2h": {
+      "arity": 2,
+      "arms": [
+        "band_dinov2l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.7406315789473684,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8631929824561403,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+crop_dinov2regl": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2l",
+        "crop_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8469824561403511,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2l",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8924561403508772,
+      "fitted": 0.8910877192982456,
+      "w_fitted": [
+        0.45,
+        0.55
+      ],
+      "fit_gain_on_FIT_split": 0.003607809847198551,
+      "fit_flat_within_1e-4": 1,
+      "fit_grid_points": 21
+    },
+    "crop_dinov2l+crop_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2l",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8489122807017543,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_eva02l": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2l",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "eva02l"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.7742456140350877,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_convnextv2h": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8044561403508772,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+crop_dinov2regl": {
+      "arity": 2,
+      "arms": [
+        "band_dinov2regl",
+        "crop_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2regl"
+      ],
+      "n_backbones": 1,
+      "legal": true,
+      "equal": 0.8702456140350877,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+band_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "band_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.851719298245614,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+crop_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "band_dinov2regl",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8389473684210526,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+band_eva02l": {
+      "arity": 2,
+      "arms": [
+        "band_dinov2regl",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "eva02l"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.7684912280701754,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+band_convnextv2h": {
+      "arity": 2,
+      "arms": [
+        "band_dinov2regl",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2regl"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.7228421052631578,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2regl+band_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.913859649122807,
+      "fitted": 0.9104561403508772,
+      "w_fitted": [
+        0.45,
+        0.55
+      ],
+      "fit_gain_on_FIT_split": 0.0013264006791170457,
+      "fit_flat_within_1e-4": 1,
+      "fit_grid_points": 21
+    },
+    "crop_dinov2regl+crop_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.859017543859649,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2regl+band_eva02l": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2regl",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "eva02l"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.7589122807017544,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2regl+band_convnextv2h": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2regl",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2regl"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8134736842105262,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_siglipso400m+crop_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "band_siglipso400m",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "siglipso400m"
+      ],
+      "n_backbones": 1,
+      "legal": true,
+      "equal": 0.8085614035087719,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_siglipso400m+band_eva02l": {
+      "arity": 2,
+      "arms": [
+        "band_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.7190175438596491,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_siglipso400m+band_convnextv2h": {
+      "arity": 2,
+      "arms": [
+        "band_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.7778245614035089,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_siglipso400m+band_eva02l": {
+      "arity": 2,
+      "arms": [
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.6919999999999998,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_siglipso400m+band_convnextv2h": {
+      "arity": 2,
+      "arms": [
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.737438596491228,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_eva02l+band_convnextv2h": {
+      "arity": 2,
+      "arms": [
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "eva02l"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.653017543859649,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8542456140350878,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+crop_dinov2regl": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "crop_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.88740350877193,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.9100000000000001,
+      "fitted": 0.9183157894736842,
+      "w_fitted": [
+        0.2857142857142857,
+        0.3333333333333333,
+        0.38095238095238093
+      ],
+      "fit_gain_on_FIT_split": 0.009019524617996488,
+      "fit_flat_within_1e-4": 1,
+      "fit_grid_points": 253
+    },
+    "band_dinov2l+crop_dinov2l+crop_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8865614035087719,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_eva02l": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "eva02l"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8264912280701754,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_convnextv2h": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8543859649122808,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+crop_dinov2regl": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8707719298245614,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+band_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8532631578947368,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+crop_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8655087719298248,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+band_eva02l": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.7723508771929823,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+band_convnextv2h": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8055789473684211,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2regl+band_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9274035087719298,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2regl+crop_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2regl",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.907438596491228,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2regl+band_eva02l": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2regl",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8427719298245615,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2regl+band_convnextv2h": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2regl",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8831929824561404,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_siglipso400m+crop_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "band_siglipso400m",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.884561403508772,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_siglipso400m+band_eva02l": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "band_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8324561403508772,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_siglipso400m+band_convnextv2h": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "band_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8548771929824562,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_siglipso400m+band_eva02l": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.84,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_siglipso400m+band_convnextv2h": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8485263157894737,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_eva02l+band_convnextv2h": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "eva02l"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.7773684210526315,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+crop_dinov2regl": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8988771929824562,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+band_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9101403508771929,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+crop_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9092982456140352,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+band_eva02l": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.878736842105263,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+band_convnextv2h": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8657192982456141,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+crop_dinov2regl+band_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9219649122807018,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+crop_dinov2regl+crop_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8939298245614037,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+crop_dinov2regl+band_eva02l": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8656140350877194,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+crop_dinov2regl+band_convnextv2h": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8872982456140349,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_siglipso400m+crop_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2l",
+        "band_siglipso400m",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8993684210526316,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_siglipso400m+band_eva02l": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2l",
+        "band_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8715087719298245,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_siglipso400m+band_convnextv2h": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2l",
+        "band_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8939298245614037,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+crop_siglipso400m+band_eva02l": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2l",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.84859649122807,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+crop_siglipso400m+band_convnextv2h": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2l",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8683508771929825,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_eva02l+band_convnextv2h": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2l",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "eva02l"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8267368421052632,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+crop_dinov2regl+band_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.9180701754385964,
+      "fitted": 0.9236491228070175,
+      "w_fitted": [
+        0.19047619047619047,
+        0.3333333333333333,
+        0.47619047619047616
+      ],
+      "fit_gain_on_FIT_split": 0.026050509337860794,
+      "fit_flat_within_1e-4": 1,
+      "fit_grid_points": 253
+    },
+    "band_dinov2regl+crop_dinov2regl+crop_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.9030526315789474,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+crop_dinov2regl+band_eva02l": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "eva02l"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.879684210526316,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+crop_dinov2regl+band_convnextv2h": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2regl"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8760350877192984,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+band_siglipso400m+crop_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.884736842105263,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+band_siglipso400m+band_eva02l": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8594035087719298,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+band_siglipso400m+band_convnextv2h": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8456842105263158,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+crop_siglipso400m+band_eva02l": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2regl",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8370175438596491,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+crop_siglipso400m+band_convnextv2h": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2regl",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8581052631578948,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+band_eva02l+band_convnextv2h": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2regl",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2regl",
+        "eva02l"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.7958947368421052,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2regl+band_siglipso400m+crop_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.9143859649122806,
+      "fitted": 0.9204210526315789,
+      "w_fitted": [
+        0.42857142857142855,
+        0.47619047619047616,
+        0.09523809523809523
+      ],
+      "fit_gain_on_FIT_split": 0.019630730050933742,
+      "fit_flat_within_1e-4": 1,
+      "fit_grid_points": 253
+    },
+    "crop_dinov2regl+band_siglipso400m+band_eva02l": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8906315789473684,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2regl+band_siglipso400m+band_convnextv2h": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9200350877192983,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2regl+crop_siglipso400m+band_eva02l": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8477894736842103,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2regl+crop_siglipso400m+band_convnextv2h": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8796491228070175,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2regl+band_eva02l+band_convnextv2h": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2regl",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2regl",
+        "eva02l"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8420701754385965,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_siglipso400m+crop_siglipso400m+band_eva02l": {
+      "arity": 3,
+      "arms": [
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8132982456140351,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_siglipso400m+crop_siglipso400m+band_convnextv2h": {
+      "arity": 3,
+      "arms": [
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8516842105263159,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 3,
+      "arms": [
+        "band_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8092280701754386,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 3,
+      "arms": [
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.7765614035087719,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+crop_dinov2regl": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.9021052631578947,
+      "fitted": 0.8957543859649122,
+      "w_fitted": [
+        0.3,
+        0.3,
+        0.25,
+        0.15
+      ],
+      "fit_gain_on_FIT_split": 0.01066426146010191,
+      "fit_flat_within_1e-4": 1,
+      "fit_grid_points": 1771
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+band_siglipso400m": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9078947368421051,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+crop_siglipso400m": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.906421052631579,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+band_eva02l": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8681052631578947,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8735087719298246,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+crop_dinov2regl+band_siglipso400m": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9311578947368421,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+crop_dinov2regl+crop_siglipso400m": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9152982456140349,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+crop_dinov2regl+band_eva02l": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8904561403508772,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+crop_dinov2regl+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9060350877192982,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_siglipso400m+crop_siglipso400m": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_siglipso400m",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.9224210526315789,
+      "fitted": 0.9193684210526316,
+      "w_fitted": [
+        0.3,
+        0.2,
+        0.35,
+        0.15
+      ],
+      "fit_gain_on_FIT_split": 0.010823429541595764,
+      "fit_flat_within_1e-4": 1,
+      "fit_grid_points": 1771
+    },
+    "band_dinov2l+crop_dinov2l+band_siglipso400m+band_eva02l": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8905614035087719,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_siglipso400m+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9103508771929825,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+crop_siglipso400m+band_eva02l": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8927719298245614,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+crop_siglipso400m+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8983508771929823,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_eva02l+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "eva02l"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8613333333333333,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+crop_dinov2regl+band_siglipso400m": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9179649122807018,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+crop_dinov2regl+crop_siglipso400m": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9109473684210526,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+crop_dinov2regl+band_eva02l": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8794736842105262,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+crop_dinov2regl+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8876491228070172,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+band_siglipso400m+crop_siglipso400m": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9000350877192982,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+band_siglipso400m+band_eva02l": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.861438596491228,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+band_siglipso400m+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.8665614035087719,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+crop_siglipso400m+band_eva02l": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.874421052631579,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+crop_siglipso400m+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.8741052631578946,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+band_eva02l+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.8209122807017545,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2regl+band_siglipso400m+crop_siglipso400m": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9356140350877193,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2regl+band_siglipso400m+band_eva02l": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9092280701754385,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2regl+band_siglipso400m+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9282105263157895,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2regl+crop_siglipso400m+band_eva02l": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.8993333333333333,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2regl+crop_siglipso400m+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.91540350877193,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2regl+band_eva02l+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2regl",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.8781754385964914,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_siglipso400m+crop_siglipso400m+band_eva02l": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8840350877192983,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_siglipso400m+crop_siglipso400m+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.893859649122807,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "band_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.8648070175438597,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.8527719298245614,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+crop_dinov2regl+band_siglipso400m": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.936140350877193,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+crop_dinov2regl+crop_siglipso400m": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9173333333333334,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+crop_dinov2regl+band_eva02l": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9076842105263159,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+crop_dinov2regl+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9094736842105263,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+band_siglipso400m+crop_siglipso400m": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9221052631578948,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+band_siglipso400m+band_eva02l": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.913543859649123,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+band_siglipso400m+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9184912280701752,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+crop_siglipso400m+band_eva02l": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9041754385964912,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+crop_siglipso400m+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.906421052631579,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+band_eva02l+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.8864561403508772,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+crop_dinov2regl+band_siglipso400m+crop_siglipso400m": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9304561403508771,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+crop_dinov2regl+band_siglipso400m+band_eva02l": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.920456140350877,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+crop_dinov2regl+band_siglipso400m+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.930140350877193,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+crop_dinov2regl+crop_siglipso400m+band_eva02l": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.8924561403508772,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+crop_dinov2regl+crop_siglipso400m+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9106315789473682,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+crop_dinov2regl+band_eva02l+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.8895087719298246,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_siglipso400m+crop_siglipso400m+band_eva02l": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2l",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9005964912280703,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_siglipso400m+crop_siglipso400m+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2l",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9084912280701755,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2l",
+        "band_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.8939649122807017,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2l",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.8709122807017546,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.9247017543859649,
+      "fitted": 0.9310175438596492,
+      "w_fitted": [
+        0.1,
+        0.35,
+        0.4,
+        0.15
+      ],
+      "fit_gain_on_FIT_split": 0.029446095076400725,
+      "fit_flat_within_1e-4": 1,
+      "fit_grid_points": 1771
+    },
+    "band_dinov2regl+crop_dinov2regl+band_siglipso400m+band_eva02l": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.911859649122807,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+crop_dinov2regl+band_siglipso400m+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9235789473684212,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+crop_dinov2regl+crop_siglipso400m+band_eva02l": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9005964912280701,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+crop_dinov2regl+crop_siglipso400m+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9101052631578946,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+crop_dinov2regl+band_eva02l+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2regl",
+        "eva02l"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8856491228070177,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+band_siglipso400m+crop_siglipso400m+band_eva02l": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.887859649122807,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+band_siglipso400m+crop_siglipso400m+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8869473684210526,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+band_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.866280701754386,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2regl",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.8572631578947368,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2regl+band_siglipso400m+crop_siglipso400m+band_eva02l": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9083157894736843,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2regl+band_siglipso400m+crop_siglipso400m+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9223157894736843,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2regl+band_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9091578947368419,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2regl+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.87659649122807,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_siglipso400m+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 4,
+      "arms": [
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8539298245614035,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+crop_dinov2regl+band_siglipso400m": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9329473684210526,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+crop_dinov2regl+crop_siglipso400m": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9215087719298246,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+crop_dinov2regl+band_eva02l": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9037894736842106,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+crop_dinov2regl+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9113684210526317,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+band_siglipso400m+crop_siglipso400m": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9258596491228069,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+band_siglipso400m+band_eva02l": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9055789473684208,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+band_siglipso400m+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9111929824561402,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+crop_siglipso400m+band_eva02l": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9029824561403509,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+crop_siglipso400m+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9150175438596491,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+band_eva02l+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.8843859649122807,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+crop_dinov2regl+band_siglipso400m+crop_siglipso400m": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9384561403508771,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+crop_dinov2regl+band_siglipso400m+band_eva02l": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9221754385964913,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+crop_dinov2regl+band_siglipso400m+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9384912280701755,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+crop_dinov2regl+crop_siglipso400m+band_eva02l": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9138245614035089,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+crop_dinov2regl+crop_siglipso400m+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9253684210526316,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+crop_dinov2regl+band_eva02l+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.904140350877193,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_siglipso400m+crop_siglipso400m+band_eva02l": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9195087719298245,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_siglipso400m+crop_siglipso400m+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9257894736842105,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9044561403508771,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.8984561403508773,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9295438596491229,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+crop_dinov2regl+band_siglipso400m+band_eva02l": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9143508771929824,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+crop_dinov2regl+band_siglipso400m+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9247719298245612,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+crop_dinov2regl+crop_siglipso400m+band_eva02l": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9119999999999999,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+crop_dinov2regl+crop_siglipso400m+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9208070175438595,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+crop_dinov2regl+band_eva02l+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.8919649122807017,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+band_siglipso400m+crop_siglipso400m+band_eva02l": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9059649122807019,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+band_siglipso400m+crop_siglipso400m+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9026315789473686,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+band_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.8851578947368421,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.880421052631579,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2regl+band_siglipso400m+crop_siglipso400m+band_eva02l": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9249122807017542,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2regl+band_siglipso400m+crop_siglipso400m+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9358947368421052,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2regl+band_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.9161403508771929,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2regl+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.9085964912280701,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_siglipso400m+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2l",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.8870877192982456,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m": {
+      "arity": 5,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9382807017543859,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+crop_dinov2regl+band_siglipso400m+band_eva02l": {
+      "arity": 5,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9341052631578948,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+crop_dinov2regl+band_siglipso400m+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.937263157894737,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+crop_dinov2regl+crop_siglipso400m+band_eva02l": {
+      "arity": 5,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9221052631578949,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+crop_dinov2regl+crop_siglipso400m+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9237894736842105,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+crop_dinov2regl+band_eva02l+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9157894736842105,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+band_siglipso400m+crop_siglipso400m+band_eva02l": {
+      "arity": 5,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9255087719298244,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+band_siglipso400m+crop_siglipso400m+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9244210526315788,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+band_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.9153333333333332,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.9098596491228071,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+crop_dinov2regl+band_siglipso400m+crop_siglipso400m+band_eva02l": {
+      "arity": 5,
+      "arms": [
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9264912280701756,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+crop_dinov2regl+band_siglipso400m+crop_siglipso400m+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9372280701754385,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+crop_dinov2regl+band_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.9285964912280702,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+crop_dinov2regl+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.9097192982456143,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_siglipso400m+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "crop_dinov2l",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9114736842105264,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m+band_eva02l": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9243157894736843,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9308771929824562,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+crop_dinov2regl+band_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9218947368421052,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+crop_dinov2regl+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.911578947368421,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+band_siglipso400m+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.8919649122807017,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2regl+band_siglipso400m+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 5,
+      "arms": [
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9210877192982456,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m": {
+      "arity": 6,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.938280701754386,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+crop_dinov2regl+band_siglipso400m+band_eva02l": {
+      "arity": 6,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9248070175438595,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+crop_dinov2regl+band_siglipso400m+band_convnextv2h": {
+      "arity": 6,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9389824561403507,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+crop_dinov2regl+crop_siglipso400m+band_eva02l": {
+      "arity": 6,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9245263157894736,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+crop_dinov2regl+crop_siglipso400m+band_convnextv2h": {
+      "arity": 6,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9315438596491227,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+crop_dinov2regl+band_eva02l+band_convnextv2h": {
+      "arity": 6,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9136491228070177,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+band_siglipso400m+crop_siglipso400m+band_eva02l": {
+      "arity": 6,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9258245614035088,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+band_siglipso400m+crop_siglipso400m+band_convnextv2h": {
+      "arity": 6,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9296491228070176,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+band_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 6,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.9126666666666667,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 6,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.9159649122807018,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+crop_dinov2regl+band_siglipso400m+crop_siglipso400m+band_eva02l": {
+      "arity": 6,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9354736842105263,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+crop_dinov2regl+band_siglipso400m+crop_siglipso400m+band_convnextv2h": {
+      "arity": 6,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9429473684210524,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+crop_dinov2regl+band_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 6,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.9296842105263157,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+crop_dinov2regl+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 6,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.9245263157894736,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_siglipso400m+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 6,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9222807017543859,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m+band_eva02l": {
+      "arity": 6,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9301754385964913,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m+band_convnextv2h": {
+      "arity": 6,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9361403508771929,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+crop_dinov2regl+band_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 6,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.9217894736842105,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+crop_dinov2regl+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 6,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.9239298245614035,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+band_siglipso400m+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 6,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.9078596491228069,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2regl+band_siglipso400m+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 6,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.9300350877192982,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m+band_eva02l": {
+      "arity": 6,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9392280701754385,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m+band_convnextv2h": {
+      "arity": 6,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9415438596491228,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+crop_dinov2regl+band_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 6,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.9367017543859649,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+crop_dinov2regl+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 6,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.9278245614035087,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+band_siglipso400m+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 6,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.9284210526315791,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+crop_dinov2regl+band_siglipso400m+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 6,
+      "arms": [
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.9352631578947367,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 6,
+      "arms": [
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9308771929824562,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m+band_eva02l": {
+      "arity": 7,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9403508771929825,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m+band_convnextv2h": {
+      "arity": 7,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 4,
+      "legal": false,
+      "equal": 0.9421754385964912,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+crop_dinov2regl+band_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 7,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.9323859649122808,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+crop_dinov2regl+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 7,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.9315438596491229,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+band_siglipso400m+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 7,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.9298245614035087,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+crop_dinov2regl+band_siglipso400m+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 7,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.9404561403508772,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 7,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.9346315789473684,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 7,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.9422105263157895,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "arity": 8,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m",
+        "band_eva02l",
+        "band_convnextv2h"
+      ],
+      "backbones": [
+        "convnextv2h",
+        "dinov2l",
+        "dinov2regl",
+        "eva02l",
+        "siglipso400m"
+      ],
+      "n_backbones": 5,
+      "legal": false,
+      "equal": 0.9433684210526315,
+      "fitted": null,
+      "w_fitted": null
+    }
+  },
+  "best_legal": "band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m",
+  "best_barred": "band_dinov2l+crop_dinov2l+band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m+band_eva02l+band_convnextv2h",
+  "bootstrap": {
+    "band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m": {
+      "point": 0.9247017543859649,
+      "ci95": [
+        0.9013199735588072,
+        0.9460946010731461
+      ],
+      "vs_baseline": {
+        "baseline": "band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m",
+        "delta": 0.0,
+        "paired_ci95": [
+          0.0,
+          0.0
+        ],
+        "p_better": 0.0
+      },
+      "boot_n": 1000,
+      "boot_seed": 20260827
+    },
+    "band_dinov2l+crop_dinov2l+band_siglipso400m+crop_siglipso400m": {
+      "point": 0.9224210526315789,
+      "ci95": [
+        0.8913405814684403,
+        0.9428200155378138
+      ],
+      "vs_baseline": {
+        "baseline": "band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m",
+        "delta": -0.002280701754385994,
+        "paired_ci95": [
+          -0.02434446915046238,
+          0.01356576439429054
+        ],
+        "p_better": 0.302
+      },
+      "boot_n": 1000,
+      "boot_seed": 20260827
+    },
+    "band_dinov2regl+crop_dinov2regl+band_siglipso400m": {
+      "point": 0.9180701754385964,
+      "ci95": [
+        0.8921514527549332,
+        0.9393034801872296
+      ],
+      "vs_baseline": {
+        "baseline": "band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m",
+        "delta": -0.006631578947368544,
+        "paired_ci95": [
+          -0.021958871143565806,
+          0.008303074259510395
+        ],
+        "p_better": 0.123
+      },
+      "boot_n": 1000,
+      "boot_seed": 20260827
+    },
+    "crop_dinov2regl+band_siglipso400m+crop_siglipso400m": {
+      "point": 0.9143859649122807,
+      "ci95": [
+        0.8882726728975021,
+        0.934732128446502
+      ],
+      "vs_baseline": {
+        "baseline": "band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m",
+        "delta": -0.010315789473684167,
+        "paired_ci95": [
+          -0.023733503598720458,
+          -0.0005993040189583116
+        ],
+        "p_better": 0.019
+      },
+      "boot_n": 1000,
+      "boot_seed": 20260827
+    },
+    "crop_dinov2regl+band_siglipso400m": {
+      "point": 0.913859649122807,
+      "ci95": [
+        0.8870211249773919,
+        0.9365169173563879
+      ],
+      "vs_baseline": {
+        "baseline": "band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m",
+        "delta": -0.010842105263157875,
+        "paired_ci95": [
+          -0.028519366715911463,
+          0.006140380632721573
+        ],
+        "p_better": 0.107
+      },
+      "boot_n": 1000,
+      "boot_seed": 20260827
+    },
+    "band_dinov2l+crop_dinov2l+band_siglipso400m": {
+      "point": 0.9100000000000001,
+      "ci95": [
+        0.8711691173650792,
+        0.930876546367989
+      ],
+      "vs_baseline": {
+        "baseline": "band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m",
+        "delta": -0.014701754385964771,
+        "paired_ci95": [
+          -0.050759077686578925,
+          0.011811350050241642
+        ],
+        "p_better": 0.128
+      },
+      "boot_n": 1000,
+      "boot_seed": 20260827
+    },
+    "band_dinov2regl+crop_dinov2regl+crop_siglipso400m": {
+      "point": 0.9030526315789474,
+      "ci95": [
+        0.8677555123084347,
+        0.9286216990049716
+      ],
+      "vs_baseline": {
+        "baseline": "band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m",
+        "delta": -0.021649122807017473,
+        "paired_ci95": [
+          -0.0419077342888314,
+          -0.007194666259954543
+        ],
+        "p_better": 0.002
+      },
+      "boot_n": 1000,
+      "boot_seed": 20260827
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+crop_dinov2regl": {
+      "point": 0.9021052631578946,
+      "ci95": [
+        0.8799599110822555,
+        0.9212113189175319
+      ],
+      "vs_baseline": {
+        "baseline": "band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m",
+        "delta": -0.02259649122807028,
+        "paired_ci95": [
+          -0.04716817882984252,
+          -0.0002938705871854086
+        ],
+        "p_better": 0.024
+      },
+      "boot_n": 1000,
+      "boot_seed": 20260827
+    },
+    "crop_dinov2regl": {
+      "point": 0.7857894736842105,
+      "ci95": [
+        0.7317033929354433,
+        0.8361019073710172
+      ],
+      "vs_baseline": {
+        "baseline": "band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m",
+        "delta": -0.13891228070175443,
+        "paired_ci95": [
+          -0.1893501776560708,
+          -0.091563135831802
+        ],
+        "p_better": 0.0
+      },
+      "boot_n": 1000,
+      "boot_seed": 20260827
+    },
+    "[BARRED] band_dinov2l+crop_dinov2l+band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m+band_eva02l+band_convnextv2h": {
+      "point": 0.9433684210526315,
+      "ci95": [
+        0.9285837717551546,
+        0.9548066270749339
+      ],
+      "vs_baseline": {
+        "baseline": "band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m",
+        "delta": 0.01866666666666661,
+        "paired_ci95": [
+          0.002670999894525722,
+          0.03563066181363691
+        ],
+        "p_better": 0.987
+      },
+      "boot_n": 1000,
+      "boot_seed": 20260827
+    }
+  }
+}

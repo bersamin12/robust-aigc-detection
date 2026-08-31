@@ -1,0 +1,47 @@
+{
+  "population": "val_internal authentic vs val_internal generated (SEEN generators; NOT the section 6.4 selection population)",
+  "bank": "data/banks/dinov3l",
+  "checkpoint": "outputs/rungs/a3/checkpoint.pt.pre_a5fit.bak",
+  "rho": 0.5,
+  "n_images": 13332,
+  "n_views": 11,
+  "views_kept": 6,
+  "note": "P_v prompt-token variant not pilotable on cached features; head-adaptation variant measured instead",
+  "results": {
+    "clean": {
+      "auc": 0.9978353902287388,
+      "tpr_at_1pct": 0.971820486059341,
+      "n_nonfinite": 0
+    },
+    "mean_all": {
+      "auc": 0.9972558324026433,
+      "tpr_at_1pct": 0.9627255106605039,
+      "n_nonfinite": 0
+    },
+    "mean_conf": {
+      "auc": 0.9969822348377224,
+      "tpr_at_1pct": 0.9603399433427762,
+      "n_nonfinite": 0
+    },
+    "tta_adapt_lr0.0001": {
+      "auc": 0.9978353677233867,
+      "tpr_at_1pct": 0.971969584016699,
+      "n_nonfinite": 0
+    },
+    "tta_adapt_lr0.001": {
+      "auc": 0.9978381133763373,
+      "tpr_at_1pct": 0.9712240942299091,
+      "n_nonfinite": 0
+    },
+    "tta_adapt_lr0.01": {
+      "auc": 0.9977560363573962,
+      "tpr_at_1pct": 0.9664529595944535,
+      "n_nonfinite": 0
+    },
+    "tta_adapt_lr0.1": {
+      "auc": 0.9805321503019937,
+      "tpr_at_1pct": 0.9636200984046519,
+      "n_nonfinite": 0
+    }
+  }
+}

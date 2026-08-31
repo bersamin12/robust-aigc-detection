@@ -3,7 +3,8 @@
 Recorded per spec §4.5 (model-weight provenance, same discipline as dataset provenance).
 Licence text was read in full at the source below, not inferred from a model-card
 summary line. Checked 2026-08-27/28; the two convolutional backbones and DINOv2 added
-2026-08-30; the four backbone-probe candidates added 2026-08-31.
+2026-08-30; the four backbone-probe candidates added 2026-08-31, and the
+resolution and capacity arms (siglip2l512, dinov2regg) the same day.
 
 | Model | HF id | Licence | Source | Permits public repo + hackathon use? |
 | --- | --- | --- | --- | --- |
@@ -29,6 +30,13 @@ All four are **ungated**, so no arm of the probe needs a token.
 | ConvNeXt V2 Huge @384 | facebook/convnextv2-huge-22k-384 | Apache License 2.0 (card) / MIT (upstream repo) | https://huggingface.co/facebook/convnextv2-huge-22k-384 (`license: apache-2.0`, read via the Hub API 2026-08-31; ungated) and https://github.com/facebookresearch/ConvNeXt-V2/blob/main/LICENSE (`MIT License`, read in full 2026-08-31) | Yes |
 | SigLIP SO400M/14 @384 | google/siglip-so400m-patch14-384 | Apache License 2.0 | https://huggingface.co/google/siglip-so400m-patch14-384 (`license: apache-2.0` in card metadata, read via the Hub API 2026-08-31; `gated: False`) | Yes |
 
+Resolution and capacity arms, added 2026-08-31:
+
+| Model | HF id | Licence | Source | Permits public repo + hackathon use? |
+| --- | --- | --- | --- | --- |
+| SigLIP2-L/16-**512** | google/siglip2-large-patch16-512 | Apache License 2.0 | https://huggingface.co/google/siglip2-large-patch16-512 (`license: apache-2.0` in card metadata, read via the Hub API 2026-08-31; `gated: False`) | Yes |
+| DINOv2-with-registers ViT-**g**/14 | facebook/dinov2-with-registers-giant | Apache License 2.0 | https://huggingface.co/facebook/dinov2-with-registers-giant (`license: apache-2.0` in card metadata, read via the Hub API 2026-08-31; `gated: False`) | Yes |
+
 ## Notes on each verdict
 
 - **DINOv3 License.** Read the full `LICENSE.md` text (not the model-card summary).
@@ -43,9 +51,20 @@ All four are **ungated**, so no arm of the probe needs a token.
   components; (4) compliance with Trade Controls/ITAR and a prohibition on military,
   nuclear, espionage, or weapons end-uses — none of which apply to forensic AIGC
   detection. Access is gated (requires accepting the licence on an HF account before
-  downloading), which is an access-control step, not a use restriction. Verdict: usable
-  as the primary backbone; no need to fall back to SigLIP2/DINOv2 per the brief's
-  contingency.
+  downloading), which is an access-control step, not a use restriction.
+
+  **Verdict (superseded 2026-08-31): ablation reference only, barred from the shipped
+  bundle.** The licence reading above stands as written -- nothing in `LICENSE.md`
+  forbids this use, and it is recorded unchanged so the reasoning stays auditable.
+  The exclusion is a TEAM DECISION taken on 2026-08-31 under a rule outside the
+  licence text, and that rule has not yet been supplied. It is recorded here as a
+  decision rather than restated as a licence finding, because this file's standard is
+  that terms are read at the source and never inferred: writing an invented
+  justification into the provenance record would be worse than an open question.
+  **Whoever took the decision should replace this paragraph with the rule quoted.**
+  DINOv3 remains legitimate as an ablation REFERENCE -- it is the ceiling every
+  shippable tower is measured against -- but it is no longer a base for any candidate
+  configuration.
 - **DINOv2.** Apache-2.0 and ungated, which is the entire reason it was added on
   2026-08-30. DINOv3 is the strongest backbone we have measured, but its custom
   Meta licence is gated per ACCOUNT: a five-person fleet needs five acceptances,
@@ -80,6 +99,19 @@ All four are **ungated**, so no arm of the probe needs a token.
 - **LPIPS (AlexNet weights).** BSD-2-Clause is unconditionally permissive.
 
 - **DINOv2-with-registers.** Apache-2.0 and ungated, same terms as plain DINOv2.
+  The **giant** (ViT-g/14, 1,136,486,912 vision parameters) carries the same
+  Apache-2.0 and the same `gated: False`, read via the Hub API 2026-08-31. Size
+  changes nothing about the licence; what it changes is the *budget*, and that
+  is a separate constraint checked in code rather than here — at 1.14B it can
+  only ship beside a partner of roughly 780M or less once the SD 1.5 VAE and
+  LPIPS are counted, and two giants are barred outright at 2.30B. See
+  `tests/features/test_backbones.py::test_the_heaviest_shippable_configuration_stays_under_2b`,
+  whose margin fell from 828M to 119M when this entry was added.
+- **SigLIP2-L/16-512.** Apache-2.0 and ungated, identical terms to the 384
+  checkpoint it shares a tower with. Worth stating plainly because the two
+  differ by 458,752 parameters of position embedding and nothing else: this is
+  the same model at a different input resolution, not a larger one, so no
+  licence or budget question changes between them.
   It is in the registry for an architectural reason rather than a licence one:
   registers absorb the high-norm artefact tokens DINOv2 develops in
   low-information patches, which is where a generator's decoder leaves its trace.
@@ -109,14 +141,45 @@ All four are **ungated**, so no arm of the probe needs a token.
 ## The 2B parameter cap and this file
 
 The registry now holds ten entries summing to ~2.97B parameters, which is NOT a
-breach. The hackathon's constraint binds the architecture that SHIPS — the spec's
-wording is "Final model uses at most two backbones", and its exclusions name "any
-model at or above 2B parameters" — not the menu of candidates an ablation may
-consider. The test that enforces it
+breach. The constraint binds the architecture that SHIPS, not the menu of
+candidates an ablation may consider.
+
+**Two constraints, and only one of them is the track's.** This section said
+otherwise until 2026-08-31, presenting the backbone-count rule as though the
+organisers had imposed it. They did not:
+
+| constraint | source | wording |
+| --- | --- | --- |
+| under 2B parameters | **the track** | design.md:5, "Hard constraint: models under 2B parameters"; the out-of-scope list at :358, "any model at or above 2B parameters" |
+| at most two backbones | **ours** | design.md:74, "Final model uses at most two backbones, to hold total parameters and inference latency at defensible levels" |
+
+The distinction is not pedantry, because the two caps are nowhere near each
+other and the self-imposed one is what actually binds. The shipping candidate
+(`dinov2regl` + `siglipso400m`) is 732,598,336 parameters — 37% of the track's
+cap. All five cached backbones together are 1,998,494,848, which is INSIDE it,
+with 1,505,152 to spare; measured 2026-08-31, relaxing our own rule to four
+towers was worth +0.0174 on the selection metric. So half of line 74's stated
+rationale — "to hold total parameters ... at defensible levels" — is now
+measured and satisfied by a configuration the rule forbids. The other half,
+inference latency, has never been measured, and is the honest reason to keep
+some limit: five towers over eleven views is fifty-five forward passes per
+image, and this spec already excluded DIRE at :196 for costing "~seconds per
+image". Relax the rule on a latency measurement, not on the parameter number
+alone.
+
+**The 2B guard is a two-backbone guard and will not survive the change.** The
+test that enforces the cap
 (`tests/features/test_backbones.py::test_the_heaviest_shippable_configuration_stays_under_2b`)
 sums the two heaviest entries plus the SD 1.5 VAE and LPIPS: 1.17B, with 828M of
 margin. It summed the whole registry until 2026-08-31, which would have vetoed a
-four-backbone probe that ships none of the four.
+four-backbone probe that ships none of the four. If the bundle ever ships more
+than two towers that test stops guarding it, and it cannot simply be widened to
+"the heaviest five" — those sum to 2,855,211,712, over the cap. The guard would
+have to move to the ACTUAL shipped manifest. Note also that `a3` sets
+`use_recon: false`, so the arms measured above carry neither the VAE nor LPIPS;
+adding them back for an a4 variant costs ~86.5M and puts the five-backbone
+configuration over the cap at 2,084,994,848. Maximum tower count and the
+reconstruction branch are mutually exclusive within this budget.
 
 None of the models above blocks public-repo or hackathon use. The registry in
 `src/aigcdet/features/backbones.py` ships DINOv3 ViT-L/16 as planned, with

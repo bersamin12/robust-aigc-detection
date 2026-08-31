@@ -1,0 +1,132 @@
+{
+  "probe": "second_holdout",
+  "off_ladder": true,
+  "not_eligible_reason": "arms differ in training ROWS, not in a rung flag; \u00a76.4 selects on the primary held-out split",
+  "metric": "heldout_robust_tpr_at_1pct on a relabelled population",
+  "holdout_generators": [
+    "sid_set"
+  ],
+  "n_heldout_images": 155,
+  "unused_label": "unused_second_holdout",
+  "comparability": "absolute values are NOT comparable with the primary split (different family, different n); the ordering of the arms is what transfers",
+  "base_config": "configs/rungs/a3.yaml",
+  "arms": [
+    {
+      "arm": "crop",
+      "bank": "data/banks/probe_crop_dinov2regl",
+      "eval_bank": "data/banks/eval_probe_crop_dinov2regl",
+      "second_holdout_robust_tpr_at_1pct": 0.26587436332767406,
+      "val_robust_tpr": 0.5444884612966107,
+      "val_auc_clean_view_only": 0.9639494857643609
+    },
+    {
+      "arm": "siglip",
+      "bank": "data/banks/probe_band_siglipso400m",
+      "eval_bank": "data/banks/eval_probe_band_siglipso400m",
+      "second_holdout_robust_tpr_at_1pct": 0.5191850594227504,
+      "val_robust_tpr": 0.6279947179777401,
+      "val_auc_clean_view_only": 0.9785907712684278
+    }
+  ],
+  "fusion": {
+    "parents": [
+      "crop",
+      "siglip"
+    ],
+    "w": [
+      0.45,
+      0.55
+    ],
+    "equal_weight_second_holdout": 0.6278438030560272,
+    "fitted_weight_second_holdout": 0.635653650254669,
+    "zscore_fit_splits": [
+      "val_internal"
+    ],
+    "weight_sweep": [
+      {
+        "w0": 0.0,
+        "val_robust_tpr": 0.6279947179777401
+      },
+      {
+        "w0": 0.05,
+        "val_robust_tpr": 0.6491228070175438
+      },
+      {
+        "w0": 0.1,
+        "val_robust_tpr": 0.6785512167515563
+      },
+      {
+        "w0": 0.15000000000000002,
+        "val_robust_tpr": 0.6995535433565993
+      },
+      {
+        "w0": 0.2,
+        "val_robust_tpr": 0.7182292649185689
+      },
+      {
+        "w0": 0.25,
+        "val_robust_tpr": 0.7395459976105139
+      },
+      {
+        "w0": 0.30000000000000004,
+        "val_robust_tpr": 0.7540086776079985
+      },
+      {
+        "w0": 0.35000000000000003,
+        "val_robust_tpr": 0.7613657800415016
+      },
+      {
+        "w0": 0.4,
+        "val_robust_tpr": 0.7669622083883543
+      },
+      {
+        "w0": 0.45,
+        "val_robust_tpr": 0.7735018549959127
+      },
+      {
+        "w0": 0.5,
+        "val_robust_tpr": 0.7703577941268942
+      },
+      {
+        "w0": 0.55,
+        "val_robust_tpr": 0.759542224737471
+      },
+      {
+        "w0": 0.6000000000000001,
+        "val_robust_tpr": 0.7563981638684525
+      },
+      {
+        "w0": 0.65,
+        "val_robust_tpr": 0.7345783814374647
+      },
+      {
+        "w0": 0.7000000000000001,
+        "val_robust_tpr": 0.7152738477016916
+      },
+      {
+        "w0": 0.75,
+        "val_robust_tpr": 0.6969754134440042
+      },
+      {
+        "w0": 0.8,
+        "val_robust_tpr": 0.6694963214487833
+      },
+      {
+        "w0": 0.8500000000000001,
+        "val_robust_tpr": 0.6459787461485255
+      },
+      {
+        "w0": 0.9,
+        "val_robust_tpr": 0.6110167892850407
+      },
+      {
+        "w0": 0.9500000000000001,
+        "val_robust_tpr": 0.5787587247689115
+      },
+      {
+        "w0": 1.0,
+        "val_robust_tpr": 0.5444884612966107
+      }
+    ]
+  }
+}

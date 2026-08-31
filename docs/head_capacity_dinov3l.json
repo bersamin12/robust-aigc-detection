@@ -1,0 +1,39 @@
+{
+  "probe": "head_capacity",
+  "off_ladder": true,
+  "not_eligible_reason": "width is not a rung flag; \u00a76.4 chooses among a3-a6 and this is none of them",
+  "metric": "heldout_robust_tpr_at_1pct",
+  "bank": "data/banks/dinov3l",
+  "eval_bank": "data/banks/eval_dinov3l",
+  "base_config": "configs/rungs/a3.yaml",
+  "results": [
+    {
+      "hidden": 256,
+      "detector_params": 428941,
+      "heldout_robust_tpr_at_1pct": 0.9007293233082706,
+      "val_auc_clean_view_only": 0.9976830740060371,
+      "val_auc_mean_views": 0.9960324639703381
+    },
+    {
+      "hidden": 512,
+      "detector_params": 923405,
+      "heldout_robust_tpr_at_1pct": 0.9012406015037595,
+      "val_auc_clean_view_only": 0.9978353902287388,
+      "val_auc_mean_views": 0.9963377531628331
+    },
+    {
+      "hidden": 1024,
+      "detector_params": 2108941,
+      "heldout_robust_tpr_at_1pct": 0.8846842105263156,
+      "val_auc_clean_view_only": 0.9976507563204876,
+      "val_auc_mean_views": 0.9960342807660308
+    },
+    {
+      "hidden": 2048,
+      "detector_params": 5266445,
+      "heldout_robust_tpr_at_1pct": 0.8904586466165414,
+      "val_auc_clean_view_only": 0.9981337436809192,
+      "val_auc_mean_views": 0.9965970311860243
+    }
+  ]
+}

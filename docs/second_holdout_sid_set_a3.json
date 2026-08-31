@@ -1,0 +1,24 @@
+{
+  "probe": "second_holdout",
+  "off_ladder": true,
+  "not_eligible_reason": "arms differ in training ROWS, not in a rung flag; \u00a76.4 selects on the primary held-out split",
+  "metric": "heldout_robust_tpr_at_1pct on a relabelled population",
+  "holdout_generators": [
+    "sid_set"
+  ],
+  "n_heldout_images": 155,
+  "unused_label": "unused_second_holdout",
+  "comparability": "absolute values are NOT comparable with the primary split (different family, different n); the ordering of the arms is what transfers",
+  "base_config": "configs/rungs/a3.yaml",
+  "arms": [
+    {
+      "arm": "crop",
+      "bank": "data/banks/probe_crop_dinov2regl",
+      "eval_bank": "data/banks/eval_probe_crop_dinov2regl",
+      "second_holdout_robust_tpr_at_1pct": 0.26587436332767406,
+      "val_robust_tpr": 0.5444884612966107,
+      "val_auc_clean_view_only": 0.9639494857643609
+    }
+  ],
+  "fusion": null
+}

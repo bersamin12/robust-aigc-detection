@@ -1,0 +1,39 @@
+{
+  "probe": "head_capacity",
+  "off_ladder": true,
+  "not_eligible_reason": "width is not a rung flag; \u00a76.4 chooses among a3-a6 and this is none of them",
+  "metric": "heldout_robust_tpr_at_1pct",
+  "bank": "data/banks/probe_band_convnextv2h",
+  "eval_bank": "data/banks/eval_probe_band_convnextv2h",
+  "base_config": "configs/rungs/a3.yaml",
+  "results": [
+    {
+      "hidden": 256,
+      "detector_params": 4462349,
+      "heldout_robust_tpr_at_1pct": 0.5602456140350877,
+      "val_auc_clean_view_only": 0.9465299473109792,
+      "val_auc_mean_views": 0.9252304627425046
+    },
+    {
+      "hidden": 512,
+      "detector_params": 4462349,
+      "heldout_robust_tpr_at_1pct": 0.5602456140350877,
+      "val_auc_clean_view_only": 0.9465299473109792,
+      "val_auc_mean_views": 0.9252304627425046
+    },
+    {
+      "hidden": 1024,
+      "detector_params": 4462349,
+      "heldout_robust_tpr_at_1pct": 0.5602456140350877,
+      "val_auc_clean_view_only": 0.9465299473109792,
+      "val_auc_mean_views": 0.9252304627425046
+    },
+    {
+      "hidden": 2048,
+      "detector_params": 4462349,
+      "heldout_robust_tpr_at_1pct": 0.5602456140350877,
+      "val_auc_clean_view_only": 0.9465299473109792,
+      "val_auc_mean_views": 0.9252304627425046
+    }
+  ]
+}

@@ -1,0 +1,540 @@
+{
+  "probe": "second_holdout_lattice",
+  "off_ladder": true,
+  "holdout_generators": [
+    "sid_set"
+  ],
+  "n_heldout_positive_images": 155,
+  "metric": "heldout_robust_tpr_at_1pct",
+  "max_backbones_for_legal": 2,
+  "singles": {
+    "band_dinov2l": 0.46994906621392185,
+    "crop_dinov2l": 0.21086587436332768,
+    "band_dinov2regl": 0.4125636672325977,
+    "crop_dinov2regl": 0.16977928692699493,
+    "band_siglipso400m": 0.5758913412563668,
+    "crop_siglipso400m": 0.2889643463497453
+  },
+  "combinations": {
+    "band_dinov2l+crop_dinov2l": {
+      "arity": 2,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l"
+      ],
+      "backbones": [
+        "dinov2l"
+      ],
+      "equal": 0.5188455008488964,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.21086587436332768,
+      "max_parent": 0.46994906621392185
+    },
+    "band_dinov2l+band_dinov2regl": {
+      "arity": 2,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "equal": 0.5775891341256367,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.4125636672325977,
+      "max_parent": 0.46994906621392185
+    },
+    "band_dinov2l+crop_dinov2regl": {
+      "arity": 2,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "equal": 0.5993208828522919,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.16977928692699493,
+      "max_parent": 0.46994906621392185
+    },
+    "band_dinov2l+band_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "band_dinov2l",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "equal": 0.6791171477079797,
+      "fitted": 0.6906621392190153,
+      "w_fitted": [
+        0.45,
+        0.55
+      ],
+      "min_parent": 0.46994906621392185,
+      "max_parent": 0.5758913412563668
+    },
+    "band_dinov2l+crop_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "band_dinov2l",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "equal": 0.6129032258064516,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.2889643463497453,
+      "max_parent": 0.46994906621392185
+    },
+    "crop_dinov2l+band_dinov2regl": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "equal": 0.5174872665534804,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.21086587436332768,
+      "max_parent": 0.4125636672325977
+    },
+    "crop_dinov2l+crop_dinov2regl": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2l",
+        "crop_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "equal": 0.2937181663837012,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.16977928692699493,
+      "max_parent": 0.21086587436332768
+    },
+    "crop_dinov2l+band_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2l",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "equal": 0.5989813242784381,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.21086587436332768,
+      "max_parent": 0.5758913412563668
+    },
+    "crop_dinov2l+crop_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2l",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "equal": 0.4169779286926995,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.21086587436332768,
+      "max_parent": 0.2889643463497453
+    },
+    "band_dinov2regl+crop_dinov2regl": {
+      "arity": 2,
+      "arms": [
+        "band_dinov2regl",
+        "crop_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2regl"
+      ],
+      "equal": 0.535483870967742,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.16977928692699493,
+      "max_parent": 0.4125636672325977
+    },
+    "band_dinov2regl+band_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "band_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.6631578947368422,
+      "fitted": 0.6512733446519524,
+      "w_fitted": [
+        0.55,
+        0.45
+      ],
+      "min_parent": 0.4125636672325977,
+      "max_parent": 0.5758913412563668
+    },
+    "band_dinov2regl+crop_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "band_dinov2regl",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.5286926994906621,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.2889643463497453,
+      "max_parent": 0.4125636672325977
+    },
+    "crop_dinov2regl+band_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.632597623089983,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.16977928692699493,
+      "max_parent": 0.5758913412563668
+    },
+    "crop_dinov2regl+crop_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.49847198641765694,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.16977928692699493,
+      "max_parent": 0.2889643463497453
+    },
+    "band_siglipso400m+crop_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "band_siglipso400m",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "siglipso400m"
+      ],
+      "equal": 0.5786078098471986,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.2889643463497453,
+      "max_parent": 0.5758913412563668
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "equal": 0.5887945670628184,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.21086587436332768,
+      "max_parent": 0.46994906621392185
+    },
+    "band_dinov2l+crop_dinov2l+crop_dinov2regl": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "crop_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "equal": 0.5426146010186756,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.16977928692699493,
+      "max_parent": 0.46994906621392185
+    },
+    "band_dinov2l+crop_dinov2l+band_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "equal": 0.66893039049236,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.21086587436332768,
+      "max_parent": 0.5758913412563668
+    },
+    "band_dinov2l+crop_dinov2l+crop_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "equal": 0.5887945670628184,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.21086587436332768,
+      "max_parent": 0.46994906621392185
+    },
+    "band_dinov2l+band_dinov2regl+crop_dinov2regl": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "equal": 0.631239388794567,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.16977928692699493,
+      "max_parent": 0.46994906621392185
+    },
+    "band_dinov2l+band_siglipso400m+crop_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2l",
+        "band_siglipso400m",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "equal": 0.7089983022071308,
+      "fitted": 0.7147707979626485,
+      "w_fitted": [
+        0.42857142857142855,
+        0.3333333333333333,
+        0.23809523809523808
+      ],
+      "min_parent": 0.2889643463497453,
+      "max_parent": 0.5758913412563668
+    },
+    "crop_dinov2l+band_dinov2regl+crop_dinov2regl": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "equal": 0.5127334465195247,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.16977928692699493,
+      "max_parent": 0.4125636672325977
+    },
+    "crop_dinov2l+band_siglipso400m+crop_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2l",
+        "band_siglipso400m",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "equal": 0.6254668930390492,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.21086587436332768,
+      "max_parent": 0.5758913412563668
+    },
+    "band_dinov2regl+crop_dinov2regl+band_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.666213921901528,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.16977928692699493,
+      "max_parent": 0.5758913412563668
+    },
+    "band_dinov2regl+crop_dinov2regl+crop_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.6091680814940578,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.16977928692699493,
+      "max_parent": 0.4125636672325977
+    },
+    "band_dinov2regl+band_siglipso400m+crop_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "band_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.6872665534804754,
+      "fitted": 0.6859083191850595,
+      "w_fitted": [
+        0.42857142857142855,
+        0.38095238095238093,
+        0.19047619047619047
+      ],
+      "min_parent": 0.2889643463497453,
+      "max_parent": 0.5758913412563668
+    },
+    "crop_dinov2regl+band_siglipso400m+crop_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.6719864176570458,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.16977928692699493,
+      "max_parent": 0.5758913412563668
+    },
+    "band_dinov2l+crop_dinov2l+band_dinov2regl+crop_dinov2regl": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "crop_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "equal": 0.5921901528013582,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.16977928692699493,
+      "max_parent": 0.46994906621392185
+    },
+    "band_dinov2l+crop_dinov2l+band_siglipso400m+crop_siglipso400m": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2l",
+        "crop_dinov2l",
+        "band_siglipso400m",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "equal": 0.6964346349745331,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.21086587436332768,
+      "max_parent": 0.5758913412563668
+    },
+    "band_dinov2regl+crop_dinov2regl+band_siglipso400m+crop_siglipso400m": {
+      "arity": 4,
+      "arms": [
+        "band_dinov2regl",
+        "crop_dinov2regl",
+        "band_siglipso400m",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "equal": 0.6831918505942274,
+      "fitted": null,
+      "w_fitted": null,
+      "min_parent": 0.16977928692699493,
+      "max_parent": 0.5758913412563668
+    }
+  },
+  "best": "band_dinov2l+band_siglipso400m+crop_siglipso400m",
+  "best_per_arity": {
+    "2": 0.6791171477079797,
+    "3": 0.7089983022071308,
+    "4": 0.6964346349745331
+  },
+  "fusion_beats_best_parent": [
+    30,
+    30
+  ],
+  "caveat": "levels are NOT comparable with the primary split; a different family at a different sample size is a different population. Read the order."
+}

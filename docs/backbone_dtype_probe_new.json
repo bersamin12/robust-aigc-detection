@@ -1,0 +1,37 @@
+{
+  "n_images": 24,
+  "device": "cuda",
+  "seed": 20260827,
+  "results": [
+    {
+      "backbone": "siglip2l512",
+      "hf_id": "google/siglip2-large-patch16-512",
+      "declared_dtype": "float16",
+      "effective_dtype": "float16",
+      "dim": 1024,
+      "image_size": 512,
+      "n_images": 24,
+      "finite": true,
+      "n_nonfinite": 0,
+      "max_abs_diff_vs_float32": 0.027090072631835938,
+      "max_abs_pooled": 15.375,
+      "fits_float16_storage": true,
+      "float32_max_abs_pooled": 15.380945205688477
+    },
+    {
+      "backbone": "dinov2regg",
+      "hf_id": "facebook/dinov2-with-registers-giant",
+      "declared_dtype": "float16",
+      "effective_dtype": "float16",
+      "dim": 1536,
+      "image_size": 518,
+      "n_images": 24,
+      "finite": true,
+      "n_nonfinite": 0,
+      "max_abs_diff_vs_float32": 0.007612109184265137,
+      "max_abs_pooled": 6.84765625,
+      "fits_float16_storage": true,
+      "float32_max_abs_pooled": 6.8498735427856445
+    }
+  ]
+}
