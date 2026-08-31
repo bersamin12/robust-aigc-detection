@@ -367,6 +367,17 @@ class FinetuneConfig:
     tower_dtype: str = "float32"
     policy_mode: str = "crop"
     crop_side: int = 200
+    #: The side `canonicalise` resizes to before the tower sees it. `None`
+    #: keeps `CanonPolicy`'s 512.
+    #:
+    #: Setting it to the BACKBONE's input size removes a whole resampling
+    #: stage: at 512 a 224-token tower sees crop -> 512 -> 224, upsampled then
+    #: downsampled through two interpolation kernels, when crop -> 224 would
+    #: do. The information content is capped by `crop_side` either way; this
+    #: only decides how many times it is resampled on the way.
+    nominal_side: int | None = None
+    #: See `CanonPolicy.crop_clamp`. Gate it on the content-blind probe.
+    crop_clamp: bool = False
     geometric: bool = False
     train_exclude_generators: tuple[str, ...] = ()
     #: Fraction of the train rows to keep, stratified by (generator, label).
@@ -377,7 +388,10 @@ class FinetuneConfig:
     train_subsample_frac: float = 1.0
 
     def policy(self) -> CanonPolicy:
-        return CanonPolicy(mode=self.policy_mode, crop_side=self.crop_side)
+        kw = {} if self.nominal_side is None else {
+            "nominal_side": int(self.nominal_side)}
+        return CanonPolicy(mode=self.policy_mode, crop_side=self.crop_side,
+                           crop_clamp=self.crop_clamp, **kw)
 
 
 def _forward_tower(model, spec: BackboneSpec, imgs, device: str,

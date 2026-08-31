@@ -256,6 +256,21 @@ class CanonPolicy:
     nominal_side: int = CANON_NOMINAL_SIDE
     crop_side: int = CANON_CROP_SIDE
     jitter: float = CANON_BAND_JITTER
+    #: When the image is smaller than `crop_side`, take the largest square it
+    #: DOES contain and let the upscale to `nominal_side` cover the rest,
+    #: instead of raising.
+    #:
+    #: Off by default, and the default is the conservative one: with it on, how
+    #: much an image is resampled becomes a function of its native resolution,
+    #: and native resolution is not independent of the label. Measured on the
+    #: plan manifest at crop_side=224, the upscale factor ALONE separates the
+    #: classes at AUC 0.5430 -- against this corpus's own references of 0.5081
+    #: for crop and 0.6105 for band. Small, real, and exactly the kind of
+    #: low-level shortcut `npr_feature` was written to detect.
+    #:
+    #: Turning it on is therefore a measurement, not a convenience: gate it on
+    #: `scripts/content_blind_probe.py` and report what that probe said.
+    crop_clamp: bool = False
 
     def __post_init__(self):
         if self.mode not in MODES:
@@ -281,7 +296,12 @@ class CanonPolicy:
             if not 0.0 <= self.jitter < 1.0:
                 raise ValueError(f"jitter must be in [0, 1), got {self.jitter!r}")
         else:
-            if not 0 < self.crop_side < self.nominal_side:
+            if self.crop_clamp and not 0 < self.crop_side <= self.nominal_side:
+                raise ValueError(
+                    f"need 0 < crop_side <= nominal_side when crop_clamp is "
+                    f"set, got crop_side={self.crop_side!r} "
+                    f"nominal_side={self.nominal_side!r}")
+            if not self.crop_clamp and not 0 < self.crop_side < self.nominal_side:
                 raise ValueError(
                     f"need 0 < crop_side < nominal_side, got crop_side="
                     f"{self.crop_side!r} nominal_side={self.nominal_side!r}; the "
@@ -310,6 +330,10 @@ class CanonPolicy:
             rec.update(band_side=self.band_side, jitter=self.jitter)
         else:
             rec.update(crop_side=self.crop_side)
+            # Only recorded when set, so every bank written before this field
+            # existed still compares equal to one written with it off.
+            if self.crop_clamp:
+                rec.update(crop_clamp=True)
         return rec
 
     @classmethod
@@ -363,7 +387,8 @@ def _resize_short_side(img: np.ndarray, target: int, interp: int) -> np.ndarray:
 
 
 def _random_square_crop(img: np.ndarray, side: int,
-                        rng: np.random.Generator | None) -> np.ndarray:
+                        rng: np.random.Generator | None,
+                        clamp: bool = False) -> np.ndarray:
     """Take a `side x side` window at NATIVE resolution.
 
     `rng is None` gives the CENTRE window. That is not a fallback, it is the
@@ -381,6 +406,12 @@ def _random_square_crop(img: np.ndarray, side: int,
     result is never a view of the caller's array.
     """
     h, w = img.shape[:2]
+    if clamp:
+        # The largest square this image contains. The caller's resize to
+        # nominal_side then upscales further than it would for a big image,
+        # which is the whole cost of this option and is documented on
+        # `CanonPolicy.crop_clamp`.
+        side = min(side, h, w)
     if min(h, w) < side:
         raise ValueError(
             f"cannot take a {side}x{side} window from a {h}x{w} image. Crop "
@@ -472,7 +503,8 @@ def canonicalise(img: np.ndarray, *,
         # every image alike. `crop_side < nominal_side` makes it an upscale
         # for every input, so no image is routed through a different kernel
         # because of how big it started.
-        window = _random_square_crop(img, policy.crop_side, rng)
+        window = _random_square_crop(img, policy.crop_side, rng,
+                                     clamp=policy.crop_clamp)
         return _resize_short_side(window, nominal_side, _UPSCALE_INTERP)
 
     band = band_side

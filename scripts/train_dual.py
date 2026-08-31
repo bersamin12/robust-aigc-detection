@@ -49,6 +49,15 @@ def main() -> int:
     ap.add_argument("--crop-side", type=int, default=200)
     ap.add_argument("--train-subsample-frac", type=float, default=1.0)
     ap.add_argument("--no-checkpointing", action="store_true")
+    ap.add_argument("--nominal-side", type=int, default=None,
+                    help="side canonicalise resizes to before the tower; set "
+                         "it to the backbone's input size to drop a whole "
+                         "resampling stage (default keeps CanonPolicy's 512)")
+    ap.add_argument("--crop-clamp", action="store_true",
+                    help="take the largest square a small image contains "
+                         "instead of raising. Gate on content_blind_probe: at "
+                         "crop_side=224 the upscale factor alone separates the "
+                         "classes at AUC 0.5430")
     ap.add_argument("--lr-schedule", default="constant",
                     choices=("constant", "cosine"),
                     help="cosine adds warmup + decay; OFF by default because a "
@@ -69,6 +78,7 @@ def main() -> int:
         tower_lr=a.tower_lr, n_src=a.n_src, m_deg=a.m_deg,
         src_chunk=a.src_chunk, workers=a.workers, seed=a.seed,
         device=a.device, policy_mode=a.canon_mode, crop_side=a.crop_side,
+        nominal_side=a.nominal_side, crop_clamp=a.crop_clamp,
         grad_checkpointing=not a.no_checkpointing, resume=a.resume,
         lr_schedule=a.lr_schedule, warmup_frac=a.warmup_frac,
         min_lr_frac=a.min_lr_frac, swa=a.swa, swa_start_frac=a.swa_start_frac,

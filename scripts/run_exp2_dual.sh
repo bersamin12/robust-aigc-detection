@@ -19,7 +19,26 @@ cd "$(dirname "$0")/.."
 NM=${NM:-dual_d24}
 DEPTH=${DEPTH:-24}          # ViT-L/14 has 24 blocks; 24 == full unfreeze, per tower
 EPOCHS=${EPOCHS:-3}
-CHUNK=${CHUNK:-2}
+CHUNK=${CHUNK:-8}
+# SAFE canonicalisation: a uniform 200 crop upscaled once to the tower's own
+# 224 input. Not crop_side=224 -- that would need `crop_clamp`, which makes how
+# much an image is resampled a function of its native resolution, and native
+# resolution is not independent of the label here (upscale factor alone: AUC
+# 0.5430). It also drops the wasteful 200 -> 512 -> 224 double resample the
+# default policy performs. Gate `crop_clamp` on scripts/gate_crop_policy.py
+# before ever turning it on.
+CROPSIDE=${CROPSIDE:-200}
+NOMINAL=${NOMINAL:-224}
+CLAMP=${CLAMP:-0}
+CLAMP_FLAG=""; [ "$CLAMP" = "1" ] && CLAMP_FLAG="--crop-clamp"
+# norway has 320 cores against 4 ranks. At 224px the tower work per image drops
+# ~5x while decode and canonicalisation do not, so the dataloader is the likely
+# floor and starving it is the one way to waste this box. 64 threads per rank is
+# 256 of 320 cores, leaving headroom for the main processes.
+WORKERS=${WORKERS:-64}
+# One BLAS thread per worker, not one per core: norway's own 7b7bc90 was written
+# after a fat box ran out of threads doing exactly this arithmetic backwards.
+OMP=${OMP:-1}
 GPUS=${GPUS:-$(nvidia-smi -L | wc -l)}
 PERTURB=${PERTURB:-0.0}
 BANK=${BANK:-data/banks/full_crop_dinov2regl}
@@ -57,18 +76,19 @@ if miss:
 print(f"preflight OK: {len(b.meta):,} rows, {n_train:,} train, corpus resolves")
 PY
 
-echo "[$(date +%H:%M:%S)] $NM 2x dinov2regl224 depth=$DEPTH epochs=$EPOCHS gpus=$GPUS" | tee -a "$LOG"
+echo "[$(date +%H:%M:%S)] $NM 2x dinov2regl224 depth=$DEPTH epochs=$EPOCHS gpus=$GPUS workers=$WORKERS chunk=$CHUNK omp=$OMP sched=$SCHED swa=$SWA crop=$CROPSIDE nominal=$NOMINAL clamp=$CLAMP" | tee -a "$LOG"
 echo "[$(date +%H:%M:%S)] NOTE: prints nothing until epoch 1 completes. Silence is normal." | tee -a "$LOG"
 
-OMP_NUM_THREADS=4 $PY -m torch.distributed.run \
+OMP_NUM_THREADS=$OMP $PY -m torch.distributed.run \
   --nproc_per_node="$GPUS" --master_port=29586 \
   scripts/train_dual.py \
   --bank "$BANK" --root "$ROOT" \
   --backbone dinov2regl224 --depth "$DEPTH" --name "$NM" \
   --perturb-tower2 "$PERTURB" \
   --out-dir outputs/dual --epochs "$EPOCHS" \
-  --canon-mode crop --crop-side 200 \
-  --device cuda --workers 24 --src-chunk "$CHUNK" --resume \
+  --canon-mode crop --crop-side "$CROPSIDE" \
+  --nominal-side "$NOMINAL" $CLAMP_FLAG \
+  --device cuda --workers "$WORKERS" --src-chunk "$CHUNK" --resume \
   --lr-schedule "$SCHED" --warmup-frac "$WARMUP" \
   --min-lr-frac "$MINLR" $SWA_FLAG --swa-start-frac "$SWA_START" \
   >> "$LOG" 2>&1
