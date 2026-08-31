@@ -38,9 +38,10 @@ from aigcdet.features.backbones import load_backbone
 from aigcdet.features.bank import FeatureBank
 from aigcdet.models.heads import Detector
 from aigcdet.train.finetune import (
-    FinetuneConfig, LiveViewSampler, _dist_init, _forward_tower, _GradReducer,
-    _LRSchedule, _owned_chunks, _prepare_batch, _shard_task, _step_loss,
-    _stratified_subsample, _WeightAverager, unfreeze_last_n,
+    FinetuneConfig, LiveViewSampler, _dist_init, _enable_eval_checkpointing,
+    _forward_tower, _GradReducer, _LRSchedule, _owned_chunks, _prepare_batch,
+    _shard_task, _step_loss, _stratified_subsample, _WeightAverager,
+    unfreeze_last_n,
 )
 
 
@@ -130,9 +131,8 @@ def train_dual(cfg: DualFinetuneConfig) -> dict:
 
     unfrozen = [unfreeze_last_n(t, b.depth) for t in towers]
     for t in towers:
-        if b.grad_checkpointing and b.depth and hasattr(
-                t, "gradient_checkpointing_enable"):
-            t.gradient_checkpointing_enable()
+        if b.grad_checkpointing and b.depth:
+            _enable_eval_checkpointing(t)
         # NEVER .train(): same reason as the single-tower path.
         t.eval()
 

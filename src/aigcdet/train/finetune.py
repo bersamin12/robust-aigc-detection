@@ -99,6 +99,35 @@ def tower_blocks(model) -> tuple[str, torch.nn.ModuleList]:
         "depth reports 'depth does not help' from a table that looks fine.")
 
 
+def _enable_eval_checkpointing(tower) -> int:
+    """Per-block activation checkpointing that survives `.eval()`.
+
+    `gradient_checkpointing_enable()` sets a flag that HF encoders consult as
+    `self.gradient_checkpointing and self.training` -- and this loop keeps the
+    tower in eval mode ON PURPOSE (drop-path off, one difference per ladder
+    rung). So the flag was on, the recompute never happened, and d24 paid
+    22 GiB of activations at src_chunk=4 while "checkpointing" was enabled.
+    This wraps each block's forward directly, keyed on grad mode alone, which
+    is the condition that actually distinguishes training from scoring here.
+
+    Returns the number of blocks wrapped, so the caller can log a number
+    rather than a hope.
+    """
+    from torch.utils.checkpoint import checkpoint
+    _, blocks = tower_blocks(tower)
+    for blk in blocks:
+        orig = blk.forward
+
+        def wrapped(*args, __orig=orig, **kw):
+            if torch.is_grad_enabled() and any(
+                    torch.is_tensor(a) and a.requires_grad for a in args):
+                return checkpoint(__orig, *args, use_reentrant=False, **kw)
+            return __orig(*args, **kw)
+
+        blk.forward = wrapped
+    return len(blocks)
+
+
 def unfreeze_last_n(model, depth: int) -> dict:
     """Mark the last `depth` blocks trainable. Returns what was done.
 
@@ -779,12 +808,11 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
     tower, spec = load_backbone(backbone_name, device=cfg.device)
     tower = tower.to(getattr(torch, cfg.tower_dtype))
     unfrozen = unfreeze_last_n(tower, cfg.depth)
-    if cfg.grad_checkpointing and cfg.depth and hasattr(
-            tower, "gradient_checkpointing_enable"):
+    if cfg.grad_checkpointing and cfg.depth:
         # Only when something is actually trainable: with a fully frozen tower
         # there is no backward through it to recompute for, so checkpointing
         # would buy nothing and cost the recompute anyway.
-        tower.gradient_checkpointing_enable()
+        _enable_eval_checkpointing(tower)
     # NEVER `.train()`. See the module docstring: eval mode governs dropout and
     # running statistics, not autograd, and letting those differ between D0 and
     # D1 would put a second difference inside a one-difference ladder.
