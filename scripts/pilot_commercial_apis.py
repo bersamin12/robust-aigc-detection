@@ -2,10 +2,10 @@
 
 `docs/03-commercial-apis-on-open-images.md` §3.2 asks for a small paid pilot
 before the bulk buy. This is that pilot, and it is written so one purchase
-answers everything the brief needs before the $114 commitment:
+answers everything the brief needs before the full buy is committed to:
 
-1. **The refusal rate**, per provider, measured rather than the guessed 20% in
-   `docs/03a` §3. Task 02's reals are portrait-filtered, so the Localized
+1. **The refusal rate**, per provider, measured rather than guessed
+   (`docs/task3-handover.md` §10). Task 02's reals are portrait-filtered, so the Localized
    Narratives that pair with them describe people, and §3.5 bars prompting for
    identifiable individuals. Refusals are likely and some providers bill them.
 2. **The geometry question** in §3.1, which is task 03's genuine open problem.
@@ -534,7 +534,7 @@ def main(argv=None):
           f"      python scripts/prove_encoder_parity.py --reals {a.reals} \\\n"
           f"        --generated {a.out}/raw/<family> --out {a.out}/gate_$g --n {a.n}\n"
           f"    done\n"
-          f"  then put the measured refusal rates above into docs/03a §3.")
+          f"  then record the measured refusal rates in docs/task3-handover.md §3.")
     return 0
 
 

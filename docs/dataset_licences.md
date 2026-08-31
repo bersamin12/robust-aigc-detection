@@ -340,8 +340,8 @@ turn out to bar the use.
   *"perpetual, irrevocable, worldwide"* licence to inputs **and** outputs and
   states it may train on them, and bars output from being used as synthetic
   training data for a model of *"substantially similar functionality"*. Excluded
-  on those terms, **not** on lineage — see `03a` §1.1, where the lineage
-  argument does not survive contact with FLUX.2's from-scratch VAE.
+  on those terms, **not** on lineage: FLUX.2's latent space was retrained from
+  scratch, so the lineage argument does not survive contact with it.
 * **Recraft** — reserve only. Lineage-clean and slightly cheaper than Seedream,
   but appears in none of NTIRE 2026's held-out splits. Terms published but not
   yet read; read them if Seedream's cannot be obtained.
