@@ -66,14 +66,22 @@ b = FeatureBank.open(bank_dir)
 n_train = int((b.meta["split"].to_numpy() == "train").sum())
 if n_train == 0:
     sys.exit(f"REFUSING: {bank_dir} has no train rows")
-if "rel_path" not in b.meta.columns:
-    sys.exit("REFUSING: bank has no rel_path column")
-paths = b.meta["rel_path"].to_numpy()
-miss = [p for p in paths[:400] if not os.path.exists(os.path.join(root, str(p)))]
+# Mirror `LiveViewSampler` (train/finetune.py:204) EXACTLY, rather than
+# asserting one of the two shapes it accepts. A metadata bank built with
+# --path-map carries absolute `path` and no `rel_path`, and demanding
+# `rel_path` here refuses a bank the trainer reads perfectly well.
+col = "rel_path" if "rel_path" in b.meta.columns else "path"
+if col not in b.meta.columns:
+    sys.exit("REFUSING: bank has neither a rel_path nor a path column")
+absolute = col == "path"
+paths = b.meta[col].to_numpy()
+resolve = (lambda p: p) if absolute else (lambda p: os.path.join(root, p))
+miss = [p for p in paths[:400] if not os.path.exists(resolve(str(p)))]
 if miss:
-    sys.exit(f"REFUSING: {len(miss)}/400 sampled rows do not resolve under "
-             f"{root}, e.g. {miss[:2]}")
-print(f"preflight OK: {len(b.meta):,} rows, {n_train:,} train, corpus resolves")
+    sys.exit(f"REFUSING: {len(miss)}/400 sampled rows do not resolve "
+             f"({col}, absolute={absolute}, root={root}), e.g. {miss[:2]}")
+print(f"preflight OK: {len(b.meta):,} rows, {n_train:,} train, "
+      f"corpus resolves via {col} (absolute={absolute})")
 PY
 
 echo "[$(date +%H:%M:%S)] $NM 2x dinov2regl224 depth=$DEPTH epochs=$EPOCHS gpus=$GPUS workers=$WORKERS chunk=$CHUNK omp=$OMP sched=$SCHED swa=$SWA crop=$CROPSIDE nominal=$NOMINAL clamp=$CLAMP" | tee -a "$LOG"
