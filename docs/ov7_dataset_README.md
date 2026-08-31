@@ -88,7 +88,16 @@ real-world inputs are not.
 
 ## 4. The generators
 
-<!--FAMILIES-->
+| family | model | licence | decoder lineage | conditioning | pairs |
+|---|---|---|---|---|---|
+| `klein4b_ref_image` | `black-forest-labs/FLUX.2-klein-4B` | **Apache-2.0** | `flux2_vae` | reference-image conditioning | 600 |
+| `klein4b_t2i` | `black-forest-labs/FLUX.2-klein-4B` | **Apache-2.0** | `flux2_vae` | text-to-image | 1,200 |
+| `sd15_img2img` | `stable-diffusion-v1-5/stable-diffusion-v1-5` | CreativeML OpenRAIL-M | `sd_vae` | SDEdit @ strength 0.75 | 795 |
+| `sd15_t2i` | `stable-diffusion-v1-5/stable-diffusion-v1-5` | CreativeML OpenRAIL-M | `sd_vae` | text-to-image | 1,983 |
+| `sdxl_img2img` | `stabilityai/stable-diffusion-xl-base-1.0` | OpenRAIL++-M | `sdxl_vae` | SDEdit @ strength 0.75 | 1,000 |
+| `sdxl_self_cond` | `diffusers/stable-diffusion-xl-1.0-inpainting-0.1` | OpenRAIL++-M | `sdxl_vae` | zero-mask regeneration | 1,400 |
+| `sdxl_t2i` | `stabilityai/stable-diffusion-xl-base-1.0` | OpenRAIL++-M | `sdxl_vae` | text-to-image | 3,000 |
+| | | | | **total** | **9,978** |
 
 Conditioning is 76% fully synthetic (text-to-image and zero-mask
 regeneration) and 24% image-conditioned.
@@ -99,6 +108,22 @@ their decoder fingerprint. The frozen split holds out the **entire `flux2_vae`
 lineage** — a different decoder *and* a different architecture (flow-matching
 DiT against the UNets) — so the held-out rung measures a jump between decoder
 families rather than generalising to a cousin that shares a VAE.
+
+### Frozen splits
+
+`manifest_ov7.parquet` carries a split assignment drawn **once per ImageID**,
+not once per row, so a photograph and its own generated counterpart are never
+on opposite sides of a boundary. Held-out membership propagates the same way.
+
+| split | pairs | rows |
+|---|---|---|
+| `train` | 7,328 | 14,656 |
+| `val_internal` | 850 | 1,700 |
+| `heldout_generator` (`flux2_vae`) | 1,800 | 3,600 |
+| **total** | **9,978** | **19,956** |
+
+Every split is exactly 50/50 real and fake, which is a consequence of the
+pairing rather than a sampling choice.
 
 ## 5. Licensing
 
@@ -129,7 +154,28 @@ and asks how well each single low-level statistic predicts the label — no
 model, no training. 0.5 is chance. Read against our frozen corpus, whose reals
 and fakes come from different sources in the ordinary way:
 
-<!--GATE-->
+| statistic | AI-OV7 | our frozen corpus |
+|---|---|---|
+| JPEG quality | **0.5038** | 0.5532 |
+| sharpness (var-Laplacian) | **0.5998** | 0.6721 |
+| noise floor | **0.5229** | 0.6374 |
+| image dimensions | **0.5022** | 0.5992 |
+
+4,000 images sampled across all seven families (`scripts/gate_confounds.py --n 4000`, band canonicalisation).
+
+**Every statistic comes in below the frozen corpus, and two are at chance.**
+JPEG quality at 0.5038 is the encoder parity working: a detector cannot find
+the label in the compression history because both halves of a pair share one.
+Image dimensions at 0.5022 is the geometry parity working; the earlier attempt
+at this corpus separated the classes at ~100% on dimensions alone.
+
+Sharpness at 0.5998 is the residual, and it is the honest one. It is well
+below the 0.6721 our frozen corpus carries, but it is not chance: at matched
+content, matched size and matched compression, these generators still produce
+images that are measurably smoother than the photographs they were made from.
+That is a property of the generators, not an artefact of how the corpus was
+assembled -- which is exactly what a corpus like this is for. Treat it as the
+floor a detector has to beat rather than as a leak that has been removed.
 
 ## 7. Three things to know before you train on this
 

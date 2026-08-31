@@ -215,13 +215,64 @@ entire purpose is holding everything but the generator fixed. If the arm is
 ever regenerated, decode SD 1.5's VAE in fp32 for the whole family or none of
 it.
 
-## 10. Still owed
+## 9a. Final gate, full suite (n=4,000, band mode)
 
-1. The `docs/02` §5 gate at 2,000 images: `jpeg_quality`, `laplacian_var`,
-   `noise_floor` against 0.5532 / 0.6721 / 0.6374, plus a dimensions-only
-   control that must score ~0.5. **Allowed to cancel the task.**
-2. Per-source FPR, reported separately for Open Images, WildFake and SID_Set.
-3. Pair survival count after `build_dataset`, not just row count.
-4. The end-to-end question: does a head trained with AI-OV7 beat one without it
+The reading §8 owed. All seven families, 4,000 images sampled proportionally
+from `manifest_ov7.parquet`.
+
+| proxy | AI-OV7 | frozen corpus |
+|---|---|---|
+| `jpeg_quality` | **0.5038** | 0.5532 |
+| `laplacian_var` | **0.5998** | 0.6721 |
+| `noise_floor` | **0.5229** | 0.6374 |
+| `short_side` | **0.5022** | 0.5992 |
+
+**Every proxy comes in below the frozen baseline, and two are at chance.**
+
+`jpeg_quality` 0.5038 is encoder parity holding across the whole suite --
+better than §8's 0.5653, which was `klein4b_*` alone, and against the previous
+attempt's 0.0000. `short_side` 0.5022 is the dimension control: the §3 leak
+separated the classes at ~100% on geometry alone and it is now chance.
+
+`laplacian_var` 0.5998 is the residual and the honest number. It is 0.072
+below the frozen corpus but it is not chance: at matched content, matched size
+and matched compression history, these generators still produce measurably
+smoother images than the photographs they were made from. That is a property
+of the generators rather than of how the corpus was assembled, which is what
+the corpus was built to be able to say. It is the floor a head has to beat,
+not a leak that has been removed.
+
+## 10. Corpus as frozen
+
+9,978 pairs / 19,956 rows, from 9,978 distinct reals -- each real used by
+exactly **one** family, so the arms are disjoint rather than stacked.
+
+| | pairs | rows |
+|---|---|---|
+| `train` | 7,328 | 14,656 |
+| `val_internal` | 850 | 1,700 |
+| `heldout_generator` (`flux2_vae`) | 1,800 | 3,600 |
+
+Every split is exactly 50/50 by label, which is the `pair_split_by_stem` draw
+working: groups of two move together, so balance is a consequence rather than
+a sampling choice.
+
+**Pair survival is 100%.** `build_dataset` dropped 0 rows below the short-side
+floor and 0 as demo near-duplicates -- so the `self_cond` arm, which sits at
+pHash Hamming 0-2 from its reals, survived intact, as §7 predicted it would as
+long as `find_leaks` is only ever run against the demo set.
+
+Audited on the raw tree before the build: **0 orphaned files, 0 rows whose
+files are missing, 0 reals used twice**, and encoder parity re-asserted on a
+random 40 pairs with 0 failures. Normalised size 7.1 GB; raw JPEG pairs 1.7 GB.
+Zero square and zero landscape rows across all 19,956; sizes run 400x560 to
+448x640.
+
+## 11. Still owed
+
+1. Per-source FPR, reported separately for Open Images, WildFake and SID_Set.
+   Needs a trained checkpoint -- `scripts/stratified_auc.py --stratify-by
+   source` takes one -- so it belongs to the Stage B session, not this one.
+2. The end-to-end question: does a head trained with AI-OV7 beat one without it
    on the organisers' benchmark? If not, that is `docs/02` §6's second negative
    result and an argument for task 03 — worth knowing early either way.
