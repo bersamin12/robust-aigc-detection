@@ -99,6 +99,28 @@ def tower_blocks(model) -> tuple[str, torch.nn.ModuleList]:
         "depth reports 'depth does not help' from a table that looks fine.")
 
 
+def _windowed(pool, fn, items, window: int):
+    """`(item, future)` pairs in order, at most `window` tasks in flight.
+
+    The naive `[pool.submit(...) for t in tasks]` lets the producer threads
+    race an entire epoch ahead of the consumer, holding every prepared batch
+    in RAM at once. At 224px that is ~40 GiB per rank and survivable; at 518px
+    it is ~105 GiB per rank, and eight ranks of it put a 503 GiB box into the
+    kernel OOM-killer -- rank 5 died by SIGKILL at 22:54 on 2026-08-31 with no
+    Python traceback anywhere, because the kernel does not raise, it shoots.
+    A window of a couple times the worker count keeps every thread busy while
+    capping the buffer at megabytes.
+    """
+    from collections import deque
+    q = deque()
+    for x in items:
+        while len(q) >= window:
+            yield q.popleft()
+        q.append((x, pool.submit(fn, x)))
+    while q:
+        yield q.popleft()
+
+
 def _enable_eval_checkpointing(tower) -> int:
     """Per-block activation checkpointing that survives `.eval()`.
 
@@ -877,10 +899,11 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
         # and threads keep the memmapped bank and the already-loaded tower
         # shared instead of paying to re-create them per worker.
         with ThreadPoolExecutor(max_workers=max(1, cfg.workers)) as pool:
-            pending = [pool.submit(_prepare_batch,
-                                   _shard_task(t, rank, world, cfg.src_chunk))
-                       for t in tasks]
-            for task, fut in zip(tasks, pending):
+            for task, fut in _windowed(
+                    pool,
+                    lambda t: _prepare_batch(
+                        _shard_task(t, rank, world, cfg.src_chunk)),
+                    tasks, 2 * max(1, cfg.workers)):
                 prepared = fut.result()
                 si, vi = task[7], task[8]
                 batch = sampler.targets(si, vi, cfg.device)

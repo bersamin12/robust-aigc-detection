@@ -39,6 +39,7 @@ from aigcdet.features.bank import FeatureBank
 from aigcdet.models.heads import Detector
 from aigcdet.train.finetune import (
     FinetuneConfig, LiveViewSampler, _dist_init, _enable_eval_checkpointing,
+    _windowed,
     _forward_tower, _GradReducer, _LRSchedule, _owned_chunks, _prepare_batch,
     _shard_task, _step_loss, _stratified_subsample, _WeightAverager,
     unfreeze_last_n,
@@ -196,10 +197,11 @@ def train_dual(cfg: DualFinetuneConfig) -> dict:
     for epoch in range(start_epoch, b.epochs):
         tasks = sampler.batch_tasks()
         with ThreadPoolExecutor(max_workers=max(1, b.workers)) as pool:
-            pending = [pool.submit(_prepare_batch,
-                                   _shard_task(t, rank, world, b.src_chunk))
-                       for t in tasks]
-            for task, fut in zip(tasks, pending):
+            for task, fut in _windowed(
+                    pool,
+                    lambda t: _prepare_batch(
+                        _shard_task(t, rank, world, b.src_chunk)),
+                    tasks, 2 * max(1, b.workers)):
                 prepared = fut.result()
                 si, vi = task[7], task[8]
                 batch = sampler.targets(si, vi, b.device)
