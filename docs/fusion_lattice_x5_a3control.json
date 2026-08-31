@@ -1,0 +1,795 @@
+{
+  "probe": "fusion_lattice",
+  "metric": "heldout_robust_tpr_at_1pct",
+  "target_fpr": 0.01,
+  "max_backbones_for_legal": 2,
+  "fit_splits_for_weight": [
+    "val_internal"
+  ],
+  "caveat": "primary split only; single-arm ordering is known to invert across held-out families, so this is a shortlist, not a selection",
+  "singles": {
+    "crop_dinov2regl": 0.7873684210526316,
+    "crop_dinov2l": 0.7047017543859649,
+    "crop_siglipso400m": 0.6398947368421052,
+    "band_dinov2regl": 0.7242105263157894,
+    "band_siglipso400m": 0.7110877192982457
+  },
+  "combinations": {
+    "crop_dinov2regl+crop_dinov2l": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_dinov2l"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8250175438596491,
+      "fitted": 0.8261052631578948,
+      "w_fitted": [
+        0.55,
+        0.45
+      ],
+      "fit_gain_on_FIT_split": 0.0018039049235991644,
+      "fit_flat_within_1e-4": 1,
+      "fit_grid_points": 21
+    },
+    "crop_dinov2regl+crop_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8541052631578948,
+      "fitted": 0.8620350877192982,
+      "w_fitted": [
+        0.55,
+        0.45
+      ],
+      "fit_gain_on_FIT_split": 0.007587011884550021,
+      "fit_flat_within_1e-4": 1,
+      "fit_grid_points": 21
+    },
+    "crop_dinov2regl+band_dinov2regl": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2regl",
+        "band_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2regl"
+      ],
+      "n_backbones": 1,
+      "legal": true,
+      "equal": 0.8592631578947368,
+      "fitted": 0.8592631578947368,
+      "w_fitted": [
+        0.5,
+        0.5
+      ],
+      "fit_gain_on_FIT_split": 0.0,
+      "fit_flat_within_1e-4": 1,
+      "fit_grid_points": 21
+    },
+    "crop_dinov2regl+band_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.9134736842105262,
+      "fitted": 0.9103157894736842,
+      "w_fitted": [
+        0.45,
+        0.55
+      ],
+      "fit_gain_on_FIT_split": 0.0007958404074703829,
+      "fit_flat_within_1e-4": 1,
+      "fit_grid_points": 21
+    },
+    "crop_dinov2l+crop_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2l",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8341052631578946,
+      "fitted": 0.8341052631578946,
+      "w_fitted": [
+        0.5,
+        0.5
+      ],
+      "fit_gain_on_FIT_split": 0.0,
+      "fit_flat_within_1e-4": 1,
+      "fit_grid_points": 21
+    },
+    "crop_dinov2l+band_dinov2regl": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8407719298245614,
+      "fitted": 0.8419999999999999,
+      "w_fitted": [
+        0.45,
+        0.55
+      ],
+      "fit_gain_on_FIT_split": 0.0037669779286927385,
+      "fit_flat_within_1e-4": 1,
+      "fit_grid_points": 21
+    },
+    "crop_dinov2l+band_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "crop_dinov2l",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8981754385964915,
+      "fitted": 0.8959649122807015,
+      "w_fitted": [
+        0.45,
+        0.55
+      ],
+      "fit_gain_on_FIT_split": 0.003077249575551666,
+      "fit_flat_within_1e-4": 1,
+      "fit_grid_points": 21
+    },
+    "crop_siglipso400m+band_dinov2regl": {
+      "arity": 2,
+      "arms": [
+        "crop_siglipso400m",
+        "band_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8362456140350879,
+      "fitted": 0.8371578947368421,
+      "w_fitted": [
+        0.4,
+        0.6
+      ],
+      "fit_gain_on_FIT_split": 0.0021222410865872066,
+      "fit_flat_within_1e-4": 1,
+      "fit_grid_points": 21
+    },
+    "crop_siglipso400m+band_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "crop_siglipso400m",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "siglipso400m"
+      ],
+      "n_backbones": 1,
+      "legal": true,
+      "equal": 0.8046666666666666,
+      "fitted": 0.811578947368421,
+      "w_fitted": [
+        0.3,
+        0.7
+      ],
+      "fit_gain_on_FIT_split": 0.024989388794567025,
+      "fit_flat_within_1e-4": 1,
+      "fit_grid_points": 21
+    },
+    "band_dinov2regl+band_siglipso400m": {
+      "arity": 2,
+      "arms": [
+        "band_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.851719298245614,
+      "fitted": 0.8533684210526316,
+      "w_fitted": [
+        0.45,
+        0.55
+      ],
+      "fit_gain_on_FIT_split": 0.005093378607809784,
+      "fit_flat_within_1e-4": 1,
+      "fit_grid_points": 21
+    },
+    "crop_dinov2regl+crop_dinov2l+crop_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_dinov2l",
+        "crop_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8851578947368421,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2regl+crop_dinov2l+band_dinov2regl": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_dinov2l",
+        "band_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8822456140350878,
+      "fitted": 0.8642105263157894,
+      "w_fitted": [
+        0.09523809523809523,
+        0.42857142857142855,
+        0.47619047619047616
+      ],
+      "fit_gain_on_FIT_split": 0.010452037351443066,
+      "fit_flat_within_1e-4": 2,
+      "fit_grid_points": 253
+    },
+    "crop_dinov2regl+crop_dinov2l+band_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_dinov2l",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9194736842105262,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2regl+crop_siglipso400m+band_dinov2regl": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8930877192982457,
+      "fitted": 0.8956140350877192,
+      "w_fitted": [
+        0.42857142857142855,
+        0.3333333333333333,
+        0.23809523809523808
+      ],
+      "fit_gain_on_FIT_split": 0.007587011884550021,
+      "fit_flat_within_1e-4": 1,
+      "fit_grid_points": 253
+    },
+    "crop_dinov2regl+crop_siglipso400m+band_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.9111228070175437,
+      "fitted": 0.9176491228070177,
+      "w_fitted": [
+        0.38095238095238093,
+        0.14285714285714285,
+        0.47619047619047616
+      ],
+      "fit_gain_on_FIT_split": 0.021699915110356516,
+      "fit_flat_within_1e-4": 1,
+      "fit_grid_points": 253
+    },
+    "crop_dinov2regl+band_dinov2regl+band_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2regl",
+        "band_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.9132631578947369,
+      "fitted": 0.9204210526315791,
+      "w_fitted": [
+        0.3333333333333333,
+        0.19047619047619047,
+        0.47619047619047616
+      ],
+      "fit_gain_on_FIT_split": 0.026421901528013714,
+      "fit_flat_within_1e-4": 1,
+      "fit_grid_points": 253
+    },
+    "crop_dinov2l+crop_siglipso400m+band_dinov2regl": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2l",
+        "crop_siglipso400m",
+        "band_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.8997543859649122,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2l+crop_siglipso400m+band_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2l",
+        "crop_siglipso400m",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.9016842105263159,
+      "fitted": 0.9133333333333332,
+      "w_fitted": [
+        0.38095238095238093,
+        0.19047619047619047,
+        0.42857142857142855
+      ],
+      "fit_gain_on_FIT_split": 0.015863752122240893,
+      "fit_flat_within_1e-4": 1,
+      "fit_grid_points": 253
+    },
+    "crop_dinov2l+band_dinov2regl+band_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9143508771929824,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_siglipso400m+band_dinov2regl+band_siglipso400m": {
+      "arity": 3,
+      "arms": [
+        "crop_siglipso400m",
+        "band_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.8882807017543859,
+      "fitted": 0.8850526315789473,
+      "w_fitted": [
+        0.23809523809523808,
+        0.2857142857142857,
+        0.47619047619047616
+      ],
+      "fit_gain_on_FIT_split": 0.01358234295415961,
+      "fit_flat_within_1e-4": 1,
+      "fit_grid_points": 253
+    },
+    "crop_dinov2regl+crop_dinov2l+crop_siglipso400m+band_dinov2regl": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_dinov2l",
+        "crop_siglipso400m",
+        "band_dinov2regl"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9120000000000001,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2regl+crop_dinov2l+crop_siglipso400m+band_siglipso400m": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_dinov2l",
+        "crop_siglipso400m",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9257894736842107,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2regl+crop_dinov2l+band_dinov2regl+band_siglipso400m": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_dinov2l",
+        "band_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9310877192982455,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2regl+crop_siglipso400m+band_dinov2regl+band_siglipso400m": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_siglipso400m",
+        "band_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 2,
+      "legal": true,
+      "equal": 0.9241754385964911,
+      "fitted": 0.9283508771929824,
+      "w_fitted": [
+        0.35,
+        0.15,
+        0.1,
+        0.4
+      ],
+      "fit_gain_on_FIT_split": 0.018941001697792892,
+      "fit_flat_within_1e-4": 2,
+      "fit_grid_points": 1771
+    },
+    "crop_dinov2l+crop_siglipso400m+band_dinov2regl+band_siglipso400m": {
+      "arity": 4,
+      "arms": [
+        "crop_dinov2l",
+        "crop_siglipso400m",
+        "band_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9210877192982456,
+      "fitted": null,
+      "w_fitted": null
+    },
+    "crop_dinov2regl+crop_dinov2l+crop_siglipso400m+band_dinov2regl+band_siglipso400m": {
+      "arity": 5,
+      "arms": [
+        "crop_dinov2regl",
+        "crop_dinov2l",
+        "crop_siglipso400m",
+        "band_dinov2regl",
+        "band_siglipso400m"
+      ],
+      "backbones": [
+        "dinov2l",
+        "dinov2regl",
+        "siglipso400m"
+      ],
+      "n_backbones": 3,
+      "legal": false,
+      "equal": 0.9340701754385965,
+      "fitted": null,
+      "w_fitted": null
+    }
+  },
+  "best_legal": "crop_dinov2regl+crop_siglipso400m+band_dinov2regl+band_siglipso400m",
+  "best_barred": "crop_dinov2regl+crop_dinov2l+crop_siglipso400m+band_dinov2regl+band_siglipso400m",
+  "bootstrap": {
+    "crop_dinov2regl+crop_siglipso400m+band_dinov2regl+band_siglipso400m": {
+      "point": 0.9241754385964913,
+      "ci95": [
+        0.8908802283244032,
+        0.9443612794528126
+      ],
+      "vs_baseline": {
+        "baseline": "crop_dinov2regl+crop_siglipso400m+band_dinov2regl+band_siglipso400m",
+        "delta": 0.0,
+        "paired_ci95": [
+          0.0,
+          0.0
+        ],
+        "p_better": 0.0
+      },
+      "boot_n": 1000,
+      "boot_seed": 20260827
+    },
+    "crop_dinov2regl+band_siglipso400m": {
+      "point": 0.9134736842105262,
+      "ci95": [
+        0.8709535693442274,
+        0.9364367918991773
+      ],
+      "vs_baseline": {
+        "baseline": "crop_dinov2regl+crop_siglipso400m+band_dinov2regl+band_siglipso400m",
+        "delta": -0.010701754385965101,
+        "paired_ci95": [
+          -0.03649505108629497,
+          0.010205507099992099
+        ],
+        "p_better": 0.162
+      },
+      "boot_n": 1000,
+      "boot_seed": 20260827
+    },
+    "crop_dinov2regl+band_dinov2regl+band_siglipso400m": {
+      "point": 0.9132631578947367,
+      "ci95": [
+        0.8821628679418001,
+        0.9355309109102741
+      ],
+      "vs_baseline": {
+        "baseline": "crop_dinov2regl+crop_siglipso400m+band_dinov2regl+band_siglipso400m",
+        "delta": -0.01091228070175465,
+        "paired_ci95": [
+          -0.027682701980981692,
+          0.01099177014867357
+        ],
+        "p_better": 0.148
+      },
+      "boot_n": 1000,
+      "boot_seed": 20260827
+    },
+    "crop_dinov2regl+crop_siglipso400m+band_siglipso400m": {
+      "point": 0.9111228070175441,
+      "ci95": [
+        0.8731758914102653,
+        0.93441963804182
+      ],
+      "vs_baseline": {
+        "baseline": "crop_dinov2regl+crop_siglipso400m+band_dinov2regl+band_siglipso400m",
+        "delta": -0.013052631578947205,
+        "paired_ci95": [
+          -0.03186491253411579,
+          0.0004253272120307821
+        ],
+        "p_better": 0.029
+      },
+      "boot_n": 1000,
+      "boot_seed": 20260827
+    },
+    "crop_dinov2l+crop_siglipso400m+band_siglipso400m": {
+      "point": 0.9016842105263159,
+      "ci95": [
+        0.8600255608950682,
+        0.9250734034451632
+      ],
+      "vs_baseline": {
+        "baseline": "crop_dinov2regl+crop_siglipso400m+band_dinov2regl+band_siglipso400m",
+        "delta": -0.02249122807017545,
+        "paired_ci95": [
+          -0.05012722044952523,
+          0.003338681339072025
+        ],
+        "p_better": 0.04
+      },
+      "boot_n": 1000,
+      "boot_seed": 20260827
+    },
+    "crop_dinov2l+band_siglipso400m": {
+      "point": 0.8981754385964912,
+      "ci95": [
+        0.8457630946867484,
+        0.9220819311251063
+      ],
+      "vs_baseline": {
+        "baseline": "crop_dinov2regl+crop_siglipso400m+band_dinov2regl+band_siglipso400m",
+        "delta": -0.026000000000000134,
+        "paired_ci95": [
+          -0.07125547635066633,
+          0.006379066423402851
+        ],
+        "p_better": 0.058
+      },
+      "boot_n": 1000,
+      "boot_seed": 20260827
+    },
+    "crop_dinov2regl+crop_siglipso400m+band_dinov2regl": {
+      "point": 0.8930877192982455,
+      "ci95": [
+        0.8488541390595586,
+        0.9259812798429191
+      ],
+      "vs_baseline": {
+        "baseline": "crop_dinov2regl+crop_siglipso400m+band_dinov2regl+band_siglipso400m",
+        "delta": -0.03108771929824583,
+        "paired_ci95": [
+          -0.049521779761415086,
+          -0.009620259194109654
+        ],
+        "p_better": 0.001
+      },
+      "boot_n": 1000,
+      "boot_seed": 20260827
+    },
+    "crop_siglipso400m+band_dinov2regl+band_siglipso400m": {
+      "point": 0.8882807017543859,
+      "ci95": [
+        0.8431409355260778,
+        0.916846215873813
+      ],
+      "vs_baseline": {
+        "baseline": "crop_dinov2regl+crop_siglipso400m+band_dinov2regl+band_siglipso400m",
+        "delta": -0.035894736842105424,
+        "paired_ci95": [
+          -0.06571307857018702,
+          -0.01554098312347216
+        ],
+        "p_better": 0.001
+      },
+      "boot_n": 1000,
+      "boot_seed": 20260827
+    },
+    "crop_dinov2regl+crop_dinov2l+band_dinov2regl": {
+      "point": 0.8822456140350878,
+      "ci95": [
+        0.8545389052138513,
+        0.9046164607698138
+      ],
+      "vs_baseline": {
+        "baseline": "crop_dinov2regl+crop_siglipso400m+band_dinov2regl+band_siglipso400m",
+        "delta": -0.041929824561403484,
+        "paired_ci95": [
+          -0.06515190830965716,
+          -0.015003867035157624
+        ],
+        "p_better": 0.001
+      },
+      "boot_n": 1000,
+      "boot_seed": 20260827
+    },
+    "crop_dinov2regl+band_dinov2regl": {
+      "point": 0.8592631578947368,
+      "ci95": [
+        0.8108187920228308,
+        0.8958331658026567
+      ],
+      "vs_baseline": {
+        "baseline": "crop_dinov2regl+crop_siglipso400m+band_dinov2regl+band_siglipso400m",
+        "delta": -0.06491228070175448,
+        "paired_ci95": [
+          -0.10602577710693004,
+          -0.03251277425404339
+        ],
+        "p_better": 0.0
+      },
+      "boot_n": 1000,
+      "boot_seed": 20260827
+    },
+    "crop_dinov2regl": {
+      "point": 0.7873684210526315,
+      "ci95": [
+        0.7056604396567022,
+        0.8469678806801733
+      ],
+      "vs_baseline": {
+        "baseline": "crop_dinov2regl+crop_siglipso400m+band_dinov2regl+band_siglipso400m",
+        "delta": -0.13680701754385982,
+        "paired_ci95": [
+          -0.2071819984021603,
+          -0.0811158254816586
+        ],
+        "p_better": 0.0
+      },
+      "boot_n": 1000,
+      "boot_seed": 20260827
+    },
+    "[BARRED] crop_dinov2regl+crop_dinov2l+crop_siglipso400m+band_dinov2regl+band_siglipso400m": {
+      "point": 0.9340701754385963,
+      "ci95": [
+        0.9144336235504849,
+        0.951618233989971
+      ],
+      "vs_baseline": {
+        "baseline": "crop_dinov2regl+crop_siglipso400m+band_dinov2regl+band_siglipso400m",
+        "delta": 0.009894736842104956,
+        "paired_ci95": [
+          0.0014886412731316856,
+          0.02807042452340308
+        ],
+        "p_better": 0.99
+      },
+      "boot_n": 1000,
+      "boot_seed": 20260827
+    }
+  }
+}
