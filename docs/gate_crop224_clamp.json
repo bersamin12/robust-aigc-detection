@@ -1,0 +1,65 @@
+{
+  "crop": {
+    "mode": "crop",
+    "n_rows": 20001,
+    "policy": {
+      "mode": "crop",
+      "nominal_side": 224,
+      "crop_side": 224,
+      "crop_clamp": true
+    },
+    "pooled": {
+      "auc": 0.5146139511213421,
+      "auc_ci": [
+        0.5067838299047073,
+        0.5225383777234209
+      ],
+      "verdict": "clean",
+      "n_splits": 5,
+      "quality_branch_check": "not applicable: caller declared no quality column"
+    },
+    "within_source": {
+      "coco_train2017": {
+        "n": 1958,
+        "note": "one class only -- no AUC"
+      },
+      "ntire": {
+        "n": 7369,
+        "auc": 0.5181242841878291,
+        "verdict": "clean"
+      },
+      "ntire_val": {
+        "n": 492,
+        "auc": 0.4887798268226585,
+        "verdict": "clean"
+      },
+      "ntire_val_hard": {
+        "n": 122,
+        "note": "under 400 rows"
+      },
+      "open_images": {
+        "n": 1226,
+        "note": "one class only -- no AUC"
+      },
+      "open_images_v7_11978": {
+        "n": 1080,
+        "auc": 0.5100617283950617,
+        "verdict": "clean"
+      },
+      "open_images_v7_42k": {
+        "n": 2758,
+        "auc": 0.5189391688546892,
+        "verdict": "clean"
+      },
+      "open_images_v7_validation": {
+        "n": 1,
+        "note": "one class only -- no AUC"
+      },
+      "wildfake": {
+        "n": 4995,
+        "auc": 0.5643873894130249,
+        "verdict": "clean"
+      }
+    }
+  }
+}
