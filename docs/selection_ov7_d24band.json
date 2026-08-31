@@ -1,0 +1,19 @@
+{
+  "metric": "heldout_robust_tpr_at_1pct",
+  "rungs": {
+    "d24band": {
+      "heldout_robust_tpr_at_1pct": 0.6328976379614097,
+      "target_fpr": 0.01,
+      "population": "val_internal authentic images vs heldout_generator generated images",
+      "splits": [
+        "val_internal",
+        "heldout_generator"
+      ],
+      "depth": 24,
+      "trainable_params": 302360576,
+      "tower_sha256": "c3474e3abe8842e113edae281c21301a8854dc3a9af8bb50716a2ba038b3403d",
+      "checkpoint": "outputs/unfreeze/d24band/checkpoint.pt",
+      "eval_bank": "data/banks/eval_ov7_d24band"
+    }
+  }
+}
