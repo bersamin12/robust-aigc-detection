@@ -381,3 +381,98 @@ binning is off and it generates at the real's own size rather than at
 2. The end-to-end question: does a head trained with AI-OV7 beat one without it
    on the organisers' benchmark? If not, that is `docs/02` §6's second negative
    result and an argument for task 03 — worth knowing early either way.
+
+## 13. Two more supplements, and the harness for running them (2026-08-31)
+
+§11 added two lineages and argued that breadth, not volume, is what moved the
+gate. Two more supplements follow that argument. Nothing below has generated a
+pair yet: this is the registry and the harness, not a corpus.
+
+| suite | families | lineage | decoder |
+|---|---|---|---|
+| `ov7_lineage2` | `wuerstchen_t2i` | `paella_vq` | `PaellaVQModel`, 4 latent ch, ~42x spatial |
+| | `cogview4_t2i` | `cogview_vae` | `AutoencoderKL` 16ch, `scaling_factor` 1.0 |
+| `ov7_lineage3` | `zimage_t2i` | `flux1_vae` | `AutoencoderKL` 16ch, 0.3611 — **FLUX.1-dev's** |
+
+Twelve families and eight decoder lineages once all four suites have run;
+seven trained against one held out, so leave-one-lineage-out becomes a
+seven-point rotation. `HELDOUT_LINEAGE` stays `flux2_vae`.
+
+### The third supplement is a bet, and it is labelled as one
+
+`Tongyi-MAI/Z-Image-Turbo` is 6B, apache-2.0, 9 steps at guidance 0.0, about
+1 s/image — the cheapest lineage breadth on offer. Its decoder is not new.
+`vae/config.json` carries `_name_or_path: "flux-dev"`, so this is FLUX.1-dev's
+VAE by the config's own provenance rather than by inference from
+`scaling_factor`, which is how §11 judged Lumina-Image 2.0 and how `shuttle3`
+was judged.
+
+So `flux1_vae` is now a **training** lineage while `flux2_vae` is the held-out
+rung, and the distance between those two decoders has never been measured.
+Both are `AutoencoderKL` at 16 latent channels. If they are close, the
+held-out rung measures a cousin rather than an unseen decoder — `docs/02`
+§3.4's mistake, reached from the other side.
+
+That is recorded in the code rather than only here. `registry.LINEAGE_COUSINS`
+names the pair as an unmeasured claim, and `validate_suite` warns on every run
+that trains a cousin of the held-out lineage. It warns rather than raising
+because it is a decision; the three suites without `zimage_t2i` do not warn,
+which is what keeps the warning meaningful. **Any held-out number produced
+while `ov7_lineage3` is in the corpus carries this caveat.**
+
+The instrument that retires it is `features/recon.py` — the same probe that
+flagged `recon_probe_collision` for SD 1.5 — run on FLUX.1's VAE against
+FLUX.2's. It costs no generation time and it also rules on `shuttle3` and
+`lumina2`, both refused on the same unmeasured question.
+
+### Refused, and recorded rather than deleted
+
+* **Qwen-Image-2.0** — no `ModelSpec`, because there are no weights. Queried
+  across the whole Hub on 2026-08-31: `Qwen/Qwen-Image-2.0`, `-2602`, `-2601`
+  and `Qwen-Image-VAE-2.0` all 401, and the third-party re-uploads that trail
+  any Qwen image release stop at `2512`. Its VAE would have been a genuine new
+  lineage — Qwen published a dedicated report (arXiv 2605.13565) for a
+  purpose-built autoencoder benchmarked *against* Wan2.2 — so it returns the
+  day the weights land.
+* **`Qwen/Qwen-Image-2512`** — refused on hardware, and it settles §11's
+  parenthetical. §11 wrote "Qwen-Image at 40.9 GB on hardware"; the transformer
+  shard index totals **40.86 GB** at bf16, so that figure was exact. Its
+  `vae/config.json` is `AutoencoderKLQwenImage` with `latents_mean` identical
+  to four decimals across all sixteen channels to `Wan2.1-T2V-1.3B`'s VAE —
+  the same frozen encoder, which is why the lineage key is `wan_vae` and why
+  adding any Wan2.1 model would build a cousin of it rather than a lineage.
+* **`Wan-AI/Wan2.2-TI2V-5B`** — refused as a video model. Its decoder *is*
+  genuinely new (`base_dim` 160 against Wan2.1's 96, `decoder_base_dim` 256,
+  `in_channels` 12, residual), so `wan22_vae` is a separate key on evidence,
+  and it fits a 24 GB card. But a still from it is one frame out of a
+  temporally-causal VAE trained on H.264 video, and motion blur and codec
+  artefacts would enter the generated class only, in a corpus whose worst
+  remaining confound is sharpness. That is the shape of §11's Sana
+  resolution-binning near-miss.
+
+### What changed in the harness
+
+* `ModelSpec.offload_mode` — "model" moves one component at a time and needs
+  only the largest to fit; "sequential" moves submodules and is 10-30x slower.
+  Choosing per model is what puts `cogview4_6b` on a 20 GB card at a sane rate.
+* `--run-families` on `generate_ov7.py` — subsets the selection *after*
+  `select()`. Every box passes an identical `--suite`/`--total`/`--families`,
+  so all of them compute the same deal and each executes a slice. That is the
+  axis for splitting one shard across heterogeneous hardware; `--families`
+  changes the deal and is for smoke runs only.
+* `pool.rebase_paths()` — a cached `ov7_pool.parquet` carries absolute paths
+  from the box that built it, and `run_family` opens `row.path` directly. It
+  now re-points them and fails on five files rather than at row 40 of a
+  six-hour run.
+* `dtype` and `gpu` on every row. Neither was written before, so the frozen
+  11,978-pair corpus cannot be stratified by hardware after the fact; from
+  here on it can.
+* `scripts/caption_ov7.py` — captions in parts, then merges. `caption_pool`
+  rewrites the whole parquet on every log tick, so four workers on one path
+  lose captions to last-writer-wins, and the reals whose captions were lost
+  then fail generation on an empty prompt. Precompute, merge, then read.
+* `notebooks/ov7_scale_up.ipynb` — the four-GPU driver, ported from
+  `kaggle_generate_pairs.ipynb` on `feat/ai-ov7-generation` **without its
+  inline logic**. That notebook's own `crop_box` and encoder handling are the
+  ones §3 records as leaking the label on 6 of 6 pairs; every cell here drives
+  the tested package instead.

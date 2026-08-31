@@ -19,6 +19,7 @@ re-added by the next person who has the same idea.
 """
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 
 
@@ -184,6 +185,31 @@ MODELS: dict[str, ModelSpec] = {
              "it needs offload on a 20 GB card; MODEL offload, not "
              "sequential, because the largest single component still fits and "
              "sequential would cost far more than it needs to."),
+    "zimage_turbo": ModelSpec(
+        hf_id="Tongyi-MAI/Z-Image-Turbo",
+        licence_tag="apache-2.0", commercial=True,
+        lineage="flux1_vae", arch="zimage_dit", vram_gb=19.0,
+        size_multiple=16, offload_mode="model",
+        note="Eighth lineage, and the ONE ENTRY HERE THAT CARRIES A KNOWN "
+             "RISK. 6B S3-DiT, apache-2.0, 9 steps at guidance 0.0 (turbo "
+             "models take no CFG), ~1 s/image. Its decoder is not new: "
+             "vae/config.json is AutoencoderKL 16ch at scaling_factor 0.3611 "
+             "and carries `_name_or_path: \"flux-dev\"`, so the VAE is "
+             "FLUX.1-dev's by the config's own provenance rather than by "
+             "inference. It is `flux1_vae` and it is labelled that way, "
+             "because mislabelling it would be the registry lying about the "
+             "one thing heldout_groups() reads. THE RISK: flux1_vae enters "
+             "TRAINING while flux2_vae is the held-out rung, and how far "
+             "apart those two decoders actually are has never been measured "
+             "(see LINEAGE_COUSINS). If they are close, the held-out rung "
+             "stops measuring an unseen decoder. Accepted deliberately; the "
+             "cheap way to retire the risk is the recon probe "
+             "(`features/recon.py`) on FLUX.1's VAE against FLUX.2's, which "
+             "also rules on shuttle3 and lumina2. size_multiple is 16, not "
+             "the default 8: the VAE downsamples 8x and "
+             "ZImageTransformer2DModel patches at 2 (`all_patch_size: [2]`), "
+             "so 8 would be a size the pipeline silently rounds -- the "
+             "Kandinsky failure (§11) with a different divisor."),
     # --- Refused. Kept so the next person does not re-derive the refusal. ---
     "sdxl_turbo": ModelSpec(
         hf_id="stabilityai/sdxl-turbo",
@@ -241,6 +267,61 @@ MODELS: dict[str, ModelSpec] = {
         lineage="flux1_vae", arch="flow_dit", vram_gb=23.8,
         note="REFUSED. FLUX.1 Non-Commercial. This is the one people reach "
              "for by default."),
+    # Qwen-Image-2.0 (7B, announced 2026-02-10) gets no entry because it has
+    # no weights to name: `Qwen/Qwen-Image-2.0`, `-2602`, `-2601` and
+    # `Qwen-Image-VAE-2.0` all 401 on the Hub from every author, and the
+    # third-party GGUF/Nunchaku re-uploads that trail any Qwen image release
+    # within days stop at `2512`. It would have been a genuine new lineage --
+    # Qwen published a dedicated report (arXiv 2605.13565) for a purpose-built
+    # autoencoder benchmarked AGAINST Wan2.2 rather than descended from it --
+    # so this comes back the day the weights land. docs/02 U11.
+    "qwen_image_2512": ModelSpec(
+        hf_id="Qwen/Qwen-Image-2512",
+        licence_tag="apache-2.0", commercial=True,
+        lineage="wan_vae", arch="flow_dit", vram_gb=40.9,
+        offload_mode="sequential",
+        note="REFUSED ON HARDWARE, not licence -- the same refusal as "
+             "flux1_schnell and shuttle3, and all three come back together on "
+             "a 40 GB card. The newest Qwen text-to-image weights that "
+             "actually exist (2025-12-30); the 7B Qwen-Image-2.0 was never "
+             "published. Its transformer shard index totals 40.86 GB at bf16, "
+             "which is `ai_ov7_generation.md` §11's 'Qwen-Image at 40.9 GB on "
+             "hardware' -- measured now rather than quoted, and §11's figure "
+             "was exact. offload_mode is sequential and not model because the "
+             "largest single component IS the 40.9 GB transformer; there is "
+             "no component split that rescues it on a 24 GB card. Lineage "
+             "`wan_vae` is not a guess: its vae/config.json is "
+             "AutoencoderKLQwenImage, base_dim 96, z_dim 16, with "
+             "latents_mean identical to four decimals across all sixteen "
+             "channels to Wan-AI/Wan2.1-T2V-1.3B's VAE. Latent statistics "
+             "fingerprint the trained encoder, so those are the same frozen "
+             "weights -- which is why adding ANY Wan2.1-lineage model would "
+             "build a cousin of this one rather than a new lineage."),
+    "wan22_ti2v_5b": ModelSpec(
+        hf_id="Wan-AI/Wan2.2-TI2V-5B-Diffusers",
+        licence_tag="apache-2.0", commercial=True,
+        lineage="wan22_vae", arch="wan_dit_3d", vram_gb=22.7,
+        offload_mode="model",
+        note="REFUSED: IT IS A VIDEO MODEL, and this is an image corpus. "
+             "Recorded because everything else about it passes and it is the "
+             "obvious next reach once Qwen is ruled out. apache-2.0; its "
+             "decoder is genuinely new -- despite sharing the "
+             "AutoencoderKLWan class name with Wan2.1 it is a different "
+             "autoencoder (base_dim 160 against 96, decoder_base_dim 256, "
+             "in_channels 12, is_residual), so unlike Wan2.1 it would NOT "
+             "collide with qwen_image_2512; and it fits, at ~10 GB "
+             "transformer + 11.4 GB UMT5-XXL + 1.3 GB VAE with model-level "
+             "offload. It is refused anyway because a still from it is one "
+             "frame out of a temporally-causal VAE trained on H.264 video: "
+             "motion blur and codec artefacts would enter the GENERATED class "
+             "only, in a corpus whose worst remaining confound is sharpness. "
+             "That is the shape of the Sana resolution-binning near-miss "
+             "(§11), which was caught by a smoke run rather than by the gate. "
+             "Reversible for anyone willing to measure it, but two things "
+             "have to be smoked before a single share is assigned: that "
+             "num_frames=1 survives the temporal compression, and what "
+             "`size_multiple` actually is (Wan2.2's VAE is 16x spatial "
+             "against Wan2.1's 8x, so it is neither 8 nor obviously 32)."),
 }
 
 #: How a fake is conditioned on its real.
@@ -331,11 +412,29 @@ LINEAGE_SUPPLEMENT_2: dict[str, FamilySpec] = {
     "cogview4_t2i":   FamilySpec("cogview4_6b", "t2i", 0.5, 30, 5.0),
 }
 
+#: Fourth run, one family. Z-Image-Turbo is the fastest Apache text-to-image
+#: model that fits this hardware, and it is the only arm in the corpus whose
+#: lineage claim is NOT backed by a measurement -- see `LINEAGE_COUSINS` and
+#: the `zimage_turbo` note. It is here because breadth is what moved the gate
+#: (§11: `laplacian_var` 0.5998 -> 0.5632 on lineages alone, at no extra
+#: volume) and because at ~1 s/image it is the cheapest breadth available.
+#:
+#: t2i only, on the supplement's argument: an image-conditioned fake shares
+#: composition with its real and so carries less of its decoder's
+#: fingerprint, and this arm exists to represent a decoder.
+LINEAGE_SUPPLEMENT_3: dict[str, FamilySpec] = {
+    # 9 steps / guidance 0.0 are the card's own numbers -- turbo models take
+    # no CFG, and a nonzero value here would be recorded in the manifest
+    # while the model ignored it.
+    "zimage_t2i": FamilySpec("zimage_turbo", "t2i", 1.0, 9, 0.0),
+}
+
 #: Runnable suites by name (`generate_ov7.py --suite`).
 SUITES: dict[str, dict[str, FamilySpec]] = {
     "ov7": SUITE,
     "ov7_lineage": LINEAGE_SUPPLEMENT,
     "ov7_lineage2": LINEAGE_SUPPLEMENT_2,
+    "ov7_lineage3": LINEAGE_SUPPLEMENT_3,
 }
 
 #: Which already-generated suites each one is generated INTO. A supplement is
@@ -345,10 +444,33 @@ SUITE_EXTENDS: dict[str, tuple[str, ...]] = {
     "ov7": (),
     "ov7_lineage": ("ov7",),
     "ov7_lineage2": ("ov7", "ov7_lineage"),
+    "ov7_lineage3": ("ov7", "ov7_lineage", "ov7_lineage2"),
 }
 
 #: Held out as a whole lineage or not at all (`presets.heldout_groups`).
 HELDOUT_LINEAGE = "flux2_vae"
+
+#: Lineages that MIGHT be the same decoder, and have never been measured.
+#:
+#: A lineage key is a claim that two decoders are different. Most of this
+#: registry's keys are backed by evidence -- `movq` is a VQModel against
+#: everyone else's KL-VAE, `dc_ae` is 32x/32ch, `wan_vae` and `wan22_vae` have
+#: different `base_dim` and different latent statistics. This pair is not.
+#: FLUX.1's VAE and FLUX.2's are both AutoencoderKL at 16 latent channels and
+#: nobody has run them against each other.
+#:
+#: It matters because `zimage_turbo` puts `flux1_vae` into TRAINING while
+#: `flux2_vae` is the held-out rung. If the two are close, that rung stops
+#: measuring an unseen decoder and starts measuring `docs/02` §3.4's cousin --
+#: the exact mistake this design exists to avoid, arrived at from the other
+#: direction. `validate_suite` warns about it rather than refusing, because it
+#: is a deliberate choice and not an accident; the way to retire it is
+#: `features/recon.py` on the two VAEs, which also rules on `shuttle3` and
+#: `lumina2`.
+LINEAGE_COUSINS: dict[str, tuple[str, ...]] = {
+    "flux2_vae": ("flux1_vae",),
+    "flux1_vae": ("flux2_vae",),
+}
 
 
 def corpus_of(suite_name: str) -> dict[str, FamilySpec]:
@@ -430,6 +552,20 @@ def validate_suite(suite: dict[str, FamilySpec] | None = None,
         raise ValueError(f"no family has the held-out lineage "
                          f"{HELDOUT_LINEAGE!r}; the split would hold out nothing")
     trained = {lineage_of(n, corpus) for n in corpus} - {HELDOUT_LINEAGE}
+    cousins = trained & set(LINEAGE_COUSINS.get(HELDOUT_LINEAGE, ()))
+    if cousins:
+        # A warning and not an error: this is a deliberate choice (zimage_t2i
+        # buys the cheapest lineage breadth available) and the registry's job
+        # is to make sure nobody arrives at it by accident. It stops being a
+        # warning the moment somebody runs the recon probe on the two VAEs.
+        warnings.warn(
+            f"{sorted(cousins)} is in TRAINING and may be the same decoder as "
+            f"the held-out {HELDOUT_LINEAGE!r} -- the two have never been "
+            f"measured against each other (registry.LINEAGE_COUSINS). If they "
+            f"are close, the held-out rung measures a cousin rather than an "
+            f"unseen decoder. Retire this with features/recon.py on the two "
+            f"VAEs; report any held-out result with this caveat until then.",
+            stacklevel=2)
     if len(trained) < 2:
         raise ValueError(
             f"only {len(trained)} lineage(s) left in training ({trained}); "

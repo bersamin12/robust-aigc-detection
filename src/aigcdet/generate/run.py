@@ -83,6 +83,13 @@ def load(model_key: str, methods: set[str], device: str = "cuda"):
         # pipeline class, so t2i and ref_image are one object.
         from diffusers import Flux2KleinPipeline
         base = Flux2KleinPipeline.from_pretrained(spec.hf_id, **kw)
+    elif spec.arch == "zimage_dit":
+        # Its own pipeline class, and new enough that the auto class would
+        # raise on it -- the same reason wuerstchen is dispatched explicitly.
+        # `low_cpu_mem_usage=False` is the card's own example; it matters
+        # because the offload path below re-places the components anyway.
+        from diffusers import ZImagePipeline
+        base = ZImagePipeline.from_pretrained(spec.hf_id, **kw)
     elif spec.arch == "wuerstchen":
         # Not in AutoPipelineForText2Image's mapping, so the auto class would
         # raise on it. The combined pipeline pulls the prior repo itself.
@@ -134,6 +141,24 @@ def load(model_key: str, methods: set[str], device: str = "cuda"):
         else:
             raise KeyError(f"no pipeline wiring for method {m!r}")
     return base, pipes
+
+
+def gpu_name(device: str = "cuda") -> str:
+    """The card this process generates on, for the manifest.
+
+    A corpus generated across mixed hardware cannot be stratified after the
+    fact unless each row says what made it, and `docs/02` U8 plans exactly
+    that: an A4500's rows and four 4090s' rows landing in one
+    `pairs.parquet`. Per row rather than per run, because `--run-families`
+    splits one shard's families across boxes -- "the run" is not one machine.
+    """
+    import torch
+    if not str(device).startswith("cuda") or not torch.cuda.is_available():
+        return str(device)
+    try:
+        return torch.cuda.get_device_name(0)
+    except Exception:
+        return str(device)
 
 
 def _free_vram_gb(device: str) -> float:
@@ -261,6 +286,7 @@ def run_family(family: str, sel: pd.DataFrame, captions: dict[str, str],
     rows_path = rows_dir / f"rows_{family}.jsonl"
     rows_dir.mkdir(parents=True, exist_ok=True)
 
+    gpu = gpu_name(device)
     done = _done_ids(rows_path, out_root, family)
     todo = sel.loc[~sel["image_id"].isin(done)]
     stats = {"family": family, "done_before": len(done), "ok": 0, "failed": 0,
@@ -319,6 +345,10 @@ def run_family(family: str, sel: pd.DataFrame, captions: dict[str, str],
                 "src_width": int(row.width), "src_height": int(row.height),
                 "jpeg_quality": float(enc["jpeg_quality"]),
                 "subsampling": int(enc["subsampling"]),
+                # What made this row. Neither was written before, so the
+                # frozen 11,978-pair corpus cannot be stratified by hardware
+                # after the fact; from here on it can be. docs/02 U7.6.
+                "dtype": spec.dtype, "gpu": gpu,
                 "real_rel": real_rel, "fake_rel": fake_rel,
                 "gen_seconds": round(gen_s, 3),
             }) + "\n")

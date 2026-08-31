@@ -107,6 +107,43 @@ def build_pool(portrait_dir: str | Path, attribution_csv: str | Path,
     return pool
 
 
+def rebase_paths(pool: pd.DataFrame, portrait_dir: str | Path,
+                 *, check: int = 5) -> pd.DataFrame:
+    """Re-point a cached pool's `path` column at THIS box's copy of the reals.
+
+    `build_pool` writes absolute paths, and `run.run_family` opens `row.path`
+    directly. So a `ov7_pool.parquet` built on the harvest box and staged onto
+    a rented one names files that do not exist there: every row raises
+    FileNotFoundError, and `run_family`'s runaway-failure guard stops the run
+    -- correctly, but forty images late and with a reason that reads like a
+    corrupt pool rather than a moved directory.
+
+    Rebasing on the BASENAME is safe here because the pool is one flat
+    directory of `<ImageID>.jpg` and `image_id` is the stem; there is no tree
+    to preserve. A no-op when the paths already point at `portrait_dir`, so it
+    costs nothing on the box that built the pool.
+    """
+    portrait_dir = Path(portrait_dir).resolve()
+    if not len(pool):
+        return pool
+    parents = {str(Path(p).parent) for p in pool["path"].head(1000)}
+    if parents == {str(portrait_dir)}:
+        return pool
+    out = pool.copy()
+    out["path"] = [str(portrait_dir / Path(p).name) for p in out["path"]]
+    # Fail here, on five files, rather than at row 40 of a six-hour run.
+    sample = list(out.loc[out["eligible"], "path"].head(check))
+    missing = [q for q in sample if not Path(q).exists()]
+    if missing:
+        raise FileNotFoundError(
+            f"rebased the cached pool onto {portrait_dir} but "
+            f"{len(missing)} of the first {len(sample)} eligible reals are "
+            f"not there (e.g. {missing[0]}). The pool was built against "
+            f"{sorted(parents)[0]}; stage the reals or pass the right "
+            f"--portrait-dir.")
+    return out
+
+
 #: Granularity of the share strata. The ordered pool is dealt to families in
 #: repeating blocks of this length, so any prefix of the order carries the
 #: suite's shares to within one block.
