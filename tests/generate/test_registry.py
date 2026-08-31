@@ -277,34 +277,96 @@ def test_the_redundant_lineages_are_recorded_not_deleted():
     """Each is apache-2.0 and usable, and each would add volume to a lineage
     the corpus already has. The reason has to survive, or the next person
     re-derives it."""
-    for k, lineage in (("kolors", "sdxl_vae"), ("shuttle3", "flux1_vae")):
+    for k, lineage in (("lumina2", "flux1_vae"), ("kolors", "sdxl_vae"),
+                       ("shuttle3", "flux1_vae")):
         m = registry.MODELS[k]
         assert m.lineage == lineage
         assert "REFUSED" in m.note
         assert k not in registry.corpus_of("ov7_lineage2")
 
 
-def test_the_flux1_routes_are_families_not_lineages():
-    """`lumina2` and `zimage_turbo` stopped being refusals when the premise
-    they rested on turned out to be false -- FLUX.1's VAE is AutoencoderKL
-    16ch and FLUX.2's is AutoencoderKLFlux2 32ch, so neither is a cousin of
-    the held-out lineage. What survives is the WEAKER claim: they are
-    flux1_vae, an existing lineage, so they buy exposure and not a rotation
-    point. That distinction is the whole reason they are in the corpus, and
-    a note that lost it would invite someone to hold one out."""
-    for k in ("lumina2", "zimage_turbo"):
-        m = registry.MODELS[k]
-        assert m.lineage == "flux1_vae"
-        assert m.commercial, f"{k} is apache-2.0 and no longer refused"
-        assert "not as a lineage" in m.note or "NOT a new lineage" in m.note
+# --- the scale-up's refusals ------------------------------------------------
+# `docs/02` U11/U12. Each of these is the model somebody scaling this corpus
+# reaches for first, which is why silence about them is the failure mode.
 
-    # The held-out lineage must not acquire a family by this route.
-    assert registry.HELDOUT_LINEAGE == "flux2_vae"
+def test_the_scale_up_candidates_are_recorded_refused_not_deleted():
+    for key in ("qwen_image_2512", "wan22_ti2v_5b"):
+        assert key in MODELS, key
+        assert key not in {f.model for s in registry.SUITES.values()
+                           for f in s.values()}, f"{key} is refused"
+
+
+def test_the_refusals_are_on_hardware_or_lineage_not_licence():
+    """All three are apache-2.0. Recording them as non-commercial would be a
+    licence claim that is simply false, and the next reader would act on it."""
+    for key in ("qwen_image_2512", "wan22_ti2v_5b"):
+        assert MODELS[key].licence_tag == "apache-2.0", key
+        assert MODELS[key].commercial, key
+        assert "REFUSED" in MODELS[key].note, key
+
+
+def test_zimage_is_labelled_flux1_vae_even_though_it_is_now_generating():
+    """Its vae/config.json carries `_name_or_path: "flux-dev"`, so the VAE is
+    FLUX.1-dev's by the config's own provenance. Relabelling it to make the
+    eighth lineage look independent would be the registry lying about the one
+    field `heldout_groups()` reads."""
+    assert MODELS["zimage_turbo"].lineage == "flux1_vae"
+    assert MODELS["zimage_turbo"].lineage == MODELS["lumina2"].lineage
+
+
+def test_zimage_declares_the_granularity_its_pipeline_actually_needs():
+    """8x VAE downsample and `all_patch_size: [2]` makes 16. The default 8
+    would be a size the pipeline silently rounds -- the Kandinsky failure
+    (§11) with a different divisor, and the same invisible result: two
+    different requests coming back as the same image."""
+    assert MODELS["zimage_turbo"].size_multiple == 16
+    assert MODELS["zimage_turbo"].arch == "zimage_dit"
+
+
+def test_a_turbo_family_records_the_guidance_the_model_actually_takes():
+    """Turbo models take no CFG; the card says guidance_scale=0.0. A nonzero
+    value would be written into every manifest row while the model ignored
+    it."""
+    fam = registry.LINEAGE_SUPPLEMENT_3["zimage_t2i"]
+    assert fam.guidance == 0.0 and fam.steps == 9
+
+
+def test_training_a_cousin_of_the_held_out_lineage_warns():
+    """`zimage_t2i` puts flux1_vae into training while flux2_vae is held out,
+    and nobody has measured whether those are the same decoder. Deliberate, so
+    it warns rather than raising -- but it must not be silent."""
+    import warnings
     corpus = registry.corpus_of("ov7_lineage3")
-    assert "zimage_t2i" in corpus
-    assert registry.MODELS[corpus["zimage_t2i"].model].lineage != registry.HELDOUT_LINEAGE
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        validate_suite(registry.SUITES["ov7_lineage3"], corpus=corpus)
+    assert any("flux1_vae" in str(w.message) for w in caught)
 
-    # And the control it obliges has to name a family that actually exists.
-    for fam in registry.RUNG_FLUX1_EXCLUDED:
-        assert fam in corpus, fam
-        assert registry.MODELS[corpus[fam].model].lineage == "flux1_vae"
+
+def test_the_suites_without_zimage_do_not_warn():
+    """The warning has to mean something, so it must not fire on the nine
+    families already frozen."""
+    import warnings
+    for name in ("ov7", "ov7_lineage", "ov7_lineage2"):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            validate_suite(registry.SUITES[name], corpus=registry.corpus_of(name))
+        assert not caught, f"{name} warned: {[str(w.message) for w in caught]}"
+
+
+def test_qwen_2512_cannot_be_rescued_by_model_level_offload():
+    """Its largest single component IS the 40.9 GB transformer, so there is no
+    component split that fits a 24 GB card. Declaring "model" here would send
+    a run at it that OOMs on the first image."""
+    assert MODELS["qwen_image_2512"].offload_mode == "sequential"
+    assert MODELS["qwen_image_2512"].vram_gb > 40
+
+
+def test_no_two_registry_lineages_collide_by_accident():
+    """Wan2.1's VAE and Qwen-Image's are the same frozen weights -- identical
+    latents_mean across all sixteen channels -- so `wan_vae` names one
+    decoder. Wan2.2's is a different autoencoder despite the shared diffusers
+    class name, hence a separate key. If these ever merge, holding one out
+    stops measuring a lineage jump."""
+    assert MODELS["qwen_image_2512"].lineage == "wan_vae"
+    assert MODELS["wan22_ti2v_5b"].lineage == "wan22_vae"

@@ -4,6 +4,8 @@ The property that matters most here is prefix stability: raising `--total`
 must resume the earlier run rather than reshuffle it. With contiguous
 per-family slices it does not, and every image already generated is orphaned.
 """
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -133,3 +135,64 @@ def test_build_pool_refuses_a_non_cc_by_licence(tmp_path):
                   }).to_csv(attr, index=False)
     with pytest.raises(ValueError, match="CC BY 2.0"):
         build_pool(d, attr)
+
+
+# --- rebasing a staged pool -------------------------------------------------
+# `build_pool` writes absolute paths and `run_family` opens `row.path`
+# directly, so a parquet built on the harvest box names files a rented box
+# does not have. Every row would fail, forty images before the runaway guard
+# stops the run, with a reason that reads like a corrupt pool.
+
+def _pool_frame(paths, eligible=True):
+    import pandas as pd
+    return pd.DataFrame({"image_id": [Path(p).stem for p in paths],
+                         "path": [str(p) for p in paths],
+                         "eligible": [eligible] * len(paths)})
+
+
+def test_rebase_points_a_staged_pool_at_this_box(tmp_path):
+    from aigcdet.generate.pool import rebase_paths
+    here = tmp_path / "portrait"
+    here.mkdir()
+    for i in ("a", "b"):
+        (here / f"{i}.jpg").write_bytes(b"x")
+    stale = _pool_frame(["/mnt/berstorage/techjam/open_images/portrait/a.jpg",
+                         "/mnt/berstorage/techjam/open_images/portrait/b.jpg"])
+    out = rebase_paths(stale, here)
+    assert list(out["path"]) == [str(here / "a.jpg"), str(here / "b.jpg")]
+    # and the original frame is not mutated under the caller
+    assert stale["path"].iloc[0].startswith("/mnt/berstorage")
+
+
+def test_rebase_is_a_noop_on_the_box_that_built_the_pool(tmp_path):
+    from aigcdet.generate.pool import rebase_paths
+    here = tmp_path / "portrait"
+    here.mkdir()
+    (here / "a.jpg").write_bytes(b"x")
+    same = _pool_frame([here / "a.jpg"])
+    assert rebase_paths(same, here) is same
+
+
+def test_rebase_fails_on_five_files_not_at_row_forty(tmp_path):
+    """The whole point of checking a sample: an unstaged directory is a
+    startup error, not a runaway failure rate discovered mid-run."""
+    import pytest
+    from aigcdet.generate.pool import rebase_paths
+    empty = tmp_path / "portrait"
+    empty.mkdir()
+    stale = _pool_frame([f"/elsewhere/{c}.jpg" for c in "abcdef"])
+    with pytest.raises(FileNotFoundError, match="not there"):
+        rebase_paths(stale, empty)
+
+
+def test_rebase_ignores_ineligible_rows_when_sampling(tmp_path):
+    """Ineligible reals are never opened, so their absence is not an error."""
+    from aigcdet.generate.pool import rebase_paths
+    here = tmp_path / "portrait"
+    here.mkdir()
+    (here / "good.jpg").write_bytes(b"x")
+    df = _pool_frame(["/old/good.jpg"], eligible=True)
+    bad = _pool_frame(["/old/gone.jpg"], eligible=False)
+    import pandas as pd
+    out = rebase_paths(pd.concat([df, bad], ignore_index=True), here)
+    assert list(out["path"]) == [str(here / "good.jpg"), str(here / "gone.jpg")]

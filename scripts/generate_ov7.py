@@ -21,7 +21,7 @@ import pandas as pd
 
 from aigcdet.generate import registry
 from aigcdet.generate.captions import caption_pool
-from aigcdet.generate.pool import build_pool, select
+from aigcdet.generate.pool import build_pool, rebase_paths, select
 from aigcdet.generate.run import run
 
 DEFAULT_SEED = 20260830
@@ -86,7 +86,22 @@ def main(argv=None) -> int:
                          "recomputed and a real that already has a fake gets "
                          "a second one from another family.")
     ap.add_argument("--families", default=None,
-                    help="comma-separated subset, for a smoke run")
+                    help="comma-separated subset, for a smoke run. This "
+                         "CHANGES THE DEAL: shares are renormalised over what "
+                         "is left, so the strata pattern moves and a real that "
+                         "was sdxl_t2i becomes something else. Use "
+                         "--run-families to split work across boxes.")
+    ap.add_argument("--run-families", default=None,
+                    help="comma-separated subset this PROCESS generates, "
+                         "applied to the selection after select(). Unlike "
+                         "--families it does not touch the deal: every box "
+                         "passes an identical --suite/--total/--families so "
+                         "the strata pattern is the same on all of them, and "
+                         "this only says which of the dealt families this "
+                         "process executes. That separation is what lets one "
+                         "shard span heterogeneous hardware -- the 24 GB card "
+                         "takes the big model, the rest take the others -- "
+                         "without either box re-dealing the other's reals.")
     ap.add_argument("--smoke", action="store_true",
                     help="equal count per family instead of by share, and "
                          "refuse to write into the real corpus root")
@@ -125,6 +140,9 @@ def main(argv=None) -> int:
     pool_path = Path(args.pool)
     if pool_path.exists():
         pool = pd.read_parquet(pool_path)
+        # The parquet carries absolute paths from the box that built it, and
+        # `run_family` opens `row.path` directly.
+        pool = rebase_paths(pool, args.portrait_dir)
     else:
         print(f"[pool] probing {args.portrait_dir} ...", flush=True)
         pool = build_pool(args.portrait_dir, args.attribution)
@@ -156,6 +174,19 @@ def main(argv=None) -> int:
               f"re-deals reals the first one used -- run the supplement on a "
               f"--shard clear of them (--shard 1 --n-shards 5 starts at "
               f"position 10925, past the 0-9999 the ov7 suite consumed).")
+
+    if args.run_families:
+        want = [f.strip() for f in args.run_families.split(",")]
+        unknown = set(want) - set(suite)
+        if unknown:
+            ap.error(f"--run-families names {sorted(unknown)}, which is not in "
+                     f"suite {args.suite!r} ({sorted(suite)})")
+        sel = sel.loc[sel["family"].isin(want)].reset_index(drop=True)
+        if not len(sel):
+            ap.error(f"--run-families {want} selected 0 reals; the deal gave "
+                     f"this shard none of those families")
+        print(f"[run-families] this process generates {sorted(want)}: "
+              f"{len(sel)} of the shard's reals", flush=True)
 
     caps = caption_pool(dict(zip(sel["image_id"], sel["path"])), args.captions,
                         device=args.device)
