@@ -157,17 +157,35 @@ class PairedSampler:
             ])
         return self.rng.integers(1, self.n_views, size=(n_rows, self.m_deg))
 
-    def __iter__(self):
-        half = self.n_src // 2
-        for _ in range(len(self)):
-            src = np.concatenate([
-                self._draw_stratified(self.pos, half),
-                self._draw_stratified(self.neg, half),
-            ])
-            deg_views = self._draw_degraded_views(len(src))
+    def draw_batch(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """One batch's ROW AND VIEW CHOICES, before any feature is read.
 
-            si = np.repeat(src, self.m_deg)
-            vi = deg_views.reshape(-1)
+        `(src, si, vi)`: the source rows, those rows repeated `m_deg` times,
+        and one degraded view index per repeat.
+
+        Split out from `__iter__` so a subclass can reuse the draw itself
+        rather than reimplement it. `train.finetune.LiveViewSampler` does
+        exactly that, and the reason it must is the point of the split: the
+        unfreeze ladder's D0 rung is the frozen tower, whose whole job is to
+        reproduce the cached-feature rung it is the control for. If the two
+        samplers drew even slightly different batch sequences from the same
+        seed -- one extra `rng` call, a reordered pair of draws -- D0 would
+        differ from its cached twin for a reason that has nothing to do with
+        unfreezing, and the ladder's baseline would be wrong. Sharing the code
+        makes that identity structural instead of a thing to keep in step by
+        hand.
+        """
+        half = self.n_src // 2
+        src = np.concatenate([
+            self._draw_stratified(self.pos, half),
+            self._draw_stratified(self.neg, half),
+        ])
+        deg_views = self._draw_degraded_views(len(src))
+        return src, np.repeat(src, self.m_deg), deg_views.reshape(-1)
+
+    def __iter__(self):
+        for _ in range(len(self)):
+            src, si, vi = self.draw_batch()
 
             f_clean = np.repeat(
                 np.asarray(self.bank.feats[src, 0]).astype(np.float32),
