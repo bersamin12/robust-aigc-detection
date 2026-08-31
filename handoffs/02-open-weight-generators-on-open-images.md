@@ -274,65 +274,84 @@ instrument that flagged `recon_probe_collision` for SD 1.5) shows FLUX.1's and
 FLUX.2's VAEs are far enough apart to count as separate lineages — which is a
 measurement nobody has taken.
 
-## U5. Only shard 0 is constrained
+## U5. The shard grid is already `--n-shards 5`, and it is not a clean prefix
 
-`select` restarts its strata deal at each shard block's start, and only shard 0
-overlaps the existing 11,978 pairs. **Shards 1–3 are greenfield and may use any
-share dict**, which is what makes the lineage rebalance in U6 possible at all
-without orphaning finished work.
+The consumed reals are **not** a contiguous prefix. Two suites have run on the
+grid the supplement established (`ai_ov7_generation.md` §11):
 
-`--n-shards 4` over 54,624 → 13,656/shard, `--total 13000` each.
+| shard | order positions | suite | used | free |
+|---|---|---|---:|---:|
+| 0 | 0 – 10,924 | `ov7` | 9,978 | ~925 |
+| 1 | 10,925 – 21,849 | `ov7_lineage` | 2,000 | ~8,925 |
+| 2 | 21,850 – 32,774 | — | 0 | 10,925 |
+| 3 | 32,775 – 43,699 | — | 0 | 10,925 |
+| 4 | 43,700 – 54,623 | — | 0 | 10,924 |
 
-**The shard count may not exceed 4.** The first boundary must fall outside the
-consumed prefix (11,978, so 13,656 leaves 1,678 of headroom). `--n-shards 8`
-puts one at 6,828, which reassigns already-generated reals to different
-families; `_done_ids` is keyed per family, so those reals would be generated a
-second time under a new family, breaking the disjoint-pairing invariant.
-`select`'s duplicate assertion is within-run only and will not catch it.
+**Stay on `--n-shards 5`.** Re-gridding to 4 puts a boundary at 13,656, inside
+shard 1's block, so a run there re-deals reals the supplement already
+generated — a different suite's share dict re-deals every real in a block, and
+`_done_ids` is per family, so one scene would land twice on the generated side
+against one real.
+
+That is now caught rather than merely documented: `generate_ov7.used_elsewhere`
+refuses the run and names the offending reals. Treat it as the backstop, not
+the plan.
+
+A suite may only grow on a shard it already owns, or on a fresh one. Growing
+`ov7` means running `ov7` on shard 3; growing the supplement means
+`ov7_lineage` on shard 4; the Qwen arm needs a shard of its own.
 
 ## U6. Target: lineage parity, not proportional growth
 
-§11 established that adding lineages, not volume, is what moved the gate. So
-the scale-up brings the trainable lineages toward parity rather than scaling
-the existing shares. `sdxl_vae` barely grows; the two newest lineages and Qwen
-carry most of the new volume.
+§11 established that adding lineages, not volume, is what moved the gate
+(`laplacian_var` 0.5998 → 0.5632 on the supplement alone). So the scale-up
+buys lineage breadth rather than scaling the existing shares.
 
-| family | lineage | existing | new | total |
-|---|---|---:|---:|---:|
-| `qwen_image_2_t2i` | wan_vae | 0 | 10,000 | 10,000 |
-| `kandinsky22_t2i` | movq | 1,000 | 7,000 | 8,000 |
-| `sana1600m_t2i` | dc_ae | 1,000 | 7,000 | 8,000 |
-| `sd15_img2img` | sd_vae | 795 | 5,105 | 5,900 |
-| `sdxl_img2img` | sdxl_vae | 1,000 | 4,500 | 5,500 |
-| `sd15_t2i` | sd_vae | 1,983 | 2,117 | 4,100 |
-| `sdxl_t2i` | sdxl_vae | 3,000 | 390 | 3,390 |
-| `sdxl_self_cond` | sdxl_vae | 1,400 | 1,710 | 3,110 |
-| `klein4b_t2i` | flux2_vae | 1,200 | 1,467 | 2,667 |
-| `klein4b_ref_image` | flux2_vae | 600 | 733 | 1,333 |
-| | | **11,978** | **40,022** | **52,000** |
+| shard | suite | `--total` | new |
+|---|---|---:|---:|
+| 0 | `ov7` (resume) | 10,925 | ~925 |
+| 1 | `ov7_lineage` (resume) | 10,925 | ~8,925 |
+| 2 | `ov7_qwen` (new) | 10,000 | 10,000 |
+| 3 | `ov7` | 10,000 | 10,000 |
+| 4 | `ov7_lineage` | 10,000 | 10,000 |
+
+| family | lineage | existing | total | split |
+|---|---|---:|---:|---|
+| `kandinsky22_t2i` | movq | 1,000 | 10,463 | trained |
+| `sana1600m_t2i` | dc_ae | 1,000 | 10,462 | trained |
+| `qwen_image_2_t2i` | wan_vae | 0 | 10,000 | trained |
+| `sdxl_t2i` | sdxl_vae | 3,000 | 6,271 | trained |
+| `sd15_t2i` | sd_vae | 1,983 | 4,181 | trained |
+| `sdxl_self_cond` | sdxl_vae | 1,400 | 2,926 | trained |
+| `klein4b_t2i` | flux2_vae | 1,200 | 2,508 | **held out** |
+| `sdxl_img2img` | sdxl_vae | 1,000 | 2,090 | trained |
+| `sd15_img2img` | sd_vae | 795 | 1,672 | trained |
+| `klein4b_ref_image` | flux2_vae | 600 | 1,254 | **held out** |
+| | | **11,978** | **51,827** | |
 
 | lineage | pairs | share | |
 |---|---:|---:|---|
-| `sdxl_vae` | 12,000 | 23.1% | trained |
-| `sd_vae` | 10,000 | 19.2% | trained |
-| `wan_vae` | 10,000 | 19.2% | trained (new) |
-| `movq` | 8,000 | 15.4% | trained |
-| `dc_ae` | 8,000 | 15.4% | trained |
-| `flux2_vae` | 4,000 | 7.7% | **held out** |
+| `sdxl_vae` | 11,287 | 21.8% | trained |
+| `movq` | 10,463 | 20.2% | trained |
+| `dc_ae` | 10,462 | 20.2% | trained |
+| `wan_vae` | 10,000 | 19.3% | trained (new) |
+| `sd_vae` | 5,853 | 11.3% | trained |
+| `flux2_vae` | 3,762 | 7.3% | **held out** |
 
-Ten families, six lineages, five trained. `HELDOUT_LINEAGE` stays `flux2_vae`
-— U3 and U4 change nothing about the held-out design, and per §11 which
-lineage a rung actually holds out is a rung-level choice
-(`RungConfig.train_exclude_generators`). Five trained lineages give a
-five-point leave-one-out rotation.
+Ten families, six lineages, five trained — a five-point leave-one-lineage-out
+rotation. `HELDOUT_LINEAGE` stays `flux2_vae`; U3 and U4 change nothing about
+the held-out design, and per §11 which lineage a rung holds out is a rung-level
+choice (`RungConfig.train_exclude_generators`).
 
-**Decision owed on the conditioning mix.** The two supplement families and
-Qwen are t2i-only by §11's argument that an image-conditioned fake shares
-composition with its real and so carries less of its decoder's fingerprint.
-Scaling them hard pushes the corpus toward fully-synthetic. The table above
-holds 75.5 / 24.5 by growing `sdxl_img2img` and `sd15_img2img` instead of
-their t2i siblings — which is why `sdxl_t2i` grows by only 390. That trade is
-a judgment, not a result; see U9.
+**This drifts the conditioning mix to 90/10 and that is a decision, not an
+oversight.** The supplement families and Qwen are t2i-only by §11's argument
+that an image-conditioned fake shares composition with its real and so carries
+less of its decoder's fingerprint. Scaling them to parity pushes
+fully-synthetic from 76% to ~90%, against §3.1's 70/30 target. Holding 75/25
+would need a rebalanced `ov7` share dict on shard 3 — a new suite entry, since
+the share dict *is* the deal — trading roughly 4,000 t2i pairs for img2img.
+**Do not spend on this until U9 is scored**; nothing currently knows which
+mix trains a better detector.
 
 ## U7. What has to change in the code
 
@@ -368,36 +387,38 @@ do not rent in mainland China (33 GB of weights come from HuggingFace, and
 Blackwell unless the torch/diffusers stack is known-good on sm_120. 16 GB cards
 are false economy — klein-4B alone does not fit.
 
-A4500 columns are measured (`ai_ov7_generation.md` §6, §11). The 4090 column is
-those divided by 2.7 — the 3.0x benchmark ratio derated 15% because 416x640
-underutilises the card. **The Qwen row is an estimate against a model never run
-here, and it is a third of the budget**; smoke it before trusting the schedule.
+A4500 figures are measured (`ai_ov7_generation.md` §6 and §11's smoke run). The
+4090 column is those divided by 2.7 — the 3.0x benchmark ratio derated 15%
+because 416x640 underutilises the card. **The Qwen row is an estimate against a
+model never run here, and it is half the budget**; smoke it before trusting the
+schedule.
 
 | family | A4500 s/img | 4090 s/img | new | GPU-h |
 |---|---:|---:|---:|---:|
 | `qwen_image_2_t2i` | — | ~2.0 est | 10,000 | 5.56 |
-| `sana1600m_t2i` | 4.00 | 1.48 | 7,000 | 2.88 |
-| `kandinsky22_t2i` | 1.90 | 0.70 | 7,000 | 1.36 |
-| `sdxl_img2img` | 1.67 | 0.62 | 4,500 | 0.78 |
-| `sd15_img2img` | 1.43 | 0.53 | 5,105 | 0.75 |
-| `klein4b_t2i` | 4.03 | 1.49 | 1,467 | 0.61 |
-| `klein4b_ref_image` | 6.62 | 2.45 | 733 | 0.50 |
-| `sd15_t2i` | 1.79 | 0.66 | 2,117 | 0.39 |
-| `sdxl_self_cond` | 2.18 | 0.81 | 1,710 | 0.38 |
-| `sdxl_t2i` | 2.15 | 0.80 | 390 | 0.09 |
-| | | | **40,022** | **13.30** |
+| `kandinsky22_t2i` | 2.07 | 0.77 | 9,463 | 2.02 |
+| `sana1600m_t2i` | 1.17 | 0.43 | 9,462 | 1.13 |
+| `sdxl_t2i` | 2.15 | 0.80 | 3,271 | 0.73 |
+| `klein4b_ref_image` | 6.62 | 2.45 | 654 | 0.45 |
+| `klein4b_t2i` | 4.03 | 1.49 | 1,308 | 0.54 |
+| `sd15_t2i` | 1.79 | 0.66 | 2,198 | 0.40 |
+| `sdxl_self_cond` | 2.18 | 0.81 | 1,526 | 0.34 |
+| `sdxl_img2img` | 1.67 | 0.62 | 1,090 | 0.19 |
+| `sd15_img2img` | 1.43 | 0.53 | 877 | 0.13 |
+| | | | **39,849** | **11.49** |
 
-Captioning adds ~0.5 GPU-h at ~0.045 s/image. **~13.8 GPU-h, ~3.5 h across
-four GPUs, ~$6-10 including setup.** The Qwen arm is the long pole; split it
-across two GPUs with `--run-families`.
+Captioning adds ~0.5 GPU-h at ~0.045 s/image. **~12 GPU-h, ~3 h across four
+GPUs, ~$5-8 including setup.** The Qwen arm is the long pole; split it across
+two GPUs with `--run-families`.
 
 ## U9. Still owed, and now blocking a spending decision
 
 §3.1 says to record the conditioning type "because a later ablation will want
 to score them separately." **That ablation has never been run**, and it is not
-in `ai_ov7_generation.md` §12 either. So the 70/30 target U6 preserves is
-inherited judgment, and it is now in direct tension with §11's t2i-only
-argument for the supplement families. Those cannot both be right.
+in `ai_ov7_generation.md` §12 either. So §3.1's 70/30 target is inherited
+judgment, and it is in direct tension with §11's t2i-only argument for the
+supplement families. Those cannot both be right, and U6 currently resolves the
+tension by ignoring 70/30 — it lands at 90/10.
 
 The frozen corpus already carries 6,983 t2i / 1,400 self_cond / 1,795 img2img /
 600 ref_image pairs. **Score the conditioning ablation on those before buying
@@ -410,3 +431,56 @@ misreading is that img2img leaves real pixels in place; it does not. SDEdit
 encodes, noises, denoises and decodes, so every output pixel is decoder output.
 That is true of *inpainting*, which composites unmasked regions back, and is
 why `inpaint_box` was refused and `self_cond` built instead.
+
+## U10. Running it
+
+Not derivable from the sections above; these are the mechanics a cold start
+would otherwise re-discover the hard way.
+
+**On the box, before anything.** `jpegtran` is a hard `ap.error` at startup,
+not a soft dependency — it is the only way to crop a real without re-encoding
+it. `apt-get install -y libjpeg-turbo-progs`. Without it all four workers die
+before a single model loads.
+
+**Stage onto the box:** the 60,000 portrait JPEGs (~5 GB), `attribution.csv`,
+`ov7_pool.parquet`, and a **precomputed** `ov7_captions.parquet`. Captions must
+be precomputed because `caption_pool` rewrites the whole parquet on every log
+tick — four workers on one path lose captions to last-writer-wins. Caption to
+four separate paths, merge, then pass the merged file read-only.
+
+**One process per GPU.** Shared `--out` is safe: image ids are disjoint across
+shards, so no two workers write the same file. **Separate `--rows-dir` is
+not optional** — `run_family` appends one jsonl per family with prompts of
+unbounded length, and four processes interleaving those writes will corrupt
+lines. Concatenate them at the end for `pairs.parquet`.
+
+**Share `HF_HOME`** or each worker downloads the same 33 GB.
+
+```bash
+for k in 2 3 4; do
+  case $k in
+    2) SUITE=ov7_qwen ;;
+    3) SUITE=ov7 ;;
+    4) SUITE=ov7_lineage ;;
+  esac
+  CUDA_VISIBLE_DEVICES=$((k-2)) HF_HOME=/workspace/hf \
+  python scripts/generate_ov7.py --suite $SUITE --total 10000 \
+      --shard $k --n-shards 5 \
+      --pool /workspace/ov7_pool.parquet \
+      --portrait-dir /workspace/portrait \
+      --captions /workspace/ov7_captions.parquet \
+      --out /workspace/raw_ov7_src --rows-dir /workspace/_rows_$k &
+done
+```
+
+The two resume runs (shard 0 `ov7`, shard 1 `ov7_lineage`) need the existing
+`_rows/*.jsonl` and output tree staged first — `_done_ids` checks the jsonl
+*and* both files on disk, so it skips what exists and generates only the tail.
+
+**Do not change `--seed`, or any suite's shares.** The strata pattern is a
+function of the share dict; a different one re-deals every real in the block.
+`used_elsewhere` will refuse the run, but the cheaper path is not to try.
+
+Afterwards: `scripts/gate_confounds.py --n 4000` before anything trains, per
+§5. A gate that comes back worse than `ai_ov7_generation.md` §10's 9-family
+reading (0.5152 / 0.5632 / 0.5072 / 0.5015) is a result, not a nuisance.
