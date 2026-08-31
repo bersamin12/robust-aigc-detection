@@ -1,0 +1,149 @@
+{
+  "probe": "fuse_cropband",
+  "off_ladder": true,
+  "metric": "heldout_robust_tpr_at_1pct",
+  "zscore_fit_splits": [
+    "val_internal"
+  ],
+  "weight_fit_objective": "val_robust_tpr (val_internal both classes)",
+  "weight_not_fitted_reason": "condition 'jpeg_q90' has only class [0] among val_internal rows, so its TPR@FPR is undefined. Averaging what survived would be a mean over an unstated subset of the grid -- the same refusal heldout_robust_tpr makes for the same reason.",
+  "parents": [
+    {
+      "parent": "crop",
+      "eval_bank": "data/banks/eval_ov7_d24",
+      "checkpoint": "outputs/unfreeze/d24/checkpoint.pt",
+      "canon_policy": {
+        "mode": "crop",
+        "nominal_side": 512,
+        "crop_side": 200
+      },
+      "heldout_robust_tpr_at_1pct": 0.7580097266618139
+    },
+    {
+      "parent": "band",
+      "eval_bank": "data/banks/eval_ov7_d24band",
+      "checkpoint": "outputs/unfreeze/d24band/checkpoint.pt",
+      "canon_policy": {
+        "mode": "band",
+        "nominal_side": 512,
+        "band_side": 200,
+        "jitter": 0.1
+      },
+      "heldout_robust_tpr_at_1pct": 0.6328976379614097
+    }
+  ],
+  "complementarity": {
+    "n_heldout_positive_rows": 189582,
+    "pearson_r_zscored": 0.8852419550034613,
+    "spearman_r_zscored": 0.8288099682998458,
+    "tpr_crop": 0.7580097266618139,
+    "tpr_band": 0.6328976379614099,
+    "tpr_either_ORACLE_CEILING": 0.7797417476342691,
+    "tpr_both": 0.6111656169889547,
+    "band_catch_rate_on_crop_misses": 0.08980534908559845,
+    "crop_catch_rate_on_band_misses": 0.4000086211851256
+  },
+  "weightings": {
+    "equal": {
+      "w0": 0.5,
+      "heldout_robust_tpr_at_1pct": 0.7483727358082519
+    },
+    "transferred": {
+      "w0": 0.45,
+      "heldout_robust_tpr_at_1pct": 0.7407348798936608
+    }
+  },
+  "sweep": null,
+  "heldout_sweep_diagnostic": {
+    "NOT_A_SELECTABLE_WEIGHT": true,
+    "curve": [
+      {
+        "w0": 0.0,
+        "heldout_robust_tpr_at_1pct": 0.6328976379614097
+      },
+      {
+        "w0": 0.05,
+        "heldout_robust_tpr_at_1pct": 0.6444071694570159
+      },
+      {
+        "w0": 0.1,
+        "heldout_robust_tpr_at_1pct": 0.6564230781403296
+      },
+      {
+        "w0": 0.15000000000000002,
+        "heldout_robust_tpr_at_1pct": 0.6678693124874725
+      },
+      {
+        "w0": 0.2,
+        "heldout_robust_tpr_at_1pct": 0.6798904959331583
+      },
+      {
+        "w0": 0.25,
+        "heldout_robust_tpr_at_1pct": 0.6933200409321559
+      },
+      {
+        "w0": 0.30000000000000004,
+        "heldout_robust_tpr_at_1pct": 0.7060005696743361
+      },
+      {
+        "w0": 0.35000000000000003,
+        "heldout_robust_tpr_at_1pct": 0.7185334050701015
+      },
+      {
+        "w0": 0.4,
+        "heldout_robust_tpr_at_1pct": 0.7309027228323366
+      },
+      {
+        "w0": 0.45,
+        "heldout_robust_tpr_at_1pct": 0.7407348798936608
+      },
+      {
+        "w0": 0.5,
+        "heldout_robust_tpr_at_1pct": 0.7483727358082519
+      },
+      {
+        "w0": 0.55,
+        "heldout_robust_tpr_at_1pct": 0.7543332172885611
+      },
+      {
+        "w0": 0.6000000000000001,
+        "heldout_robust_tpr_at_1pct": 0.7590330305619732
+      },
+      {
+        "w0": 0.65,
+        "heldout_robust_tpr_at_1pct": 0.7619657984407804
+      },
+      {
+        "w0": 0.7000000000000001,
+        "heldout_robust_tpr_at_1pct": 0.7636853709740375
+      },
+      {
+        "w0": 0.75,
+        "heldout_robust_tpr_at_1pct": 0.7648352691711239
+      },
+      {
+        "w0": 0.8,
+        "heldout_robust_tpr_at_1pct": 0.7644976843793186
+      },
+      {
+        "w0": 0.8500000000000001,
+        "heldout_robust_tpr_at_1pct": 0.7636642719245499
+      },
+      {
+        "w0": 0.9,
+        "heldout_robust_tpr_at_1pct": 0.7625196484898354
+      },
+      {
+        "w0": 0.9500000000000001,
+        "heldout_robust_tpr_at_1pct": 0.7604730406895169
+      },
+      {
+        "w0": 1.0,
+        "heldout_robust_tpr_at_1pct": 0.7580097266618139
+      }
+    ],
+    "argmax_w0": 0.75,
+    "ceiling_heldout_robust_tpr_at_1pct": 0.7648352691711239
+  },
+  "verdict": "no fusion of these two beats the better parent alone (-0.0096)"
+}

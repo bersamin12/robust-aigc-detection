@@ -1,0 +1,146 @@
+{
+  "probe": "fuse_cropband",
+  "off_ladder": true,
+  "metric": "heldout_robust_tpr_at_1pct",
+  "zscore_fit_splits": [
+    "val_internal"
+  ],
+  "weight_fit_objective": "val_robust_tpr (val_internal both classes)",
+  "weight_not_fitted_reason": null,
+  "parents": [
+    {
+      "parent": "crop",
+      "eval_bank": "data/banks/eval_unfreeze_d24",
+      "checkpoint": "outputs/unfreeze/d24/checkpoint.pt",
+      "canon_policy": {
+        "mode": "crop",
+        "nominal_side": 512,
+        "crop_side": 200
+      },
+      "heldout_robust_tpr_at_1pct": 0.9840701754385967
+    },
+    {
+      "parent": "band",
+      "eval_bank": "data/banks/eval_unfreeze_d24band",
+      "checkpoint": "outputs/unfreeze/d24band/checkpoint.pt",
+      "canon_policy": {
+        "mode": "band",
+        "nominal_side": 512,
+        "band_side": 200,
+        "jitter": 0.1
+      },
+      "heldout_robust_tpr_at_1pct": 0.9705263157894738
+    }
+  ],
+  "complementarity": {
+    "n_heldout_positive_rows": 28500,
+    "pearson_r_zscored": 0.9625312896410798,
+    "spearman_r_zscored": 0.8139155039666516,
+    "tpr_crop": 0.9840701754385965,
+    "tpr_band": 0.9705263157894737,
+    "tpr_either_ORACLE_CEILING": 0.9962105263157894,
+    "tpr_both": 0.9583859649122807,
+    "band_catch_rate_on_crop_misses": 0.762114537444934,
+    "crop_catch_rate_on_band_misses": 0.8714285714285714
+  },
+  "weightings": {
+    "equal": {
+      "w0": 0.5,
+      "heldout_robust_tpr_at_1pct": 0.9946666666666667
+    },
+    "fitted": {
+      "w0": 0.45,
+      "heldout_robust_tpr_at_1pct": 0.9944561403508771,
+      "val_robust_tpr_at_best": 0.9590407470288627,
+      "n_grid_points_within_1e-4_of_max": 2,
+      "n_grid_points": 21
+    }
+  },
+  "sweep": [
+    {
+      "w0": 0.0,
+      "val_robust_tpr": 0.922272920203735
+    },
+    {
+      "w0": 0.05,
+      "val_robust_tpr": 0.9270479626485568
+    },
+    {
+      "w0": 0.1,
+      "val_robust_tpr": 0.9325657894736844
+    },
+    {
+      "w0": 0.15000000000000002,
+      "val_robust_tpr": 0.9393039049235994
+    },
+    {
+      "w0": 0.2,
+      "val_robust_tpr": 0.9445564516129034
+    },
+    {
+      "w0": 0.25,
+      "val_robust_tpr": 0.9496498302207133
+    },
+    {
+      "w0": 0.30000000000000004,
+      "val_robust_tpr": 0.9520373514431238
+    },
+    {
+      "w0": 0.35000000000000003,
+      "val_robust_tpr": 0.9555390492359933
+    },
+    {
+      "w0": 0.4,
+      "val_robust_tpr": 0.9571837860780985
+    },
+    {
+      "w0": 0.45,
+      "val_robust_tpr": 0.9590407470288627
+    },
+    {
+      "w0": 0.5,
+      "val_robust_tpr": 0.9589876910016977
+    },
+    {
+      "w0": 0.55,
+      "val_robust_tpr": 0.957926570458404
+    },
+    {
+      "w0": 0.6000000000000001,
+      "val_robust_tpr": 0.9568654499151101
+    },
+    {
+      "w0": 0.65,
+      "val_robust_tpr": 0.9537351443123939
+    },
+    {
+      "w0": 0.7000000000000001,
+      "val_robust_tpr": 0.9497028862478777
+    },
+    {
+      "w0": 0.75,
+      "val_robust_tpr": 0.9440789473684212
+    },
+    {
+      "w0": 0.8,
+      "val_robust_tpr": 0.9378713921901528
+    },
+    {
+      "w0": 0.8500000000000001,
+      "val_robust_tpr": 0.9310802207130728
+    },
+    {
+      "w0": 0.9,
+      "val_robust_tpr": 0.9251910016977929
+    },
+    {
+      "w0": 0.9500000000000001,
+      "val_robust_tpr": 0.9181876061120543
+    },
+    {
+      "w0": 1.0,
+      "val_robust_tpr": 0.907576400679117
+    }
+  ],
+  "verdict": "fusion beats the better parent by +0.0106"
+}
