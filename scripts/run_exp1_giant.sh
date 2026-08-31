@@ -10,6 +10,12 @@
 # what makes this arm comparable with every cached rung.
 set -uo pipefail
 cd "$(dirname "$0")/.."
+# Run against THIS checkout, whatever else is installed. These boxes
+# carry older editable installs pointing at other clones, and the one
+# that wins is whichever the launcher happened to inherit -- which
+# already cost a run to `No module named aigcdet.train.finetune` from
+# an aigcdet that imported fine but predated the module.
+export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
 
 NM=${NM:-giant_d40}
 DEPTH=${DEPTH:-40}          # ViT-g/14 has 40 blocks; 40 == full unfreeze
