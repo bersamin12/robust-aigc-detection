@@ -277,9 +277,34 @@ def test_the_redundant_lineages_are_recorded_not_deleted():
     """Each is apache-2.0 and usable, and each would add volume to a lineage
     the corpus already has. The reason has to survive, or the next person
     re-derives it."""
-    for k, lineage in (("lumina2", "flux1_vae"), ("kolors", "sdxl_vae"),
-                       ("shuttle3", "flux1_vae")):
+    for k, lineage in (("kolors", "sdxl_vae"), ("shuttle3", "flux1_vae")):
         m = registry.MODELS[k]
         assert m.lineage == lineage
         assert "REFUSED" in m.note
         assert k not in registry.corpus_of("ov7_lineage2")
+
+
+def test_the_flux1_routes_are_families_not_lineages():
+    """`lumina2` and `zimage_turbo` stopped being refusals when the premise
+    they rested on turned out to be false -- FLUX.1's VAE is AutoencoderKL
+    16ch and FLUX.2's is AutoencoderKLFlux2 32ch, so neither is a cousin of
+    the held-out lineage. What survives is the WEAKER claim: they are
+    flux1_vae, an existing lineage, so they buy exposure and not a rotation
+    point. That distinction is the whole reason they are in the corpus, and
+    a note that lost it would invite someone to hold one out."""
+    for k in ("lumina2", "zimage_turbo"):
+        m = registry.MODELS[k]
+        assert m.lineage == "flux1_vae"
+        assert m.commercial, f"{k} is apache-2.0 and no longer refused"
+        assert "not as a lineage" in m.note or "NOT a new lineage" in m.note
+
+    # The held-out lineage must not acquire a family by this route.
+    assert registry.HELDOUT_LINEAGE == "flux2_vae"
+    corpus = registry.corpus_of("ov7_lineage3")
+    assert "zimage_t2i" in corpus
+    assert registry.MODELS[corpus["zimage_t2i"].model].lineage != registry.HELDOUT_LINEAGE
+
+    # And the control it obliges has to name a family that actually exists.
+    for fam in registry.RUNG_FLUX1_EXCLUDED:
+        assert fam in corpus, fam
+        assert registry.MODELS[corpus[fam].model].lineage == "flux1_vae"

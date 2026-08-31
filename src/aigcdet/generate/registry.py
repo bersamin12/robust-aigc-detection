@@ -184,6 +184,24 @@ MODELS: dict[str, ModelSpec] = {
              "it needs offload on a 20 GB card; MODEL offload, not "
              "sequential, because the largest single component still fits and "
              "sequential would cost far more than it needs to."),
+    "zimage_turbo": ModelSpec(
+        hf_id="Tongyi-MAI/Z-Image-Turbo",
+        licence_tag="apache-2.0", commercial=True,
+        lineage="flux1_vae", arch="flow_dit", vram_gb=16.0,
+        offload_mode="model",
+        note="The flux1_vae route that is actually reachable. apache-2.0, "
+             "UNGATED, 6B: transformer 22.9 GiB on disk at fp32 is ~11.5 GB "
+             "resident at bf16, plus a ~3.7 GB text encoder and a 0.16 GB "
+             "VAE -- ~15.4 GB, which clears a 24 GB 4090 outright and a 20 GB "
+             "card with model offload. Compare the alternatives: "
+             "FLUX.1-schnell is gated, FLUX.1-dev is non-commercial, "
+             "shuttle3 is 53.6 GiB. Its vae/config.json is AutoencoderKL "
+             "16ch / scaling_factor 0.3611 with _name_or_path 'flux-dev', so "
+             "it IS FLUX.1's VAE and it is flux1_vae, NOT a new lineage. "
+             "docs/02 U4 refused it for being a cousin of the held-out "
+             "flux2_vae; that premise was wrong (see lumina2) and the "
+             "refusal is lifted. It adds EXPOSURE to the emptiest training "
+             "lineage, not a rotation point."),
     # --- Refused. Kept so the next person does not re-derive the refusal. ---
     "sdxl_turbo": ModelSpec(
         hf_id="stabilityai/sdxl-turbo",
@@ -229,12 +247,22 @@ MODELS: dict[str, ModelSpec] = {
         hf_id="Alpha-VLLM/Lumina-Image-2.0",
         licence_tag="apache-2.0", commercial=True,
         lineage="flux1_vae", arch="flow_dit", vram_gb=5.2,
-        note="REFUSED as redundant. Apache-2.0, 5.2 GB, brand-new "
-             "architecture -- and its vae/config.json is AutoencoderKL 16ch "
-             "at scaling_factor 0.3611, which is FLUX's VAE. Held out it "
-             "would measure a cousin of flux2_vae. ARCHITECTURE NOVELTY IS "
-             "NOT DECODER NOVELTY, and docs/02 §3.4 made that mistake once "
-             "already."),
+        note="Usable as a FAMILY, not as a lineage. The only flux1_vae "
+             "route that fits a 20 GB card with no offload, so it is the "
+             "local-box fallback where zimage_turbo is preferred. "
+             "Apache-2.0, 5.2 GB, "
+             "brand-new architecture -- and its vae/config.json is "
+             "AutoencoderKL 16ch at scaling_factor 0.3611 whose _name_or_path "
+             "is black-forest-labs/FLUX.1-dev. It IS FLUX.1's VAE, so it is "
+             "flux1_vae and held out it would add no rotation point. "
+             "ARCHITECTURE NOVELTY IS NOT DECODER NOVELTY, and docs/02 §3.4 "
+             "made that mistake once already. CORRECTED 2026-08-31: this note "
+             "used to say it was a cousin of the held-out flux2_vae. It is "
+             "not. FLUX.2-klein-4B ships AutoencoderKLFlux2 -- 32 latent "
+             "channels, 2x2 patchified to 128 effective, BatchNorm, and NO "
+             "scaling_factor -- against FLUX.1's 16ch AutoencoderKL. Verified "
+             "from both cached vae/config.json. Training on flux1_vae does "
+             "not leak flux2_vae."),
     "flux1_dev": ModelSpec(
         hf_id="black-forest-labs/FLUX.1-dev",
         licence_tag="other", commercial=False,
@@ -331,11 +359,31 @@ LINEAGE_SUPPLEMENT_2: dict[str, FamilySpec] = {
     "cogview4_t2i":   FamilySpec("cogview4_6b", "t2i", 0.5, 30, 5.0),
 }
 
+#: Fourth run, and the one that is NOT about adding a lineage. `flux1_vae` is
+#: a training lineage on paper carrying 0.28% of the gradient, and NO OV7
+#: family produces it at all: every FLUX.1 route was refused (schnell gated,
+#: dev non-commercial, shuttle3 53.6 GiB) and Z-Image was refused on a
+#: premise that turned out to be false. This fixes the exposure, not the
+#: lineage count.
+#:
+#: It comes with an obligation. Once flux1_vae is well represented, the
+#: flux2_vae held-out number is a NEAR-transfer result -- sibling lab,
+#: sibling design intent -- and must be reported against a rung that excludes
+#: flux1_vae, or genuine unseen-decoder robustness cannot be told apart from
+#: sibling leakage. See `RUNG_FLUX1_EXCLUDED`.
+#:
+#: Turbo-distilled, so 8 steps and guidance 1.0; like klein the guidance is
+#: recorded for the manifest rather than obeyed.
+LINEAGE_SUPPLEMENT_3: dict[str, FamilySpec] = {
+    "zimage_t2i": FamilySpec("zimage_turbo", "t2i", 1.0, 8, 1.0),
+}
+
 #: Runnable suites by name (`generate_ov7.py --suite`).
 SUITES: dict[str, dict[str, FamilySpec]] = {
     "ov7": SUITE,
     "ov7_lineage": LINEAGE_SUPPLEMENT,
     "ov7_lineage2": LINEAGE_SUPPLEMENT_2,
+    "ov7_lineage3": LINEAGE_SUPPLEMENT_3,
 }
 
 #: Which already-generated suites each one is generated INTO. A supplement is
@@ -345,10 +393,21 @@ SUITE_EXTENDS: dict[str, tuple[str, ...]] = {
     "ov7": (),
     "ov7_lineage": ("ov7",),
     "ov7_lineage2": ("ov7", "ov7_lineage"),
+    "ov7_lineage3": ("ov7", "ov7_lineage", "ov7_lineage2"),
 }
 
 #: Held out as a whole lineage or not at all (`presets.heldout_groups`).
 HELDOUT_LINEAGE = "flux2_vae"
+
+#: The control that `ov7_lineage3` obliges. FLUX.1 and FLUX.2 are separate
+#: decoders -- verified from both vae/config.json, see `lumina2` -- so
+#: training on flux1_vae does not leak flux2_vae's decoder. What it may leak
+#: is everything the two share ABOVE the decoder: one lab, one design
+#: lineage, plausibly one reconstruction objective. Score the flux2_vae
+#: held-out twice, once with flux1_vae in the training pool and once with it
+#: excluded; the difference IS the sibling transfer. One rung on cached
+#: features.
+RUNG_FLUX1_EXCLUDED = ("zimage_t2i",)
 
 
 def corpus_of(suite_name: str) -> dict[str, FamilySpec]:

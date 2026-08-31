@@ -108,10 +108,14 @@ training, which `validate_suite` enforces as a minimum.
   klein family is Apache.
 * **FLUX.1-schnell** — Apache, but 12B is 23.8 GB at bf16 and this card has 20.
   Refused on hardware, not licence; fp8 would put the compute budget into the
-  traces. Restore it on a 40 GB card.
-* **Kandinsky 2.2** (MoVQ, apache-2.0) — the natural fourth lineage, left in
-  the registry but out of the suite: it needs a separate prior pipeline that
-  did not fit this session.
+  traces. It is also gated now. **Superseded 2026-08-31:** `zimage_turbo`
+  reaches the same `flux1_vae` lineage at ~15.4 GB and is ungated — see §11b.
+* **Kandinsky 2.2** (MoVQ, apache-2.0) — was out of the suite because it needs
+  a separate prior pipeline. **Resolved:** it is `ov7_lineage`'s first arm and
+  has generated 2,500 pairs. `companion_ids` on the `ModelSpec` is what that
+  separate prior cost us — before it existed, `check_licence` verified only
+  `hf_id`, so half the weights that made an image were licence-checked and
+  half were not.
 
 ## 5. Prompts
 
@@ -258,7 +262,7 @@ disjoint rather than stacked. 8.5 GPU-hours on one RTX A4500.
 |---|---|---|
 | `sdxl_vae` | AutoencoderKL 4ch | 5,400 |
 | `sd_vae` | AutoencoderKL 4ch | 2,778 |
-| `flux2_vae` | AutoencoderKL 16ch | 1,800 (held out) |
+| `flux2_vae` | AutoencoderKLFlux2 32ch, 2x2-patched | 1,800 (held out) |
 | `movq` | VQModel, vector-quantised | 1,000 |
 | `dc_ae` | AutoencoderDC 32x, 32ch | 1,000 |
 
@@ -319,12 +323,48 @@ rotating it possible.
 
 **Lumina-Image 2.0 was rejected, and the reason is the point of the exercise.**
 Apache-2.0, 5.2 GB, a brand-new architecture -- and its `vae/config.json` is
-`AutoencoderKL`, 16 latent channels, `scaling_factor` 0.3611, which is FLUX's
-VAE. As a held-out lineage it is a cousin of `flux2_vae`, not a jump. That is
-`docs/02` §3.4's mistake with newer weights: **architecture novelty is not
-decoder novelty**, and only the second is what the held-out rung measures.
+`AutoencoderKL`, 16 latent channels, `scaling_factor` 0.3611, and its
+`_name_or_path` is literally `black-forest-labs/FLUX.1-dev`. It IS FLUX.1's
+VAE, so it is `flux1_vae` -- an existing lineage, adding no rotation point.
+That is `docs/02` §3.4's mistake with newer weights: **architecture novelty is
+not decoder novelty**, and only the second is what the held-out rung measures.
 PixArt-Σ is out for the same reason (SDXL's VAE); SD 3.5, Stable Cascade and
 HunyuanDiT on licence; Qwen-Image at 40.9 GB on hardware.
+
+### Correction, 2026-08-31: Lumina is NOT a cousin of the held-out lineage
+
+The paragraph above originally read "as a held-out lineage it is a cousin of
+`flux2_vae`", and the lineage table in §10 recorded `flux2_vae` as
+"AutoencoderKL 16ch". Both were wrong. The check is one `cat` against the two
+`vae/config.json` files already in this box's HF cache:
+
+| | FLUX.1-dev (= Lumina's VAE) | FLUX.2-klein-4B |
+|---|---|---|
+| `_class_name` | `AutoencoderKL` | **`AutoencoderKLFlux2`** |
+| `latent_channels` | 16 | **32** |
+| `patch_size` | absent | **[2, 2]** -- 128 effective channels |
+| normalisation | GroupNorm only | **BatchNorm** (`batch_norm_eps` 1e-4) |
+| `scaling_factor` | 0.3611 | **absent** |
+| quant convs | `use_quant_conv: false` | `true` |
+
+The one thing they share, `block_out_channels` [128, 256, 512, 512], is the
+stock LDM encoder trunk -- SD 1.5 and SDXL carry it too -- so it holds no
+lineage information. **FLUX.1 and FLUX.2 are separate decoders.** That is
+exactly the measurement `docs/02` U4 said was owed, and it settles it without
+the recon probe.
+
+What this reverses: every refusal that rested on *cousinhood with the held-out
+lineage* -- Lumina here, Z-Image-Turbo in `docs/02` U4. Those models are
+`flux1_vae`, and `flux1_vae` is a training lineage, so using them does not leak
+`flux2_vae`.
+
+What it does not reverse: the **redundancy** verdict. They add exposure to a
+lineage that already exists, not a sixth rotation point. That is still worth
+having -- `flux1_vae` currently carries 0.28% of the gradient -- but it is a
+different argument from the one originally written here, and it comes with a
+caveat: once `flux1_vae` is well represented, the `flux2_vae` held-out number
+is a *near*-transfer result (sibling lab, sibling design) and must be reported
+against a rung that excludes `flux1_vae`, or the two cannot be told apart.
 
 ### Three things the smoke run found
 
@@ -362,16 +402,76 @@ enforces this rather than trusting it, and refuses the run naming the
 offending reals.
 
 ```bash
-python scripts/generate_ov7.py --suite ov7_lineage --total 2000 \
+python scripts/generate_ov7.py --suite ov7_lineage --total 5000 \
     --shard 1 --n-shards 5 --out data/raw_ov7_src \
     --captions data/ov7_captions.parquet
 ```
 
-Run 2026-08-31: **2,000 of 2,000, zero failures.** Kandinsky 2.07 s/image,
-Sana **1.17 s/image** -- the fastest family in the corpus, once resolution
-binning is off and it generates at the real's own size rather than at
-1216x832. Neither produced a single near-constant frame, against SD 1.5's
-0.79%.
+Run 2026-08-31, in two passes: 2,000 then 3,000. **5,000 of 5,000, zero
+failures**, leaving 2,500 pairs in each family. Kandinsky 2.19 s/image, Sana
+**1.18 s/image** -- the fastest family in the corpus, once resolution binning
+is off and it generates at the real's own size rather than at 1216x832.
+Neither produced a single near-constant frame across all 5,000, against SD
+1.5's 0.79%.
+
+The second pass is additive on the first: `--total` is this shard's own
+target and `_done_ids` is per family, so re-running with a larger total tops
+each family up rather than re-dealing it. `_rows/stats.json` records only the
+LAST pass, which is a reporting gap and not a data one -- the per-family
+`rows_*.jsonl` are the complete record.
+
+## 11b. The flux1_vae exposure arm (`--suite ov7_lineage3`)
+
+Not a new lineage, and that is the point. `flux1_vae` is a training lineage on
+paper carrying 0.28% of the gradient, and **no OV7 family produced it at
+all**: every FLUX.1 route was refused, and Z-Image was refused on a premise
+that turned out to be false (see the correction above). This arm fixes the
+exposure, not the lineage count.
+
+| family | model | licence | lineage | decoder class |
+|---|---|---|---|---|
+| `zimage_t2i` | Z-Image-Turbo 6B | **apache-2.0**, ungated | `flux1_vae` | `AutoencoderKL` 16ch, scaling 0.3611 |
+
+Its `vae/config.json` names itself: `_name_or_path` is `flux-dev`. So it IS
+FLUX.1's VAE. Held out it would measure nothing `flux1_vae` does not already
+cover; trained on, it is the cheapest route into the emptiest lineage.
+Transformer is 22.9 GiB on disk at fp32, ~11.5 GB resident at bf16, plus a
+~3.7 GB text encoder and a 0.16 GB VAE -- ~15.4 GB, which clears a 24 GB 4090
+outright and this 20 GB card with model offload. Turbo-distilled: 8 steps,
+guidance recorded rather than obeyed.
+
+**It obliges a control.** Once `flux1_vae` is well represented, the
+`flux2_vae` held-out number is a NEAR-transfer result -- sibling lab, sibling
+design intent -- and must be reported against a rung that excludes
+`flux1_vae`. `registry.RUNG_FLUX1_EXCLUDED` names the family to drop; the
+difference between the two rungs IS the sibling transfer, and it costs one
+rung on cached features.
+
+### Three more candidates, read at the card on 2026-08-31
+
+* **HunyuanImage 2.1** — `AutoencoderKLHunyuanImage`, **64 latent channels**,
+  scaling 0.75289, six block levels (32x downsample). Nothing in this corpus
+  is near it; the widest we hold is 32 (`dc_ae`, `flux2_vae`). It is the one
+  genuinely unrepresented decoder in reach. **Blocked on licence:** the card
+  tag is `other` (Tencent community licence), `validate_suite` refuses
+  anything not `commercial`, and that licence has not been read at source.
+  49.5 GiB. Read it before booking anything.
+* **Qwen-Image** — there is no `Qwen-Image-2.0` repo; the id 401s. Qwen's
+  image repos are date-coded, and the newest, `Qwen-Image-2512` (apache-2.0),
+  ships a `vae/config.json` identical to the original's: `AutoencoderKLQwenImage`,
+  `base_dim` 96, `dim_mult` [1,2,4,4], **`z_dim` 16**, and a
+  `temperal_downsample` field, which is a video-VAE tell. Own class, latents
+  not expanded, Wan-shaped architecture. `docs/02` U3 called it the sixth
+  lineage on the strength of a report; the published configs do not support
+  that, and the config route is now exhausted. It needs the recon probe.
+* **Emu3, Lumina-mGPT** — autoregressive VQ. Autoregressive is a SAMPLER
+  difference, not a decoder one, and this document's own rule only counts the
+  second. `Emu3VisionVQModel` at `embed_dim` 4 / codebook 32768 is the shape
+  `paella_vq` already has. Deferred behind a free test: rotate `movq` against
+  `paella_vq` once `ov7_lineage2` has run. If they transfer, VQ is one lineage
+  and Emu3 adds little; if they do not, codebook identity is the unit and Emu3
+  is a third. Lumina-mGPT carries no licence tag at all, which is its own
+  blocker.
 
 ## 12. Still owed
 
@@ -381,3 +481,19 @@ binning is off and it generates at the real's own size rather than at
 2. The end-to-end question: does a head trained with AI-OV7 beat one without it
    on the organisers' benchmark? If not, that is `docs/02` §6's second negative
    result and an argument for task 03 — worth knowing early either way.
+3. **Generate `ov7_lineage2` and `ov7_lineage3`.** Wuerstchen and CogView4 are
+   registered and ungenerated; Z-Image is registered and undownloaded. Until
+   `ov7_lineage2` runs, the free movq-vs-paella_vq rotation that would settle
+   the Emu3 question cannot be run either.
+4. **Read the Tencent community licence.** It is the only thing between this
+   corpus and its first genuinely new decoder in months.
+5. **Does depth survive an unseen decoder?** Opened 2026-08-31 and running.
+   The unfreeze ladder reads +0.1365 at depth 4 -- but against
+   `heldout_generator`, whose two families (`SDwithAdaptor_controlnet`,
+   `VQGAN`) are lineage-SIBLINGS of training families, over cross-source
+   negatives. AI-OV7 is the population without either defect: encoder-matched
+   pairs, genuinely unseen decoders. No OV7 bank has ever been built through a
+   fine-tuned tower, so `a3`'s **0.3998** is the only number that exists
+   there, and it is from a frozen one. The d0/d4 OV7 banks are extracting now.
+   If depth does not move that number, the ladder measured confound-fitting
+   and the lever is elsewhere.
