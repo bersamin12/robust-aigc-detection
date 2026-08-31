@@ -161,6 +161,10 @@ def main() -> int:
                     help="prefix substitution applied to manifest paths, for "
                          "scoring on a box whose corpus lives elsewhere; "
                          "repeatable, matched against the ORIGINAL path only")
+    ap.add_argument("--min-short-side", type=int, default=0,
+                    help="drop rows whose min(width,height) is below this "
+                         "(crop without clamp cannot score them; the count "
+                         "dropped is printed and must be reported beside n)")
     ap.add_argument("--shard", default=None, metavar="I/N",
                     help="score only contiguous shard I of N per split (for "
                          "one process per GPU); the merge step reassembles")
@@ -180,6 +184,13 @@ def main() -> int:
         d = m[m["split"] == sp].reset_index(drop=True)
         if len(d) == 0:
             sys.exit(f"REFUSING: split {sp!r} has no rows in {a.manifest}")
+        if a.min_short_side:
+            before = len(d)
+            keep = d[["width", "height"]].min(axis=1) >= a.min_short_side
+            d = d[keep].reset_index(drop=True)
+            if before - len(d):
+                print(f"{sp}: dropped {before - len(d)} rows with short side "
+                      f"< {a.min_short_side} (of {before})")
         if a.path_map:
             maps = [pm.split("=", 1) for pm in a.path_map]
             src = np.asarray([str(x) for x in d["path"]], dtype=object)
