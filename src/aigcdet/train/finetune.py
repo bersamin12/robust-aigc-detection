@@ -925,6 +925,22 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
                         epoch=epoch + 1, history=history, cfg=cfg,
                         dim_feat=spec.dim, backbone_name=backbone_name,
                         unfrozen=unfrozen, averager=averager)
+        if rank == 0:
+            # Keep this epoch's own copy. `checkpoint.pt` is overwritten every
+            # epoch, so without this the only scorable model is the last one and
+            # "which epoch was best" cannot be asked after the run. There is no
+            # validation pass inside this loop -- selection happens afterwards,
+            # on the real metric, against an eval bank -- so retaining the
+            # epochs IS the best-epoch mechanism, not a backup of it.
+            #
+            # A hard link, not a copy: `_write_ckpt` finishes with os.replace,
+            # which rebinds the name and leaves this link on the old inode. The
+            # bytes are shared until then, so the epoch costs nothing extra to
+            # keep beyond the space it already occupied.
+            snap = os.path.join(out_dir, f"checkpoint_ep{epoch + 1}.pt")
+            if os.path.exists(snap):
+                os.remove(snap)          # a --resume rerun of the same epoch
+            os.link(ckpt, snap)
         if world > 1:
             # Ranks must not race ahead into epoch N+1 while rank 0 is still
             # serialising N, or a kill mid-write leaves the replicas at
