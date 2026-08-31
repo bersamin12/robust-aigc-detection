@@ -505,7 +505,27 @@ def build_dataset(
     else:
         held = choose_heldout_generators(df, n=2, seed=seed)
         print(f"held-out generators: {held}")
-    df = assign_splits(df, heldout_generators=held, seed=seed)
+    # A paired corpus splits by ImageID, not by row: see
+    # `DatasetPreset.pair_split_by_stem`. The ImageID must come off `src`, the
+    # RAW path -- normalisation renames every file to a per-bucket running
+    # index, so by this point `path` carries no pairing information at all and
+    # a stem taken from it would give every row its own group and silently do
+    # nothing.
+    group_key = None
+    if preset is not None and preset.pair_split_by_stem:
+        # From `raw_df`, not `df`: the MANIFEST_COLUMNS projection above drops
+        # `src`, and both frames still share an index.
+        group_key = raw_df["src"].map(
+            lambda r: os.path.splitext(os.path.basename(r))[0])
+        n = group_key.nunique()
+        if n == len(df):
+            raise ValueError(
+                f"pair_split_by_stem found {n} groups over {len(df)} rows, i.e. "
+                f"no pairs at all. Either this corpus is not paired or the "
+                f"ImageID is not the filename stem; splitting would be a no-op "
+                f"and the pairs would straddle the val boundary silently.")
+        print(f"splitting by image id: {n} groups over {len(df)} rows")
+    df = assign_splits(df, heldout_generators=held, seed=seed, group_key=group_key)
     validate_manifest(df)
     write_manifest(df, manifest)
     print(split_report(df).to_string(index=False))

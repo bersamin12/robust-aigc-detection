@@ -109,6 +109,20 @@ class DatasetPreset:
     #: sees one list of families and needs no changes. This field records WHY
     #: those families travel together, which a flat list cannot.
     heldout_groups: list[list[str]] = field(default_factory=list)
+    #: Draw the train/val split once per IMAGE ID rather than once per row.
+    #:
+    #: For a paired corpus -- AI-OV7, where every fake is generated FROM one
+    #: real and both rows carry that real's ImageID as their filename stem --
+    #: the per-row draw puts a real and its own fake on opposite sides of the
+    #: val boundary about 18% of the time, and the model then trains on a scene
+    #: it is validated against under the other label. Held-out membership
+    #: propagates too: without it the real paired with a held-out fake stays in
+    #: training, and the held-out rung evaluates on scenes already memorised.
+    #:
+    #: Off by default, and it must stay off for every preset frozen before this
+    #: existed: turning it on changes the RNG stream, and every feature bank on
+    #: disk fingerprints the manifest it was extracted against.
+    pair_split_by_stem: bool = False
 
     def __post_init__(self):
         if not self.name.strip():

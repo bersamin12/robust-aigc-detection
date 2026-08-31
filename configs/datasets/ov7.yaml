@@ -1,0 +1,87 @@
+# AI-OV7: open-weight generators over Open Images V7 photographs.
+#
+# A SEPARATE STREAM, NOT A WIDENING OF `union`
+# Every feature bank on disk fingerprints `manifest_sha256`, a sha256 over
+# `rel_path` in row order. Inserting these rows into `manifest_union.parquet`
+# would renumber every row after the insertion point and orphan every bank
+# extracted against it. So this builds `data/manifest_ov7.parquet` and leaves
+# the union manifest alone, exactly as `coco_crop` did.
+#
+# WHY IT EXISTS
+# Every fake in the union corpus comes from a 2017-2023 generator: WildFake's
+# modern-era families are 15.3% of the trained fakes. Published results put
+# detection at ~79% on 2020-21 generators and ~38% on 2024 ones, and every
+# public dataset that would close that gap (OpenFake, Defactify) is
+# licence-barred -- structurally, because their reals are web scrapes whose
+# images keep individual copyrights. Generating our own fakes over CC BY 2.0
+# reals is the way around it (docs/02).
+#
+# WHAT IS CONTROLLED, AND WHY THAT IS THE POINT
+# `README.md` lists the low-level confounds as unresolved: sharpness alone
+# predicts the label at 68.5% (laplacian_var AUC 0.6721), and the fix it names
+# -- source-balanced sampling -- had not been done. This corpus attacks that
+# from the other side. Each fake is generated FROM one real:
+#
+#   * same content    -- the prompt is a caption of that photograph
+#   * same dimensions -- generated at the real's own MCU-16-aligned crop, and
+#                        the real reaches that crop through `jpegtran`, which
+#                        rewrites no DCT coefficient
+#   * same encoder    -- the fake is saved through the real's own 64
+#                        quantisation integers and its chroma subsampling
+#
+# so what separates the two classes is as close to the generator alone as we
+# can build. Measured on the 2,000-image gate before the full run; see
+# `docs/02` §5 and `scripts/gate_confounds.py`.
+#
+# HELD OUT BY DECODER, NOT BY NAME
+# `docs/02` §3.4: the union split holds out `SDwithAdaptor_controlnet` and
+# `VQGAN` while their siblings stay in training, so it measures generalising to
+# a cousin that shares a VAE. Here the held-out group is the whole `flux2_vae`
+# lineage -- a different decoder AND a different architecture (flow-matching
+# DiT against SDXL/SD1.5's UNets). Two lineages remain in training, `sdxl_vae`
+# and `sd_vae`, which is the minimum for the held-out rung to be measuring a
+# jump between decoders rather than away from the only one it has seen.
+#
+# ONE THING TO BE HONEST ABOUT
+# SD 1.5's VAE is the exact checkpoint `features/recon.py` probes with, so
+# `sd15_*` fakes reconstruct at near-zero error and the A4/A7 recon rungs
+# separate them for free. That is the recon feature working as designed, not a
+# confound, but it does not generalise off that lineage. Report recon numbers
+# per lineage or they mean nothing. Recorded in
+# `src/aigcdet/generate/registry.py` as `recon_probe_collision`.
+
+name: ov7
+note: >
+  Open-weight generators (SDXL, SD 1.5, FLUX.2-klein-4B) over CC BY 2.0 Open
+  Images V7 portraits. Every fake is paired 1:1 with the real it was generated
+  from, at that real's crop dimensions and through that real's JPEG
+  quantisation tables, so content, geometry and compression history are held
+  fixed across the pair. Held out by decoder lineage: the whole flux2_vae
+  group. Built by scripts/generate_ov7.py; see docs/02 and
+  src/aigcdet/generate/.
+
+# Uncapped. The corpus is built to a size by the generator, not trimmed to one
+# after the fact -- `resolve_suite` already fixes the per-family counts, and a
+# cap here would silently break the 1:1 pairing that is the whole design.
+max_per_generator: {}
+max_real_per_source: {}
+
+# The reals are Open Images thumbnails, short side ~360 at p05, and the
+# MCU-aligned crop takes at most 15px off each side. 200 matches the union
+# stream and drops nothing here; it is set rather than left at 0 so a future
+# harvest of smaller thumbnails cannot quietly widen the distribution.
+min_short_side: 200
+
+exclude_subpaths: []
+
+# Held out together or not at all: both families decode through the FLUX.2 VAE,
+# so holding out only one would leave its decoder in training and the rung
+# would measure a cousin.
+heldout_generators: []
+heldout_groups:
+  - [klein4b_t2i, klein4b_ref_image]
+
+# Split once per ImageID, not per row: every fake here is generated FROM one
+# real and both carry that ImageID, so a per-row draw would put a scene in train
+# under one label and in val under the other.
+pair_split_by_stem: true

@@ -49,7 +49,30 @@ def assign_splits(
     heldout_generators: list[str],
     val_fraction: float = 0.1,
     seed: int = DEFAULT_SEED,
+    group_key: pd.Series | None = None,
 ) -> pd.DataFrame:
+    """Assign train / val_internal / heldout_generator.
+
+    `group_key` exists for paired corpora such as AI-OV7, where a fake is
+    generated FROM a specific real and both rows carry the same ImageID. Drawn
+    per row -- the only behaviour before this argument -- a real and its own
+    fake land on opposite sides of the val boundary about 18% of the time, and
+    the model then trains on a scene it is validated against under the other
+    label. The validation number that comes back is not measuring what it says
+    it measures.
+
+    With a group key the draw is taken once per group and applied to the whole
+    group, and held-out membership PROPAGATES: if any row of a group is held
+    out, all of it is. Otherwise the real paired with a held-out fake stays in
+    training, and the held-out rung -- the one that is supposed to measure
+    generalisation to an unseen decoder -- evaluates on scenes the model has
+    already memorised under the other label.
+
+    Passing `group_key=None` keeps the original per-row draw and the original
+    RNG stream, so manifests frozen before this argument existed rebuild
+    byte-identically. Every feature bank on disk fingerprints its manifest, so
+    that is a hard requirement, not a courtesy.
+    """
     present = set(df["generator"].unique())
     missing = [g for g in heldout_generators if g not in present]
     if missing:
@@ -58,12 +81,29 @@ def assign_splits(
     out = df.copy()
     out["split"] = ""
     held = out["generator"].isin(heldout_generators)
-    out.loc[held, "split"] = "heldout_generator"
 
-    rest = ~held
+    if group_key is None:
+        out.loc[held, "split"] = "heldout_generator"
+        rest = ~held
+        rng = np.random.default_rng(seed)
+        draws = rng.random(int(rest.sum()))
+        out.loc[rest, "split"] = np.where(draws < val_fraction, "val_internal", "train")
+        return out
+
+    groups = pd.Series(group_key, index=out.index).astype(str)
+    if groups.isna().any() or (groups == "").any():
+        raise ValueError("group_key has blank entries; a row with no group "
+                         "cannot be kept with its pair")
+    held_groups = set(groups[held])
+    out.loc[groups.isin(held_groups), "split"] = "heldout_generator"
+
+    rest_groups = sorted(set(groups) - held_groups)
     rng = np.random.default_rng(seed)
-    draws = rng.random(int(rest.sum()))
-    out.loc[rest, "split"] = np.where(draws < val_fraction, "val_internal", "train")
+    draws = rng.random(len(rest_groups))
+    verdict = {g: ("val_internal" if d < val_fraction else "train")
+               for g, d in zip(rest_groups, draws)}
+    rest = out["split"] == ""
+    out.loc[rest, "split"] = groups[rest].map(verdict)
     return out
 
 

@@ -93,3 +93,72 @@ def test_split_report_counts_by_split_and_label():
 def test_raises_when_a_heldout_generator_is_absent():
     with pytest.raises(ValueError, match="not present"):
         assign_splits(_df(), heldout_generators=["nope"])
+
+
+# --- group_key: paired corpora (AI-OV7) ------------------------------------
+# A fake generated FROM a real carries that real's ImageID on both rows. Drawn
+# per row, the pair straddles the val boundary ~18% of the time and the model
+# trains on a scene it is validated against under the other label.
+
+def _paired(n=400, heldout_family="klein4b_t2i"):
+    import pandas as pd
+    ids = [f"img{i:05d}" for i in range(n)]
+    fams = [heldout_family if i % 5 == 0 else "sdxl_t2i" for i in range(n)]
+    rows = ([{"generator": "", "image_id": i, "label": 0} for i in ids]
+            + [{"generator": f, "image_id": i, "label": 1}
+               for i, f in zip(ids, fams)])
+    return pd.DataFrame(rows)
+
+
+def test_group_key_keeps_a_real_and_its_fake_on_the_same_side():
+    from aigcdet.data.splits import assign_splits
+    df = _paired()
+    out = assign_splits(df, ["klein4b_t2i"], group_key=df["image_id"])
+    spans = out.groupby("image_id")["split"].nunique()
+    assert (spans == 1).all(), "a pair straddled a split boundary"
+
+
+def test_without_a_group_key_pairs_do_straddle():
+    """The bug this argument exists for; asserted so the fix cannot be quietly
+    reverted to 'it was fine anyway'."""
+    from aigcdet.data.splits import assign_splits
+    df = _paired()
+    out = assign_splits(df, ["klein4b_t2i"])
+    assert (out.groupby("image_id")["split"].nunique() > 1).any()
+
+
+def test_heldout_membership_propagates_to_the_paired_real():
+    """Otherwise the held-out rung evaluates on scenes the model already
+    memorised under the other label."""
+    from aigcdet.data.splits import assign_splits
+    df = _paired()
+    out = assign_splits(df, ["klein4b_t2i"], group_key=df["image_id"])
+    held_ids = set(out.loc[out["generator"] == "klein4b_t2i", "image_id"])
+    reals = out.loc[(out["label"] == 0) & (out["image_id"].isin(held_ids))]
+    assert (reals["split"] == "heldout_generator").all()
+    assert len(reals) == len(held_ids)
+
+
+def test_group_key_none_preserves_the_original_rng_stream():
+    """Manifests frozen before this argument existed must rebuild
+    byte-identically -- every feature bank on disk fingerprints its manifest."""
+    import numpy as np
+    import pandas as pd
+    from aigcdet.data.splits import assign_splits, DEFAULT_SEED
+    df = _paired()
+    out = assign_splits(df, ["klein4b_t2i"])
+    held = df["generator"].isin(["klein4b_t2i"])
+    expected = np.where(
+        np.random.default_rng(DEFAULT_SEED).random(int((~held).sum())) < 0.1,
+        "val_internal", "train")
+    assert list(out.loc[~held, "split"]) == list(expected)
+
+
+def test_blank_group_entries_raise_rather_than_orphan_a_row():
+    import pandas as pd
+    from aigcdet.data.splits import assign_splits
+    df = _paired()
+    keys = df["image_id"].copy()
+    keys.iloc[3] = ""
+    with pytest.raises(ValueError, match="blank"):
+        assign_splits(df, ["klein4b_t2i"], group_key=keys)

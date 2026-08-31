@@ -186,6 +186,42 @@ SOURCES: dict[str, SourceSpec] = {
         real_buckets=frozenset({"portrait"}),
         generator_buckets=False,
     ),
+    # AI-OV7: open-weight generators run over the Open Images V7 reals above,
+    # built by `scripts/generate_ov7.py`. Separate from `open_images` and NOT a
+    # widening of it: that source is registered `generator_buckets=False` and is
+    # already frozen into `manifest_union.parquet`, where every feature bank
+    # fingerprints `manifest_sha256` over `rel_path` in row order. Inserting
+    # generated rows into it would orphan every bank on disk, so this is its own
+    # stream with its own manifest, exactly as `coco_crop` was.
+    #
+    # Its reason to exist: every fake in the union corpus comes from a 2017-2023
+    # generator, and published results put detection at ~79% on 2020-21
+    # generators against ~38% on 2024 ones. Every public dataset that would close
+    # that gap is licence-barred, because their reals are web scrapes nobody can
+    # relicense downstream. Generating over reals we may redistribute is the way
+    # around it (docs/02).
+    #
+    # Each fake is generated FROM one real, at that real's own MCU-aligned crop
+    # dimensions and through that real's own JPEG quantisation tables, so the
+    # pair differs in the generator and as little else as we can manage. The
+    # bucket is the family name and family names are precise -- `sdxl_t2i` and
+    # `sdxl_img2img` are two families, because the held-out design groups by
+    # DECODER LINEAGE and needs the name to mean something.
+    "open_images_v7": SourceSpec(
+        name="open_images_v7",
+        licence="Reals: CC BY 2.0 — https://creativecommons.org/licenses/by/2.0/ ; "
+                "per-image Author/Title/OriginalURL attribution is recorded in "
+                "attribution.csv and is REQUIRED on redistribution. Generated "
+                "buckets: our own outputs, from weights under apache-2.0 "
+                "(FLUX.2-klein-4B), openrail++ (SDXL) and creativeml-openrail-m "
+                "(SD 1.5) — all three grant ownership of the outputs and permit "
+                "commercial use; their use-based restrictions bind model use, "
+                "not image redistribution. Per-row `licence_tag` is recorded so "
+                "an Apache-only subset can be cut without regenerating. See "
+                "docs/02 and src/aigcdet/generate/registry.py",
+        real_buckets=frozenset({"real"}),
+        generator_buckets=True,
+    ),
     # The authentic half of the organisers' demo benchmark. val2017/ is the
     # directory name inside the official zip — the mapping that C1 got wrong.
     # Authentic throughout, and excluded from training whatever any row claims.
