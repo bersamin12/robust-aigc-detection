@@ -47,12 +47,32 @@ def main() -> int:
     ap.add_argument("--name-a", default="A")
     ap.add_argument("--name-b", default="B")
     ap.add_argument("--out", default=None, help="optional metrics json")
+    ap.add_argument("--positional", action="store_true",
+                    help="join by row position instead of path -- for parquets "
+                         "scored on different machines whose paths went "
+                         "through different --path-map rewrites. Only valid "
+                         "because every scorer emits rows in manifest order; "
+                         "label, source and generator must agree row-for-row "
+                         "or this refuses.")
     args = ap.parse_args()
 
     da = pd.read_parquet(args.a)
     db = pd.read_parquet(args.b)
-    j = da.merge(db[["path", "prob"]], on="path", suffixes=("_a", "_b"),
-                 validate="1:1")
+    if args.positional:
+        if len(da) != len(db):
+            raise SystemExit(f"REFUSING: {len(da)} vs {len(db)} rows")
+        for col in ("label", "source", "generator"):
+            if not (da[col].to_numpy() == db[col].to_numpy()).all():
+                raise SystemExit(
+                    f"REFUSING --positional: column {col!r} disagrees "
+                    "row-for-row, so these are not the same rows in the "
+                    "same order")
+        j = da.copy()
+        j = j.rename(columns={"prob": "prob_a"})
+        j["prob_b"] = db["prob"].to_numpy()
+    else:
+        j = da.merge(db[["path", "prob"]], on="path", suffixes=("_a", "_b"),
+                     validate="1:1")
     if len(j) != len(da) or len(j) != len(db):
         raise SystemExit(
             f"REFUSING: join is not 1:1 over the whole split "
