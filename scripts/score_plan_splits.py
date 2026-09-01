@@ -81,9 +81,14 @@ def _load_models(ck: dict, device: str, use_swa: bool):
 
 def _score_split(df: pd.DataFrame, towers, specs, head, policy: CanonPolicy,
                  device: str, batch: int, workers: int, chunk: int,
-                 desc: str) -> np.ndarray:
+                 desc: str, tta: bool = False) -> np.ndarray:
     from PIL import Image
     from tqdm import tqdm
+
+    tta_views = None
+    if tta:
+        from aigcdet.eval.tta import TTA_VIEWS, apply_tta_view
+        tta_views = TTA_VIEWS
 
     def prepare(paths: list[str]) -> list[np.ndarray]:
         out = []
@@ -93,7 +98,13 @@ def _score_split(df: pd.DataFrame, towers, specs, head, policy: CanonPolicy,
             # Eval convention: ONE deterministic canonicalisation, the centre
             # window (`rng is None gives the CENTRE window`). A random crop
             # here would score a different picture per invocation.
-            out.append(canonicalise(decoded, policy=policy))
+            std = canonicalise(decoded, policy=policy)
+            if tta_views is None:
+                out.append(std)
+            else:
+                # TTA composes ON TOP of the canonicalised image, one entry
+                # per view, flattened; the consumer reshapes by len(views).
+                out.extend(apply_tta_view(std, v) for v in tta_views)
         return out
 
     paths = df["path"].tolist()
@@ -108,9 +119,14 @@ def _score_split(df: pd.DataFrame, towers, specs, head, policy: CanonPolicy,
                 [_forward_tower(t, sp, imgs, device, torch.bfloat16, chunk)
                  for t, sp in zip(towers, specs)], dim=-1)
             logit = head(feats.float())["logit"]
+            if tta_views is not None:
+                # Mean of per-view LOGITS, then sigmoid -- eval/tta.py's
+                # aggregation. Monotone for AUC/TPR either way; acc@0.5 is
+                # what logit-space averaging keeps honest.
+                logit = logit.view(-1, len(tta_views)).mean(dim=1)
             p = torch.sigmoid(logit).double().cpu().numpy()
-            probs[done:done + len(imgs)] = p
-            done += len(imgs)
+            probs[done:done + len(p)] = p
+            done += len(p)
     assert done == len(paths)
     return probs
 
@@ -153,6 +169,9 @@ def main() -> int:
     ap.add_argument("--chunk", type=int, default=8,
                     help="images per tower forward inside a batch")
     ap.add_argument("--workers", type=int, default=16)
+    ap.add_argument("--tta", action="store_true",
+                    help="8-view test-time augmentation: mean of per-view "
+                         "LOGITS (eval/tta.py's aggregation), 8x the compute")
     ap.add_argument("--swa", action="store_true",
                     help="score the SWA average instead of the final weights")
     ap.add_argument("--limit", type=int, default=0,
@@ -225,7 +244,8 @@ def main() -> int:
             sys.exit(f"REFUSING {sp}: {len(miss)} sampled paths missing, "
                      f"e.g. {miss[:2]}")
         d["prob"] = _score_split(d, towers, specs, head, policy, a.device,
-                                 a.batch, a.workers, a.chunk, desc=sp)
+                                 a.batch, a.workers, a.chunk, desc=sp,
+                                 tta=a.tta)
         out = f"{a.out_prefix}_{sp}.parquet"
         d[["path", "image_id", "source", "generator", "label", "prob"]].to_parquet(
             out, index=False)
