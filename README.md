@@ -179,7 +179,7 @@ python scripts/export_finetuned.py --ckpt outputs/dual/dual_d24/checkpoint_ep1.p
 The frozen-feature ablation ladder that selected this recipe is reproducible
 separately: `scripts/build_train_bank.py` → `scripts/extract_features.py` →
 `scripts/run_ablation.py --config configs/rungs/<rung>.yaml`; the test suite
-(`PYTHONPATH=src python -m pytest tests -m "not gpu"`, ~1600 tests) runs
+(`PYTHONPATH=src python -m pytest tests -m "not gpu"`, ~1400 tests) runs
 without a GPU or any downloaded model.
 
 ---
