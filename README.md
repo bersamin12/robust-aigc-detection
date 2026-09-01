@@ -10,6 +10,11 @@ lineages the model has never seen, rather than asserting it.
 
 ---
 
+> This repository is the backup mirror of our primary submission repo,
+> [TechJam2026-aigc-detection-AquaForge8](https://github.com/bersamin12/TechJam2026-aigc-detection-AquaForge8);
+> `master` here carries the identical submission content, and the feature
+> branches carry the full experiment history.
+
 ## Project overview
 
 ### The final model
@@ -96,8 +101,8 @@ else held fixed:
 Python ≥ 3.11, a CUDA GPU for inference (CPU works, ~10x slower).
 
 ```bash
-git clone https://github.com/bersamin12/TechJam2026-aigc-detection-AquaForge8.git
-cd TechJam2026-aigc-detection-AquaForge8
+git clone https://github.com/bersamin12/robust-aigc-detection.git
+cd robust-aigc-detection
 python -m venv .venv && source .venv/bin/activate
 pip install -e .                 # numpy, torch, transformers, timm, ...
 pip install huggingface_hub      # only for auto-downloading the released weights
