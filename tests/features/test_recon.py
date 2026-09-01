@@ -1,3 +1,4 @@
+import importlib.util
 import json
 
 import os
@@ -412,11 +413,14 @@ def test_attach_recon_to_bank_replays_extract_banks_own_pixels_bit_exactly(tmp_p
 # --------------------------------------------------------------------------
 
 def test_load_recon_models_defers_the_diffusers_and_lpips_imports():
-    # Neither diffusers nor lpips is installed in this environment (and must
-    # not be -- see project-constraints.md). recon.py must therefore still be
-    # importable (every test above already proves that); only *calling*
-    # load_recon_models should require them, and fail cleanly when they are
-    # missing rather than doing a partial, silent load.
+    # recon.py must be importable without diffusers or lpips (every test above
+    # already proves that); only *calling* load_recon_models should require
+    # them, and fail cleanly when they are missing rather than doing a
+    # partial, silent load. Provable only where they are in fact missing: an
+    # environment that installed the [recon] extra gets a skip, not a
+    # meaningless pass from asserting an import error that cannot happen.
+    if all(importlib.util.find_spec(m) for m in ("diffusers", "lpips")):
+        pytest.skip("the [recon] extra is installed; nothing to defer")
     with pytest.raises(ModuleNotFoundError):
         load_recon_models("cpu")
 

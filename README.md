@@ -1,347 +1,227 @@
 # Robust Detection of AI-Generated Images Under Real-World Transformations
 
-TikTok TechJam 2026, Track 5.
+**Team AquaForge8 — TikTok TechJam 2026, Track 5.**
 
-A detector that has to survive the internet: JPEG re-encoding, blur, rescaling,
-sensor noise, filter-app colour shifts and profile-picture cropping. Clean-data
-accuracy is the easy half; this project is built around the half that isn't.
-
----
-
-## The approach in one paragraph
-
-A **frozen** vision backbone (DINOv3 ViT-L/16, 303M parameters) embeds every
-training image under 11 sampled views — one clean, ten degraded by randomly
-composed real-world transforms. Those embeddings are cached once to disk
-(**Stage A**, GPU-bound). A ~1M-parameter head then trains on the cached
-vectors (**Stage B**, CPU), which makes the entire ablation ladder cheap enough
-to run honestly: every rung is the same function with different flags, so
-comparisons differ only in the thing under test.
-
-Nothing here fine-tunes a backbone. The whole budget goes into *what you train
-on top of frozen features*, and into measuring robustness rather than asserting
-it.
+A detector that has to survive the internet: JPEG re-encoding, blur,
+rescaling, sensor noise, filter-app colour shifts and profile-picture
+cropping. Clean-data accuracy is the easy half; this project is built around
+the half that isn't — and around measuring generalisation to generator
+lineages the model has never seen, rather than asserting it.
 
 ---
 
-## Repository layout
+## Project overview
 
-```
-src/aigcdet/
-  data/        manifest freezing, dataset registries, image verification
-  augment/     the six transform primitives, recipe sampling, canonicalisation
-  features/    backbones, feature banks, sharded extraction, merge
-  models/      detector heads, losses, paired sampler
-  train/       Stage B rung training
-  eval/        condition grid, robustness table, controls, fusion, reporting
-  baselines/   published baselines + the resolution control
-scripts/       CLI entry points (acquire, build, extract, merge, train, report)
-notebooks/     Kaggle bootstrap for the five-person Stage A fleet
-configs/rungs/ the ablation ladder, one YAML per rung
-docs/          licences, the resolution-shortcut finding, the fleet runbook
-tests/         1600 tests
-```
+### The final model
+
+Two fully fine-tuned **DINOv2 ViT-L/14 with-registers** towers (304M
+parameters each) read the same 224px image in parallel; their pooled features
+are concatenated into a small MLP head that outputs one logit. Both towers
+start from the same pretrained weights and diverge only through the head's
+random initialisation over the two halves of the feature vector.
+
+Every image is standardised the same way before either tower sees it: a
+uniform **200px crop upscaled once to 224** ("crop-200"). That policy is not
+incidental — it is the result of a confound audit
+([docs/resolution_shortcut.md](docs/resolution_shortcut.md),
+[docs/low_level_confounds.md](docs/low_level_confounds.md)): any
+canonicalisation that makes the amount of resampling a function of native
+resolution leaks the label through resolution alone (upscale factor by itself
+scores AUC 0.54 with no image content at all). Training pairs each clean
+image with degraded views composed from six real-world transform primitives
+(JPEG, blur, resize, noise, colour, crop), so the decision boundary is
+learned on the transforms the model will meet, not on laboratory pixels.
+
+### The evaluation design
+
+The train/val split is by **decoder lineage**, never random: a generator
+appears in validation only if its VAE/decoder family is absent from training
+([docs/data_split.md](docs/data_split.md), `scripts/build_plan_manifest.py`).
+A validation number here is a zero-shot number. The corpus: WildFake, NTIRE,
+COCO and Open Images, plus ~55k fake/real pairs we generated ourselves with
+open-weight generators on Open Images scenes ("OV7"). SID_Set was used in
+earlier experiments but excluded from the final corpus — it has no per-model
+labels, so it cannot be shown to be lineage-disjoint from training.
+
+| split | rows | what it measures |
+| --- | --- | --- |
+| `train` | 350,663 (~1:1) | fit |
+| `val` | 56,100 | zero-shot: lineages held out whole (VQ-VAE/MAGE/MAE, FLUX.2, NTIRE-val's unseen generators) |
+| `test_transfer` | 32,196 | unseen lineages on our own OV7 generations + commercial APIs |
+| `demo` | 13,841 | COCO val2017 reals vs DALL·E fakes — clean out-of-corpus check |
+
+### Results (dual-tower @224, epoch 1)
+
+| split | AUC | TPR @ 1% FPR |
+| --- | --- | --- |
+| val (zero-shot lineages) | 0.9654 | 0.7348 |
+| test_transfer | 0.9963 | 0.9825 |
+| demo | 0.9989 | 0.9758 |
+
+The single-tower fine-tuned baseline (same recipe, one tower) reads 0.9177 /
+0.9897 / 0.9956 AUC on the same three splits; the second tower is worth ~5
+points of zero-shot val AUC. Ensembling the two models (both a 0.5-mean and a
+weight fitted on val) was measured and did not beat the dual-tower model
+alone on transfer, so the submission ships one model and one forward pass
+per image.
+
+### How we got here (the research trail, all in this repo)
+
+The final recipe was chosen by an ablation ladder run on **frozen** features
+first: a backbone embeds every image under 11 sampled views, embeddings are
+cached to disk once (`src/aigcdet/features/`), and a ~1M-parameter head
+trains on the cache in minutes on CPU (`scripts/run_ablation.py`,
+`configs/rungs/`). That made it cheap to answer honestly, with everything
+else held fixed:
+
+- **Backbone**: DINOv2-with-registers beat SigLIP2, EVA-02, ConvNeXt and
+  DINOv3 under fine-tuning (training loss mis-ranks; transfer AUC decides) —
+  `docs/backbone_probe_table.md`.
+- **Canonicalisation**: crop beats resize-to-band on both towers tested, same
+  sign and margin — `docs/crop_vs_band_ablation.md`.
+- **Robustness**: every candidate is scored on a 20-condition degradation
+  grid, not on clean pixels — `src/aigcdet/eval/grid.py`,
+  `docs/robustness_table*.md`.
+- **Fusion**: all 15 combinations of 4 scoring arms were fused and scored;
+  fusion helps in-domain and *hurts* transfer, so it was dropped.
+- **Confounds**: sharpness/noise/JPEG-history imbalances between real and
+  fake sources are measured and controlled (`scripts/audit_confounds.py`,
+  `scripts/gate_confounds.py`) so the model cannot pass by reading the
+  label off preprocessing history.
 
 ---
 
 ## Setup
 
-Python ≥ 3.11 (held there for Kaggle compatibility).
+Python ≥ 3.11, a CUDA GPU for inference (CPU works, ~10x slower).
 
 ```bash
-python -m venv .venv && . .venv/bin/activate
-pip install -e ".[dev]"
-pytest -q
+git clone https://github.com/bersamin12/TechJam2026-aigc-detection-AquaForge8.git
+cd TechJam2026-aigc-detection-AquaForge8
+python -m venv .venv && source .venv/bin/activate
+pip install -e .                 # numpy, torch, transformers, timm, ...
+pip install huggingface_hub      # only for auto-downloading the released weights
 ```
 
-`torch` and `transformers` are declared with loose lower bounds on purpose — on
-a machine that already has a CUDA-matched torch, they must not be allowed to
-fight it. On Kaggle, install with `--no-deps`; see
-`notebooks/kaggle_bootstrap.py`, which encodes the pip plan that does not
-destroy the session's torch.
-
-The reconstruction branch (§3.3) needs `pip install -e ".[recon]"` and is
-imported lazily, so the package stays importable and testable without it.
-
----
+The first run downloads the DINOv2 backbone from the Hugging Face Hub
+(ungated, no token needed) and the released checkpoint (~1.2 GB).
 
 ## Scoring a directory of images
 
-The submission's inference entry point. A directory in, a JSON file out, one
-object per image:
-
 ```bash
-# once, after training: freeze checkpoint + calibrator + EQI + policy
-python scripts/export_bundle.py --checkpoint outputs/rungs/a3/checkpoint.pt \
-       --eval-bank data/banks/eval_dinov3l --out outputs/release
-
-python scripts/predict.py --images path/to/images \
-       --bundle outputs/release --out predictions.json
+python predict.py --images /path/to/images --out predictions.json
 ```
+
+Output is a JSON list, one object per image found (searched recursively):
 
 ```json
 [
-  {"image_path": "path/to/images/a.png", "pred": 0.9317},
-  {"image_path": "path/to/images/b.jpg", "pred": 0.0412}
+  {"image_path": "/path/to/images/cat.jpg", "pred": 0.0132},
+  {"image_path": "/path/to/images/dalle.png", "pred": 0.9871}
 ]
 ```
 
-`pred` is the **calibrated** P(AI-generated) in [0, 1], so 0.9 means roughly
-90% rather than only "higher than 0.8". That is why the script takes a bundle
-rather than a bare checkpoint: the temperature and the decision policy are
-fitted by `export_bundle.py` on internal validation only, and a checkpoint on
-its own has neither. Add `--full` to also get `logit`, `eqi`, `decision`,
-`severity`, `presence` and `proxies` per image — useful for error analysis,
-and deliberately not the default, since an extra key is how a submission fails
-on a technicality.
-
-The directory is searched recursively, non-images are ignored, and rows come
-out sorted so two runs of the same directory are diffable.
-
-It scores the **clean view only** — the transforms exist to make training
-robust to degradation, not to degrade the image you asked about — and it
-canonicalises resolution before the backbone sees anything, exactly as the
-three other decode sites do. A file that cannot be decoded still gets a row,
-scored 0.5, is named on stderr, and the run exits non-zero with every other
-score written. An empty directory and a missing bundle are refused by name
-rather than producing a plausible-looking empty result.
-
-Scoring itself lives in `aigcdet.infer.Predictor`, which the dashboard uses
-too: two inference paths that agree today drift apart quietly, and the
-divergence surfaces as a demo reporting a different number than the submitted
-script with nothing failing anywhere.
+`pred` is the model's confidence in [0, 1] that the image is AI-generated.
+Useful flags: `--checkpoint <file>` to score a local checkpoint instead of
+downloading, `--tta` for 8-view test-time augmentation, `--skip-bad` to warn
+and continue past an undecodable file instead of failing loudly, `--device
+cpu` if there is no GPU.
 
 ---
 
 ## Reproducing the results
 
-### 1. Acquire and freeze the data
+**1. Acquire the data** (~400 GB). Sources, licences and download commands:
+[docs/dataset_licences.md](docs/dataset_licences.md) and
+`scripts/acquire_data.py`. The OV7 pairs are generated, not downloaded:
+`scripts/generate_ov7.py` runs open-weight generators spanning six decoder
+lineages (SD 1.5, SDXL, Kandinsky's MoVQ, Sana's DC-AE, FLUX.1, FLUX.2) over
+Open Images scenes, pairing every fake with a real crop of the same source
+image so content cannot separate the classes.
+
+**2. Build the lineage-split manifest.**
 
 ```bash
-python scripts/acquire_data.py --dataset sid_set  --out data/raw
-python scripts/acquire_data.py --dataset wildfake --out data/raw \
-       --generators ddim,ddpm,VQGAN,BigGAN,...   # generated buckets only
-python scripts/acquire_data.py --dataset wildfake_benchmark --benchmark-dir data/demo
-python scripts/build_dataset.py --raw data/raw --out data/normalized \
-       --demo-dir data/demo --manifest data/normalized/manifest.parquet \
-       --max-per-generator 4000
-python scripts/build_benchmark_manifest.py    # -> data/demo/benchmark_manifest.parquet
+python scripts/build_plan_manifest.py   # -> data/manifest_plan.parquet
 ```
 
-Every dataset's licence and source URL is recorded **at acquisition time** into
-`LICENCES.json` and carried into the manifest per row. `build_dataset` refuses
-to fabricate provenance for a source with no recorded entry, and drops any
-licence-restricted bucket before it is ever normalised (none is restricted in
-the current registry).
-
-`--max-per-generator` keeps at most N images per generator family, drawn from
-the seed, thinning families without deleting any, so `heldout_generator` and
-the LOTO rung still have every family to work with. It exists for a corpus
-that has lost part of its authentic side; the frozen manifest did not use it.
-
-The manifest is **frozen on write**. Feature banks index it positionally, so
-re-splitting after banks exist silently misaligns labels against cached
-features — `FeatureBank.verify_against_manifest` exists to make that loud.
-
-#### Corpus presets
-
-A frozen manifest records the numbers it was built with but not which decision
-they were. `configs/datasets/*.yaml` makes the composition a file, the way
-`configs/rungs/*.yaml` already does for the model, and copies its name and
-note into `docs/splits.json` so a bank on disk can be traced back to the
-corpus it came from:
+**3. Train the dual-tower model** (4×24 GB GPUs; both towers fully unfrozen
+is ~608M trainable parameters, which is what the 224px input buys room for):
 
 ```bash
-python scripts/build_dataset.py --preset configs/datasets/max_data.yaml \
-       --raw data/raw --out data/normalized_max_data \
-       --demo-dir data/demo --manifest data/manifest_max_data.parquet
+bash scripts/run_exp2_dual.sh           # wraps scripts/train_dual.py (DDP)
 ```
 
-Two ship. `max_data` adds the 38,629 SID_Set images acquired after the freeze
-and drops the 1,308 images below the canonicalisation band — all of them
-generated — for the lowest worst-case low-level confound of any composition
-swept (0.660 against the frozen manifest's 0.672) and 28% more rows.
-`era_forward` thins WildFake until the modern-era generators are 55.7% of the
-trained fakes rather than 15.3%, and pays 0.023 of confound for it. Both pin
-the frozen manifest's held-out pair, so each comparison moves one variable.
+The launcher's environment variables are documented inline; the defaults are
+the shipped configuration (crop-200 → 224, full unfreeze of both towers,
+cosine schedule, SWA tail). Each epoch writes an atomic checkpoint;
+`checkpoint_ep1.pt` is the released model.
 
-A third, `coco_crop`, is a separate experiment stream rather than another
-point on the same curve: it swaps WildFake's five non-commercial authentic
-subsets for COCO train2017 photographs, replaces band-limit standardisation
-with a random 200px crop at native resolution, and adds dihedral (flip +
-90-degree rotation) augmentation per view. Every one of those is opt-in and
-recorded in the feature bank's config, so a `coco_crop` bank can never be
-resumed from, merged with or fused against a frozen-stream bank.
-
-It also reverses this project's own bar on training with COCO-derived reals,
-because the organisers' benchmark's authentic half is COCO val2017 and
-training on train2017 risks measuring distribution memorisation. That reversal
-is recorded in `docs/dataset_licences.md`, and the control that replaces the
-rule is `scripts/stratified_auc.py --stratify-by source`, which reports the
-false positive rate per authentic source at one threshold. **No headline from
-that stream is interpretable without it.**
-
-`docs/dataset_presets.md` has the measurements, including the sweep showing
-that balancing the two authentic *sources* against each other cannot help —
-they leak through different channels and no mix lowers both — and the licence
-audit that rules out the modern-generator datasets (OpenFake, Defactify).
-
-### 2. Stage A — extract the feature bank (GPU)
-
-Single machine:
+**4. Score the splits** (this reproduces the results table):
 
 ```bash
-python scripts/extract_features.py --manifest data/normalized/manifest.parquet \
-       --backbone dinov3l --out banks/dinov3l --split train,val_internal
+python scripts/score_plan_splits.py --ckpt outputs/dual/dual_d24/checkpoint_ep1.pt \
+    --splits val,test_transfer,demo --out-prefix outputs/dual_ep1
 ```
 
-Across five Kaggle accounts: **[docs/kaggle_fleet_runbook.md](docs/kaggle_fleet_runbook.md)**.
+**5. Export the slim inference checkpoint** (what `predict.py` downloads):
 
 ```bash
-python scripts/merge_banks.py banks/dinov3l_shard{0,1,2,3,4} --out banks/dinov3l
+python scripts/export_finetuned.py --ckpt outputs/dual/dual_d24/checkpoint_ep1.pt \
+    --out dual_d24_ep1.pt --verify some_image_dir/
 ```
 
-### 3. Stage B — train the ladder (CPU)
-
-```bash
-python scripts/train_rung.py --config configs/rungs/a3.yaml \
-       --bank banks/dinov3l --manifest data/normalized/manifest.parquet
-python scripts/run_ablation.py --bank banks/dinov3l --out outputs/rungs
-```
-
-The bank is the only thing that changes between backbones — `--bank
-banks/convnextt` runs the identical ladder on the convolutional features,
-because Stage B never sees an image.
-
-| Rung | What it adds |
-|---|---|
-| A0 | Linear probe, clean views only (= UniversalFakeDetect) |
-| A1 | + augmented training views |
-| A2 | + auxiliary degradation-prediction loss |
-| A3 | + clean/degraded consistency loss — **headline candidate** |
-| A4 | + reconstruction features (kill criterion applies) |
-| A7 | A4 + FiLM conditioning |
-| A7-norecon | A3 + FiLM conditioning — so FiLM is read against the shipping system, not only against recon |
-
-### 4. Evaluate under the transformation grid
-
-The ablation tier spans `val_internal`, `heldout_generator` and `benchmark`,
-which live in two separate frozen manifests — so they are joined first, into a
-manifest re-rooted onto their common ancestor with fresh, unique index labels
-(the per-view RNG key):
-
-```bash
-python scripts/build_eval_manifest.py \
-       --manifest data/normalized/manifest.parquet \
-       --benchmark-manifest data/demo/benchmark_manifest.parquet \
-       --out data/eval_manifest.parquet
-
-python scripts/extract_eval_bank.py --manifest data/eval_manifest.parquet \
-       --backbone dinov3l --out banks/eval --tier ablation
-```
-
-20 conditions: JPEG q∈{90,70,50,30}, Gaussian blur σ∈{0.5,1.0,2.0}, resize
-0.5×/0.25× then upscale, Gaussian noise σ∈{0.02,0.05,0.10}, colour jitter ±20%,
-centre crop 80%, plus clean and composed conditions.
+The frozen-feature ablation ladder that selected this recipe is reproducible
+separately: `scripts/build_train_bank.py` → `scripts/extract_features.py` →
+`scripts/run_ablation.py --config configs/rungs/<rung>.yaml`; the test suite
+(`PYTHONPATH=src python -m pytest tests -m "not gpu"`, ~1600 tests) runs
+without a GPU or any downloaded model.
 
 ---
 
-## Two findings that shaped the design
+## Limitations, and what we would do with more time
 
-### Resolution leaks the label — and it leaks *backwards*
-
-29% of the training pool sits at image sizes that are 100% generated. Short side
-alone separates the classes at 72.6% accuracy against a 52.9% baseline.
-
-On the organisers' demo benchmark it is worse: COCO val2017 is uniformly
-200×200 and DALL·E Advanced runs 346–1746, so the two halves share **no**
-resolution stratum under any definition. A classifier that reads only the image
-dimensions and never a pixel scores **TPR 1.0000, AUC 1.0000** there.
-
-The two shortcuts point in **opposite directions**. Fit the dimensions-only
-model on the training pool, score it on the benchmark, and you get **AUC
-0.0006** — near-perfectly inverted. A model leaning on resolution is punished,
-not rewarded.
-
-So every decode site canonicalises resolution before any condition transform is
-applied (`src/aigcdet/augment/canonical.py`, wired in `features/extract.py`,
-`eval/grid.py` and `features/recon.py`), and the dimensions-only classifier is
-kept as a registered **control** — never a published baseline — so every
-headline number is read against it. Full analysis:
-[docs/resolution_shortcut.md](docs/resolution_shortcut.md).
-
-### The benchmark's effective sample size is smaller than it looks
-
-Of the 8,843 DALL·E 3 benchmark images, only **3,719 are distinct**; 5,124 are
-byte-identical duplicates (verified by content digest and independently by
-`md5sum`). COCO's 4,998 are clean. That is roughly 42% effective sample size on
-the generated half, and it widens every confidence interval on that side.
-
----
-
-## Limitations, and what we would do next
-
-- **A second shortcut is unresolved.** At matched native resolution, image
-  sharpness alone predicts the label at 68.5% — real images in this corpus are
-  simply sharper than generated ones. Canonicalisation neither causes nor cures
-  it. The fix is source-balanced sampling, which we have not done.
-- **One paradigm, so far.** DINOv3 and SigLIP2 are both ViTs pooled by
-  averaging patch tokens, which is one paradigm wearing two hats — they are
-  likely to be wrong on the same images, and A5's fusion earns least from a
-  pair like that. The registry now also carries two **convolutional** towers
-  (ConvNeXt-Tiny, ResNet-50) pooled by mean **and standard deviation** over
-  spatial positions, where the std is the texture statistic the ViT path
-  averages away. They are extracted by `notebooks/kaggle_stage_a_cnn.ipynb`;
-  at the time of writing neither has been trained against, so whether the
-  third paradigm actually decorrelates is measured, not claimed.
-- **Generalisation is measured, not solved.** `heldout_generator` holds out
-  entire generator families, and the LOTO rung holds out entire transform
-  families, but a genuinely novel generator remains the open risk.
-- **The benchmark is a reference, not a score.** COCO val2017 and DALL·E
-  Advanced are excluded from training by source, and `build_dataset` enforces
-  the exclusion structurally rather than by convention.
+- **One epoch.** The released weights are epoch 1 of a 3-epoch schedule;
+  later epochs were still training at submission time. A companion experiment
+  at 518px input (14× the tokens) was lost to a cloud-pod failure mid-run.
+  Both are pure compute limitations, not design ones.
+- **`pred` is a raw sigmoid, not a calibrated probability.** The repo
+  contains a full conditional-calibration path (temperature fitted per
+  degradation condition, `src/aigcdet/calibrate/`) built for the frozen-rung
+  models; it was not refit for the fine-tuned model in time. Ranking and
+  thresholded decisions are unaffected; "0.9 means 90%" is not yet a claim we
+  make.
+- **Zero-shot means zero-shot *lineage*, not zero-shot *world*.** Val holds
+  out decoder families wholesale, and transfer is measured on generators we
+  ran ourselves plus commercial APIs — but the strongest proprietary models
+  of the month after submission are, by construction, in nobody's training
+  set. Continuous re-benchmarking is the only honest answer.
+- **Dataset provenance confounds are mitigated, not eliminated.** We audit
+  and control resolution, sharpness, noise and JPEG-history shortcuts
+  (docs/), and the crop-200 policy exists precisely to close the largest one.
+  A residual "which website did this come from" signal cannot be fully ruled
+  out with public corpora.
+- **608M parameters, two towers.** Fine for a scoring service, heavy for
+  on-device. Given more time we would distil the dual model into a single
+  small student on the same degradation-paired data, and refit the
+  calibration + selective-abstention policy (both already in the repo) on the
+  distilled model.
+- **Still images only.** Video (per-frame + temporal consistency) is the
+  obvious next surface for short-form platforms.
 
 ---
 
-## Datasets and licences
+## Team member contributions
 
-| Dataset | Role | Licence |
-|---|---|---|
-| SID_Set | Training — authentic (10,049) and unattributed generated (10,079) | CC BY 4.0; organiser-listed |
-| WildFake, generated buckets | Training — 18 generator families (62,988) | Apache-2.0; organiser-listed |
-| WildFake, `real/` bucket | Training — authentic (55,000) | Apache-2.0 on the compilation; organiser-listed. Upstream terms documented below |
-| COCO val2017 | Benchmark only | CC BY 4.0, images under Flickr terms |
-| DALL·E Advanced | Benchmark only | Competition brief |
+| member | contribution |
+| --- | --- |
+| *[name]* | *[e.g. data acquisition & confound audits]* |
+| *[name]* | *[e.g. training infrastructure & experiments]* |
+| *[name]* | *[e.g. evaluation design & reporting]* |
 
-Both training sources are named by the organisers as examples of approved
-"public/licensed datasets" (rules slide, 29 August). WildFake is nevertheless a
-**compilation**: its generated images are the authors' own, but its authentic
-images are re-published FFHQ (CC BY-NC-SA 4.0), CelebA-HQ (research-only), AFHQ
-(CC BY-NC 4.0), ImageNet, LSUN and LAION-5B, and an Apache-2.0 label on the
-compilation does not relicense them. On 28 August we read the webinar's
-"non-commercial datasets cannot be used" against those upstream terms and barred
-the bucket; the organisers' explicit listing of WildFake settled that the rule
-bars datasets whose *own* licence is non-commercial, and the bar was lifted. The
-frozen manifest includes the bucket. The upstream terms are recorded, not
-hidden, in [docs/dataset_licences.md](docs/dataset_licences.md), and the
-`restricted_buckets` mechanism in `aigcdet.data.sources` stays for any source
-that needs it. Model weight provenance:
-[docs/model_licences.md](docs/model_licences.md).
+<!-- Fill in before submission. -->
 
-All models are well under the 2B-parameter limit — the largest is DINOv3
-ViT-L/16 at 303,129,600 parameters, measured rather than quoted.
+## Licences
 
----
-
-## Development
-
-Built with subagent-driven development: isolated git worktrees per task, TDD,
-and mutation testing as the standard for whether a test earns its place. A test
-is not accepted until a deliberate mutation of the code it covers has been shown
-to make it fail — validated against unmutated code first, counted as a kill only
-on a reported `FAILED`, and with the source restored and sha256-verified
-afterwards.
-
-```bash
-pytest -q        # 1600 passed, 3 skipped
-```
+Model weights: DINOv2 is Apache-2.0 ([docs/model_licences.md](docs/model_licences.md)).
+Dataset terms are catalogued in [docs/dataset_licences.md](docs/dataset_licences.md).
