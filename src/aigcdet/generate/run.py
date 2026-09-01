@@ -39,6 +39,20 @@ MIN_STD = 2.0
 #: train a detector to call photographs fake.
 MIN_DELTA = 1.5
 
+#: `generate_ov7.py`'s exit code for "ran every family it was given, and some
+#: individual images were rejected".
+#:
+#: It must not be 1. A family that trips `run_family`'s abort raises, and an
+#: uncaught exception exits 1 too -- so "3 black frames killed the family" and
+#: "one copy-guard rejection in 1,435 images" reach the caller as the SAME
+#: code. `run_real.run_lane` stops a lane on any non-zero code, which is right
+#: for the abort and wrong for the rejection: a lane holding two shards would
+#: silently skip its second because one image in its first was dropped by a
+#: guard doing its job. Measured on the 2026-09-01 run, where `gpu 2` exited 1
+#: on a single `sd15_img2img` copy rejection after completing every family it
+#: was given; it held one shard, so nothing was lost, and that was luck.
+EXIT_SOME_FAILED = 2
+
 
 def check_licence(model_key: str) -> None:
     """Assert the model card still publishes the licence the registry claims.
@@ -63,6 +77,33 @@ def check_licence(model_key: str) -> None:
                 f"on the registry being true.")
 
 
+def _dtype_kwarg(dtype) -> dict:
+    """`{"torch_dtype": ...}` -- the spelling EVERY diffusers release accepts.
+
+    diffusers added `dtype` as an alias for `torch_dtype` and both work on
+    0.40.0, but 0.37.1 -- the version pinned so `wuerstchen` still loads, see
+    `registry.MODELS["wuerstchen"]` -- pops only `torch_dtype`. Measured by
+    reading `DiffusionPipeline.from_pretrained` in both:
+
+        0.40.0   kwargs.pop("dtype"), kwargs.pop("torch_dtype")
+        0.37.1   kwargs.pop("torch_dtype")
+
+    Passing the wrong one does NOT raise, because `from_pretrained` takes
+    `**kwargs` and drops what it does not recognise; the model simply loads at
+    the checkpoint's own precision. That silence is the whole hazard. It cost
+    five of eleven families in the 2026-08-31 smoke -- every SDXL and FLUX.2
+    arm died with "mat1 and mat2 must have the same dtype, but got Half and
+    Float", because SDXL's `variant="fp16"` weights stayed Half while the
+    submodules without an fp16 variant loaded float32. A model that loaded at
+    an unintended precision might instead have generated fine, and then the
+    manifest would record a dtype the run never used.
+
+    Signature inspection cannot decide this -- both versions expose only
+    `(pretrained_model_name_or_path, **kwargs)` -- so this does not try.
+    """
+    return {"torch_dtype": dtype}
+
+
 def load(model_key: str, methods: set[str], device: str = "cuda"):
     """Load one model once, and return a pipeline per method it must serve.
 
@@ -76,7 +117,14 @@ def load(model_key: str, methods: set[str], device: str = "cuda"):
     spec = MODELS[model_key]
     check_licence(model_key)
     dtype = getattr(torch, spec.dtype)
-    kw = dict(dtype=dtype, use_safetensors=True)
+    kw = dict(_dtype_kwarg(dtype), use_safetensors=True)
+    if spec.safety_checker:
+        # Do not load it. It returns a black frame instead of raising, which
+        # reaches `check` as "near-constant output" -- a generation failure
+        # that is not one. See `ModelSpec.safety_checker` for the run it cost.
+        # `requires_safety_checker=False` is what suppresses the warning the
+        # pipeline otherwise emits once per call for the rest of the family.
+        kw.update(safety_checker=None, requires_safety_checker=False)
 
     if spec.arch == "flow_dit":
         # Klein's `image` argument is reference conditioning on the SAME
@@ -93,6 +141,39 @@ def load(model_key: str, methods: set[str], device: str = "cuda"):
     elif spec.arch == "wuerstchen":
         # Not in AutoPipelineForText2Image's mapping, so the auto class would
         # raise on it. The combined pipeline pulls the prior repo itself.
+        #
+        # The alias is load-bearing. The weights were published under
+        # diffusers 0.21, and their `model_index.json` names the component
+        # library "wuerstchen" -- i.e. `diffusers.pipelines.wuerstchen`.
+        # Diffusers has since moved that package under `.deprecated.`, so
+        # `from_pretrained` raises "does not exist ... and is not a module in
+        # 'diffusers/pipelines'" on a repo whose files are perfectly intact.
+        # Aliasing the old path to the new one is what lets a frozen artefact
+        # keep loading; it is NOT a version pin, and nothing else changes.
+        #
+        # Note `diffusers.WuerstchenCombinedPipeline` exists as an attribute
+        # either way, so `hasattr` proves nothing here -- the class is real
+        # and re-exported, only its module moved.
+        #
+        # ONLY alias when the old path is genuinely gone. On the 0.37.1 pin
+        # that keeps these weights loadable the package still sits at
+        # `diffusers.pipelines.wuerstchen` and there is no `.deprecated.`
+        # subpackage at all -- importing it unconditionally raises
+        # ModuleNotFoundError and takes the family down on the exact version
+        # the pin exists to serve. Probe the canonical path first; the alias
+        # is the fallback for 0.38+, not the default.
+        import importlib
+        import sys
+
+        import diffusers.pipelines as _pipelines
+        try:
+            importlib.import_module("diffusers.pipelines.wuerstchen")
+        except ModuleNotFoundError:
+            _w = importlib.import_module(
+                "diffusers.pipelines.deprecated.wuerstchen")
+            sys.modules.setdefault("diffusers.pipelines.wuerstchen", _w)
+            if not hasattr(_pipelines, "wuerstchen"):
+                setattr(_pipelines, "wuerstchen", _w)
         from diffusers import WuerstchenCombinedPipeline
         base = WuerstchenCombinedPipeline.from_pretrained(spec.hf_id, **kw)
     elif "self_cond" in methods:

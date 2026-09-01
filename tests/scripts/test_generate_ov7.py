@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+from pathlib import Path
 import os
 
 import pandas as pd
@@ -83,3 +84,51 @@ def test_every_clashing_real_is_reported_not_just_the_first(tmp_path):
     clashes = gen.used_elsewhere(
         tmp_path, _sel([(f"id{n}", "sana1600m_t2i") for n in range(20)]))
     assert len(clashes) == 20
+
+
+def test_families_subset_must_renormalise_its_shares():
+    """`--families` subsets the suite BEFORE resolve_suite, and a strict subset
+    sums to less than 1, which validate_suite refuses outright. Without the
+    renormalisation the flag is unusable: it raises before generating anything.
+
+    `--run-families` is the other flag and is unaffected -- it filters the
+    selection AFTER select(), so its counts come from the full suite. That is
+    the flag every production run uses, which is why this never surfaced.
+    """
+    import dataclasses
+
+    import pytest
+
+    from aigcdet.generate import registry
+
+    # The base suite, so this does not depend on which supplement suites the
+    # checkout happens to carry.
+    full = dict(registry.SUITE)
+    corpus = registry.corpus_of("ov7")
+    # Drop the smallest family: any strict subset shows the bug, and the
+    # smallest one leaves every lineage still represented, so validate_suite
+    # fails on the shares rather than on held-out sanity.
+    drop = min(full, key=lambda k: full[k].share)
+    sub = {k: v for k, v in full.items() if k != drop}
+    assert 0 < sum(f.share for f in sub.values()) < 1.0
+
+    with pytest.raises(ValueError, match="shares sum to"):
+        registry.resolve_suite(1000, sub, corpus=corpus)
+
+    tot = sum(f.share for f in sub.values())
+    ren = {k: dataclasses.replace(f, share=f.share / tot) for k, f in sub.items()}
+    counts = registry.resolve_suite(1000, ren, corpus=corpus)
+    assert sum(counts.values()) == 1000
+    assert set(counts) == set(sub)
+
+
+def test_run_families_does_not_touch_the_suite():
+    """The production flag must keep full-suite counts, or two boxes running
+    different family subsets of the same shard would deal different reals and
+    the disjointness the shard blocks guarantee would be gone."""
+    src = (Path(__file__).resolve().parents[2]
+           / "scripts" / "generate_ov7.py").read_text()
+    body = src.split("if args.run_families:", 1)[1].split("caps = caption_pool", 1)[0]
+    assert "suite = " not in body, (
+        "--run-families must filter the selection, never the suite")
+    assert "sel = sel.loc[" in body

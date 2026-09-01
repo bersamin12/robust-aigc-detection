@@ -67,6 +67,7 @@ class PairedSampler:
 
     def __init__(self, bank, indices: np.ndarray, n_src: int = 32, m_deg: int = 2,
                  *, rng: np.random.Generator, use_recon: bool = False,
+                 use_recon_vq: bool = False, use_freq: bool = False,
                  augmented_only: bool = False, device: str = "cpu"):
         if n_src % 2 != 0:
             raise ValueError("n_src must be even so batches can be class-balanced")
@@ -76,6 +77,8 @@ class PairedSampler:
         self.n_src, self.m_deg = n_src, m_deg
         self.rng = rng
         self.use_recon = use_recon
+        self.use_recon_vq = use_recon_vq
+        self.use_freq = use_freq
         self.augmented_only = augmented_only
         self.device = device
         self.n_views = bank.config["n_views"]
@@ -207,15 +210,18 @@ class PairedSampler:
                 "r_clean": None,
                 "r_deg": None,
             }
-            if self.use_recon:
-                if self.bank.recon is None:
-                    raise ValueError(
-                        "bank has no recon features; run attach_recon first")
-                r_clean = np.repeat(
-                    np.asarray(self.bank.recon[src, 0]).astype(np.float32),
-                    self.m_deg, axis=0)
-                batch["r_clean"] = torch.from_numpy(r_clean).to(self.device)
-                batch["r_deg"] = torch.from_numpy(
-                    np.asarray(self.bank.recon[si, vi]).astype(np.float32)
-                ).to(self.device)
+            if self.use_recon or self.use_recon_vq or self.use_freq:
+                # `recon_blocks` owns which blocks and in what order; a head
+                # trained on [kl | vq] and scored against [vq | kl] would not
+                # raise, it would just be wrong.
+                blocks = self.bank.aux_blocks(self.use_recon,
+                                              self.use_recon_vq, self.use_freq)
+                r_clean = np.concatenate(
+                    [np.asarray(b[src, 0]).astype(np.float32) for b in blocks],
+                    axis=-1)
+                batch["r_clean"] = torch.from_numpy(
+                    np.repeat(r_clean, self.m_deg, axis=0)).to(self.device)
+                batch["r_deg"] = torch.from_numpy(np.concatenate(
+                    [np.asarray(b[si, vi]).astype(np.float32) for b in blocks],
+                    axis=-1)).to(self.device)
             yield batch

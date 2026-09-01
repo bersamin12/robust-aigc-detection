@@ -190,7 +190,43 @@ def build_parser() -> argparse.ArgumentParser:
                      help="attach the reconstruction branch (spec section 3.3) to the "
                           "existing bank at --out for all of its cached views, instead "
                           "of building a new bank")
+    ap.add_argument("--block-shard", "--recon-shard", dest="recon_shard",
+                     default=None, metavar="I/N",
+                     help="with --recon: compute only contiguous row block I of N "
+                          "of THIS bank and write it to recon_part_IofN.npy without "
+                          "attaching. Unlike --shard, which cuts the MANIFEST into "
+                          "separate banks, this cuts one bank's rows across "
+                          "processes so four GPUs can replay it at once. Finish "
+                          "with --recon-merge N.")
+    ap.add_argument("--block", default=None,
+                     choices=("recon", "recon_vq", "freq"),
+                     help="attach ONE auxiliary block to the existing bank at "
+                          "--out instead of building a new bank: recon (SD 1.5 "
+                          "KL VAE round-trip, 12-d), recon_vq (a "
+                          "vector-quantised autoencoder, 12-d, its own file) "
+                          "or freq (NPR's periodic-upsampling descriptor, 4-d, "
+                          "crop banks only, no GPU). Supersedes "
+                          "--recon/--recon-kind, which remain as aliases.")
+    ap.add_argument("--allow-band-freq", action="store_true",
+                     help="--block freq refuses a band-canonicalised bank, "
+                          "where the descriptor measures the resampler rather "
+                          "than the generator and leaks. Pass this only to "
+                          "reproduce that negative result deliberately.")
+    ap.add_argument("--recon-kind", default="kl", choices=("kl", "vq"),
+                     help="with --recon: WHICH autoencoder round-trips the "
+                          "pixels, and therefore which block is written -- "
+                          "kl -> recon.npy (SD 1.5 KL VAE), vq -> "
+                          "recon_vq.npy (a vector-quantised autoencoder). Two "
+                          "12-d blocks, never one wider one: the width is "
+                          "pinned by attach_recon and the ladder allows one "
+                          "flag per rung.")
+    ap.add_argument("--block-merge", "--recon-merge", dest="recon_merge",
+                     type=int, default=None, metavar="N",
+                     help="with --recon: assemble the N recon_part_*.npy shards, "
+                          "verify they cover every row exactly once and are "
+                          "finite, attach the result and delete the parts.")
     return ap
+
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -215,19 +251,76 @@ def main(argv: list[str] | None = None) -> int:
         ap.error(f"--shard {a.shard} selects no rows: N exceeds the "
                  f"{n_selected} rows --split/--limit select. Use fewer shards.")
 
-    if a.recon:
-        from aigcdet.features.bank import FeatureBank
-        from aigcdet.features.recon import attach_recon_to_bank
+    if a.recon or a.block:
+        import functools
+        import glob
+        import os
+
+        import numpy as np
+
+        from aigcdet.features.bank import AUX_BLOCKS, FeatureBank
+        from aigcdet.features.recon import RECON_KINDS, attach_recon_to_bank
+        from aigcdet.features.replay import merge_blocks, shard_bounds
+
+        # `--recon [--recon-kind vq]` is the older spelling of `--block`.
+        block = a.block or RECON_KINDS[a.recon_kind]
+        dim = dict((n, d) for _, n, d in AUX_BLOCKS)[block]
+        if block == "freq":
+            from aigcdet.features.freq import attach_freq_to_bank
+            compute = functools.partial(attach_freq_to_bank,
+                                        allow_band=a.allow_band_freq)
+        else:
+            kind = "kl" if block == "recon" else "vq"
+            compute = functools.partial(attach_recon_to_bank,
+                                        device=a.device, kind=kind)
+        recon_bounds = shard_bounds
 
         bank = FeatureBank.open(a.out)
-        attach_recon_to_bank(bank, df, device=a.device)
+        if a.recon_shard and a.recon_merge:
+            ap.error("--block-shard computes one block; --block-merge "
+                     "assembles them. Give one or the other.")
+
+        if a.recon_merge:
+            n_shards = a.recon_merge
+            n = len(bank.meta)
+            parts = []
+            for i in range(n_shards):
+                p = os.path.join(a.out, f"part_{block}_{i}of{n_shards}.npy")
+                if not os.path.exists(p):
+                    ap.error(f"missing shard {p}. Every block must be present: "
+                             "a merge over the shards that happen to exist "
+                             "would attach zeros for the rest.")
+                start, stop = recon_bounds(n, i, n_shards)
+                parts.append((start, stop, np.load(p)))
+            merge_blocks(bank, parts, block, dim)
+            for p in glob.glob(os.path.join(a.out, f"part_{block}_*of*.npy")):
+                os.remove(p)
+            bank.check_invariants()
+            print(f"merged {n_shards} shards -> {a.out}/{block}.npy")
+            return 0
+
+        if a.recon_shard:
+            try:
+                i_s, n_s = (int(x) for x in a.recon_shard.split("/"))
+            except ValueError:
+                ap.error(f"--recon-shard {a.recon_shard!r} is not I/N")
+            start, stop = recon_bounds(len(bank.meta), i_s, n_s)
+            print(f"{block} shard {i_s}/{n_s}: rows [{start}, {stop}) of "
+                  f"{len(bank.meta)}")
+            arr = compute(bank, df, start=start, stop=stop, attach=False)
+            out_p = os.path.join(a.out, f"part_{block}_{i_s}of{n_s}.npy")
+            np.save(out_p, arr)
+            print(f"wrote {out_p} {arr.shape}")
+            return 0
+
+        compute(bank, df)
         # Post-condition on a multi-hour job: recon.npy must cover every view
         # of every row, or A3-vs-A4 compares different augmentation budgets.
         bank.check_invariants()
         return 0
 
     if not a.backbone:
-        ap.error("--backbone is required unless --recon is given")
+        ap.error("--backbone is required unless --recon/--block is given")
     if a.shard:
         print(f"shard {a.shard}: {len(df)} of {n_selected} selected rows, "
               f"row_id {int(df.index[0])}..{int(df.index[-1])}")

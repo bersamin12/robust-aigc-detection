@@ -68,6 +68,43 @@ N_VIEWS = 11          # 1 clean + 10 augmented (spec §3.1, K=10)
 RECON_DIM = 12
 
 
+FREQ_DIM = 4
+
+#: Every auxiliary block a head can consume, as (flag, block name, width), in
+#: the FIXED order they are concatenated into the head's `r` input.
+#:
+#: The order is the contract. A head trained on [recon | freq] and scored
+#: against [freq | recon] raises nothing -- the widths match -- it is simply
+#: wrong. One tuple so the width calculation, the array lookup and the file
+#: names cannot drift apart.
+AUX_BLOCKS: tuple[tuple[str, str, int], ...] = (
+    ("use_recon", "recon", RECON_DIM),
+    ("use_recon_vq", "recon_vq", RECON_DIM),
+    ("use_freq", "freq", FREQ_DIM),
+)
+_AUX_BY_NAME = {name: (flag, dim) for flag, name, dim in AUX_BLOCKS}
+
+
+def aux_width(use_recon: bool = False, use_recon_vq: bool = False,
+              use_freq: bool = False) -> int:
+    """How many auxiliary columns a rung feeds the head, given its flags.
+
+    `Detector` is told a width, `FeatureBank.aux_blocks` yields the arrays,
+    and these two have to agree exactly or the head is built for a different
+    input than it is handed. One function so they cannot drift, and so
+    `train_rung` and `load_detector` compute it identically -- a checkpoint
+    rebuilt one column narrower loads with a shape error at best.
+    """
+    on = {"use_recon": use_recon, "use_recon_vq": use_recon_vq,
+          "use_freq": use_freq}
+    return sum(dim for flag, _, dim in AUX_BLOCKS if on[flag])
+
+
+def recon_width(use_recon: bool, use_recon_vq: bool = False) -> int:
+    """Back-compatible alias for the two reconstruction blocks alone."""
+    return aux_width(use_recon=use_recon, use_recon_vq=use_recon_vq)
+
+
 def identity_paths(df: pd.DataFrame) -> list[str]:
     """The row-identity strings of a manifest-shaped frame, in row order.
 
@@ -334,6 +371,18 @@ class FeatureBank:
         self.proxies = np.load(os.path.join(path, "proxies.npy"), mmap_mode="r")
         rp = os.path.join(path, "recon.npy")
         self.recon = np.load(rp, mmap_mode="r") if os.path.exists(rp) else None
+        # The VQ autoencoder's block. A SECOND named (N, V, 12) array rather
+        # than a wider `recon.npy`: the width is pinned by `attach_recon` and
+        # the ladder test only allows one flag to move per rung, so a rung that
+        # adds an autoencoder adds a block.
+        vp = os.path.join(path, "recon_vq.npy")
+        self.recon_vq = np.load(vp, mmap_mode="r") if os.path.exists(vp) else None
+        # The frequency descriptor (NPR). Backbone-INDEPENDENT like the recon
+        # blocks -- it depends on the canonicalised view, not the tower -- so
+        # one replay serves every bank built from the same manifest, policy,
+        # seed and n_views.
+        fp = os.path.join(path, "freq.npy")
+        self.freq = np.load(fp, mmap_mode="r") if os.path.exists(fp) else None
         self._recipe_lookup: dict[tuple[int, int], str] | None = None
 
     @classmethod
@@ -383,12 +432,62 @@ class FeatureBank:
             }
         return self._recipe_lookup[(image_idx, view_idx)]
 
-    def attach_recon(self, arr: np.ndarray) -> None:
-        expected = (len(self.meta), self.config["n_views"], RECON_DIM)
+    def attach_block(self, arr: np.ndarray, name: str) -> None:
+        """Write one auxiliary block by NAME, at the width its entry declares."""
+        if name not in _AUX_BY_NAME:
+            raise ValueError(
+                f"unknown block {name!r}; known: {sorted(_AUX_BY_NAME)}")
+        _, dim = _AUX_BY_NAME[name]
+        expected = (len(self.meta), self.config["n_views"], dim)
         if arr.shape != expected:
-            raise ValueError(f"recon must be {expected}, got {arr.shape}")
-        np.save(os.path.join(self.path, "recon.npy"), arr.astype(np.float32))
-        self.recon = np.load(os.path.join(self.path, "recon.npy"), mmap_mode="r")
+            raise ValueError(f"{name} must be {expected}, got {arr.shape}")
+        p = os.path.join(self.path, f"{name}.npy")
+        np.save(p, arr.astype(np.float32))
+        setattr(self, name, np.load(p, mmap_mode="r"))
+
+    def aux_blocks(self, use_recon: bool = False, use_recon_vq: bool = False,
+                   use_freq: bool = False) -> list:
+        """The auxiliary arrays a rung reads, in the order `AUX_BLOCKS` fixes.
+
+        One place decides which blocks a rung consumes and in what order,
+        because four call sites need the same answer -- `PairedSampler`,
+        `train_head._eval_auc`, `eval/grid.score_grid` and `infer` -- and a
+        head trained on one order and scored against another would not fail,
+        it would just be wrong.
+        """
+        on = {"use_recon": use_recon, "use_recon_vq": use_recon_vq,
+              "use_freq": use_freq}
+        blocks = []
+        for flag, name, _ in AUX_BLOCKS:
+            if not on[flag]:
+                continue
+            arr = getattr(self, name)
+            if arr is None:
+                raise ValueError(
+                    f"bank at {self.path} has no {name} features but the rung "
+                    f"sets {flag}=True; run the replay that writes "
+                    f"{name}.npy before training or scoring it")
+            blocks.append(arr)
+        return blocks
+
+    def recon_blocks(self, use_recon: bool, use_recon_vq: bool = False) -> list:
+        """Back-compatible alias for the two reconstruction blocks alone."""
+        return self.aux_blocks(use_recon=use_recon, use_recon_vq=use_recon_vq)
+
+    def attach_recon(self, arr: np.ndarray, kind: str = "kl") -> None:
+        """Write one reconstruction block. `kind` names WHICH autoencoder.
+
+        Both blocks are `(N, V, RECON_DIM)` and are produced by the same
+        12-d extractor, so the only thing that distinguishes them is which
+        autoencoder round-tripped the pixels -- which is exactly why the kind
+        has to be named at the call site and cannot be inferred from a shape.
+        """
+        from aigcdet.features.recon import RECON_KINDS
+
+        if kind not in RECON_KINDS:
+            raise ValueError(
+                f"unknown recon kind {kind!r}; known: {sorted(RECON_KINDS)}")
+        self.attach_block(arr, RECON_KINDS[kind])
 
     def verify_against_manifest(self, manifest_df: pd.DataFrame) -> None:
         """Check the bank's rows are still positionally aligned with `manifest_df`.

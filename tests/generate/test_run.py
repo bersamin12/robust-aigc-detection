@@ -5,6 +5,7 @@ becomes a manifest row, and every one of them exists because the failure it
 catches is invisible in aggregate statistics.
 """
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -144,3 +145,93 @@ def test_check_licence_verifies_every_repo_the_pipeline_pulls(monkeypatch):
     with pytest.raises(RuntimeError, match="org/prior"):
         run_mod.check_licence("_probe")
     assert seen == ["org/decoder", "org/prior"]
+
+
+class _FakePipe:
+    """Enough of a diffusers pipeline for `load` to finish without weights."""
+
+    def set_progress_bar_config(self, **k):
+        pass
+
+    def to(self, device):
+        return self
+
+
+def _capture_load(monkeypatch, model_key, **spec_kw):
+    """Run `load` against a stubbed `from_pretrained` and return its kwargs."""
+    import aigcdet.generate.run as run_mod
+    from aigcdet.generate.registry import MODELS, ModelSpec
+
+    monkeypatch.setitem(MODELS, model_key, ModelSpec(
+        hf_id="org/probe", licence_tag="apache-2.0", commercial=True,
+        lineage="x", arch="unet", **spec_kw))
+    monkeypatch.setattr(run_mod, "check_licence", lambda k: None)
+    monkeypatch.setattr(run_mod, "_free_vram_gb", lambda d: 999.0)
+
+    seen = {}
+
+    def fake_from_pretrained(hf_id, **kw):
+        seen.update(kw)
+        return _FakePipe()
+
+    import diffusers
+    monkeypatch.setattr(diffusers.AutoPipelineForText2Image, "from_pretrained",
+                        staticmethod(fake_from_pretrained))
+    run_mod.load(model_key, {"t2i"}, device="cpu")
+    return seen
+
+
+def test_sd15s_safety_checker_is_never_loaded(monkeypatch):
+    """It returns a BLACK FRAME rather than raising, so it reaches `check` as
+    "near-constant output" -- a generation failure that is not one. Three of
+    them in sd15_t2i's first 55 crossed run_family's 5% abort and killed a
+    lane 40 minutes into a 2.3 h run."""
+    seen = _capture_load(monkeypatch, "_probe_checker", safety_checker=True)
+    assert seen["safety_checker"] is None
+    assert seen["requires_safety_checker"] is False
+
+
+def test_the_kwarg_is_not_passed_to_models_that_have_no_checker(monkeypatch):
+    """Diffusers pipelines swallow unknown kwargs, so a blanket
+    `safety_checker=None` would not raise on Sana or Klein -- it would just be
+    a claim about every checkpoint in the registry that only one of them
+    ships."""
+    seen = _capture_load(monkeypatch, "_probe_plain")
+    assert "safety_checker" not in seen
+    assert "requires_safety_checker" not in seen
+
+
+def test_sd15_is_the_only_checkpoint_flagged():
+    """If a second SD1.x checkpoint is ever added, it needs the flag too --
+    this is the assertion that says so out loud."""
+    from aigcdet.generate.registry import MODELS
+
+    flagged = {k for k, s in MODELS.items() if s.safety_checker}
+    assert flagged == {"sd15_base"}
+
+
+def test_a_guard_rejection_and_an_aborted_family_differ_by_exit_code():
+    """They used to share exit code 1, and `run_real.run_lane` abandons a lane
+    on any non-zero code -- so one copy-guard hit in a lane's FIRST shard would
+    have silently dropped its second, ~1,900 pairs, while the run still printed
+    ALL LANES DONE. An abort raises and Python exits 1; a completed run with
+    rejections must therefore not."""
+    from aigcdet.generate.run import EXIT_SOME_FAILED
+
+    assert EXIT_SOME_FAILED != 0, "must be distinguishable from a clean run"
+    assert EXIT_SOME_FAILED != 1, "1 is what an uncaught abort already exits"
+
+
+def test_generate_ov7_returns_the_soft_code_not_one(tmp_path, monkeypatch):
+    """The call site, not just the constant: `main` must return the soft code
+    when images were rejected and 0 when none were."""
+    import importlib.util
+
+    from aigcdet.generate.run import EXIT_SOME_FAILED
+
+    root = Path(__file__).resolve().parents[2]
+    src = (root / "scripts" / "generate_ov7.py").read_text()
+    assert "return EXIT_SOME_FAILED if failed else 0" in src, (
+        "generate_ov7.main no longer returns the soft code; run_real.run_lane "
+        "would abandon a lane on a single guard rejection again")
+    assert "return 1 if failed else 0" not in src

@@ -24,7 +24,7 @@ teaching compression rather than provenance.
 ATTRIBUTION
 -----------
 CC BY 2.0 is a permissive licence but not a free-for-all: it requires
-attribution. Every kept row records Author, AuthorProfileUrl, Title,
+attribution. Every kept row records Author, AuthorProfileURL, Title,
 OriginalURL and the licence URL in `attribution.csv`, so the obligation can
 still be met after normalisation strips the metadata.
 """
@@ -50,6 +50,7 @@ _lock = threading.Lock()
 _kept = 0
 _seen = 0
 _fail = 0
+_noattr = 0
 
 
 def fetch_metadata(path: str) -> str:
@@ -78,7 +79,38 @@ def candidates(meta_path: str, limit_rows: int):
                 continue
             if not row.get("Thumbnail300KURL"):
                 continue
+            if not _profile_url(row):
+                # Not shippable: CC BY needs attribution and this file is the
+                # only record of it after normalisation. Dropped here rather
+                # than written blank -- the previous behaviour -- and rather
+                # than raised inside `handle`, which runs under the lock after
+                # `_kept` is incremented and whose exceptions ThreadPoolExecutor
+                # discards, so a raise there would desync image and row counts
+                # without saying so.
+                global _noattr
+                with _lock:
+                    _noattr += 1
+                continue
             yield row
+
+
+#: Open Images spells it `AuthorProfileURL` -- URL upper-cased. This was read
+#: as `row.get("AuthorProfileUrl", "")`, and because `csv.DictReader` does not
+#: raise on a missing key and `.get` has a default, it returned "" for every
+#: row: 60,000 blank profile URLs and a corpus that cannot be shipped, since
+#: CC BY 2.0 requires attribution and normalisation strips image metadata, so
+#: this file is the only surviving record. Both spellings are tried, so a
+#: rename upstream degrades to the other rather than back to silence.
+PROFILE_KEYS = ("AuthorProfileURL", "AuthorProfileUrl")
+
+
+def _profile_url(row):
+    """The row's author profile URL, or "" if it carries none."""
+    for key in PROFILE_KEYS:
+        v = (row.get(key) or "").strip()
+        if v:
+            return v
+    return ""
 
 
 def handle(row, out_dir, max_ratio, min_short, target, writer):
@@ -117,7 +149,7 @@ def handle(row, out_dir, max_ratio, min_short, target, writer):
             return
         _kept += 1
         writer.writerow([iid, f"{w}x{h}", f"{w / h:.4f}", row.get("Author", ""),
-                         row.get("AuthorProfileUrl", ""), row.get("Title", ""),
+                         _profile_url(row), row.get("Title", ""),
                          row.get("OriginalURL", ""), CC_BY_2])
         if _kept % 250 == 0:
             print(f"kept {_kept}/{target}  checked {_seen}  dead {_fail}  "
@@ -144,7 +176,7 @@ def main(argv=None):
     att = open(os.path.join(a.out, "attribution.csv"), "w", newline="",
                encoding="utf-8")
     writer = csv.writer(att)
-    writer.writerow(["ImageID", "size", "ratio", "Author", "AuthorProfileUrl",
+    writer.writerow(["ImageID", "size", "ratio", "Author", "AuthorProfileURL",
                      "Title", "OriginalURL", "License"])
 
     print(f"target {a.target} portrait images, ratio <= {a.max_ratio}, "
@@ -156,7 +188,24 @@ def main(argv=None):
             ex.submit(handle, row, img_dir, a.max_ratio, a.min_short,
                       a.target, writer)
     att.close()
-    print(f"DONE kept={_kept} checked={_seen} dead={_fail}", flush=True)
+    print(f"DONE kept={_kept} checked={_seen} dead={_fail} "
+          f"no_attribution={_noattr}", flush=True)
+
+    # The invariant the corpus is shipped on: one attribution row per image,
+    # every one of them attributable. Checked here rather than trusted, because
+    # the blank-profile-URL bug survived a whole 60,000-image harvest.
+    with open(os.path.join(a.out, "attribution.csv"), newline="",
+              encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    blank = [r["ImageID"] for r in rows if not (r["AuthorProfileURL"] or "").strip()]
+    n_img = len([f for f in os.listdir(img_dir) if f.endswith(".jpg")])
+    print(f"attribution rows={len(rows)} images={n_img} blank_profile={len(blank)}",
+          flush=True)
+    if blank or len(rows) != n_img:
+        print(f"ATTRIBUTION INCOMPLETE -- {len(blank)} blank profile URLs, "
+              f"{len(rows)} rows against {n_img} images. The corpus cannot be "
+              f"redistributed in this state.", flush=True)
+        return 1
     return 0
 
 

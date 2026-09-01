@@ -144,24 +144,68 @@ def rebase_paths(pool: pd.DataFrame, portrait_dir: str | Path,
     return out
 
 
-#: Granularity of the share strata. The ordered pool is dealt to families in
-#: repeating blocks of this length, so any prefix of the order carries the
-#: suite's shares to within one block.
+#: Coarsest granularity of the share strata. The ordered pool is dealt to
+#: families in repeating blocks of this length, so any prefix of the order
+#: carries the suite's shares to within one block.
+#:
+#: It is a FLOOR, not the value used: `_strata_len` refines it to whatever the
+#: suite's shares actually need. At 100 a share is quantised to 1%, which is
+#: exact for the original suite (.30/.20/.14/.10/.08/.12/.06) and wrong for
+#: `ov7_full`, whose shares are solved to four decimals (.0938, .0146, .0104).
+#: There the pattern allotted `klein4b_t2i` 9 slots per 100 -- 3,843 of the
+#: pool -- while `resolve_suite` had asked for 4,000 by largest remainder, and
+#: `select` refused the deal. The two disagreed because they quantised the same
+#: shares differently, so the fix is to stop quantising in `_strata`.
 STRATA = 100
 
+#: How far `_strata_len` will refine before giving up.
+STRATA_MAX = 1_000_000
 
-def _strata(shares: dict[str, float], k: int = STRATA) -> list[str]:
-    """A length-`k` deal pattern realising `shares`, by largest remainder."""
-    exact = {n: v * k for n, v in shares.items()}
-    counts = {n: int(v) for n, v in exact.items()}
-    order = sorted(exact, key=lambda n: (exact[n] - int(exact[n]), n), reverse=True)
-    i = 0
-    while sum(counts.values()) < k:
-        counts[order[i % len(order)]] += 1
-        i += 1
-    out = []
-    for name in sorted(counts):
-        out += [name] * counts[name]
+
+def _strata_len(shares: dict[str, float], floor: int = STRATA,
+                cap: int = STRATA_MAX) -> int:
+    """Smallest 10x multiple of `floor` on which every share is a whole number.
+
+    Derived from the SHARES ALONE and never from `--total`, which is what keeps
+    the deal prefix-stable: the pattern a run uses must not depend on how many
+    images that run asked for, or `--total 3000` stops being a strict prefix of
+    `--total 10000` and reals already generated get reassigned.
+    """
+    k = floor
+    while k <= cap:
+        if all(abs(v * k - round(v * k)) < 1e-6 for v in shares.values()):
+            return k
+        k *= 10
+    return cap
+
+
+def _strata(shares: dict[str, float], k: int | None = None) -> list[str]:
+    """A length-`k` deal pattern realising `shares`, INTERLEAVED.
+
+    Interleaved is the whole point and it was the bug. This used to emit each
+    family's slots contiguously (`out += [name] * counts[name]`, families in
+    alphabetical order), so a period looked like AAAA...BBBB...CCCC. That is
+    only balanced when the pool is an exact multiple of `k`: over 42,646 reals
+    with `k=10000` the last period is 26% long, the tail covers only the
+    alphabetically-early families, and `wuerstchen_t2i` came out 7,324 against
+    the 7,808 `resolve_suite` had asked for.
+
+    So slots are dealt one at a time to whichever family is furthest behind its
+    share -- Hamilton apportionment run incrementally, the same rule
+    `resolve_suite` uses. Every PREFIX of the pattern then carries the suite's
+    shares to within one slot per family, which is what makes `--total 3000` a
+    strict prefix of `--total 10000` rather than a reshuffle, and what makes a
+    run cut short still balanced across families instead of missing whole ones.
+    """
+    if k is None:
+        k = _strata_len(shares)
+    given = {n: 0 for n in shares}
+    out: list[str] = []
+    for i in range(1, k + 1):
+        # The family whose entitlement at this point most exceeds what it has.
+        name = max(shares, key=lambda n: (shares[n] * i - given[n], -ord(n[0]), n))
+        given[name] += 1
+        out.append(name)
     return out
 
 
@@ -217,7 +261,11 @@ def select(pool: pd.DataFrame, counts: dict[str, int], *, seed: int,
         if len(part) < n:
             raise ValueError(
                 f"{name}: the pool yields {len(part)} strata slots but {n} were "
-                f"asked for; the pool is too small for this share")
+                f"asked for. The block holds {len(block)} reals and the stratum "
+                f"pattern is length {len(pattern)}. If {len(part)} is close to "
+                f"{n}, the shares are finer than the pattern can express and "
+                f"`_strata_len` needs to refine further; if it is far short, "
+                f"the pool is genuinely too small for this share.")
         out.append(part.iloc[:n])
     sel = pd.concat(out, ignore_index=True)
     if sel["image_id"].duplicated().any():

@@ -125,6 +125,11 @@ _RUNGS = {
     # also the one that proves the orchestrator keys nothing on that shape.
     "a7_norecon": {"use_augmented": True, "use_consistency": True,
                    "use_degradation": True, "use_recon": False, "use_film": True},
+    # A6 is a3's config plus the one inference-only flag. Written out in full
+    # rather than derived from _RUNGS["a3"], because the thing under test is
+    # that the two are identical everywhere else.
+    "a6": {"use_augmented": True, "use_consistency": True,
+           "use_degradation": True, "tta": True},
 }
 
 
@@ -149,6 +154,172 @@ def _argv(tmp_path, rungs=("a0", "a3"), **overrides) -> list[str]:
     args.update(overrides)
     argv = [x for kv in args.items() for x in kv]
     return argv + ["--rungs"] + [_rung_yaml(tmp_path, r) for r in rungs]
+
+
+def _tta_eval_bank(tmp_path, plain_dir, views=("identity", "hflip", "jpeg_95"),
+                   name="tta_eval_bank"):
+    """A TTA bank built FROM a plain one, so the two are the same evaluation.
+
+    View `j * n + 0` is copied from the plain bank's condition `j` -- which is
+    what the identity view means -- and the rest are perturbed. That makes the
+    averaged score a genuinely different number from the plain bank's while
+    keeping every axis, split, label and fingerprint identical, which is
+    exactly the situation A6 is in.
+    """
+    from aigcdet.features.bank import FeatureBank
+
+    plain = FeatureBank.open(plain_dir)
+    conditions = list(plain.config["conditions"])
+    n, views = len(views), list(views)
+    out = str(tmp_path / name)
+    w = BankWriter(out, len(plain.meta), len(conditions) * n, DIM,
+                   plain.config["backbone"], 0,
+                   manifest_sha256=plain.config["manifest_sha256"],
+                   extra_config={"conditions": conditions, "tta_views": views})
+    rng = np.random.default_rng(11)
+    for i, row in plain.meta.iterrows():
+        base = np.asarray(plain.feats[i]).astype(np.float32)
+        feats = np.stack([base[j] if k == 0 else base[j] + rng.normal(0, 0.3, DIM)
+                          for j in range(len(conditions)) for k in range(n)]
+                         ).astype(np.float32)
+        presence = np.repeat(np.asarray(plain.presence[i]), n, axis=0)
+        severity = np.repeat(np.asarray(plain.severity[i]), n, axis=0)
+        w.write_image(int(i), {"path": row["path"], "label": int(row["label"]),
+                               "generator": row["generator"],
+                               "source": row["source"], "split": row["split"]},
+                      feats=feats, presence=presence, severity=severity,
+                      proxies=np.zeros((len(conditions) * n, 3), np.float32),
+                      recipes=["[]"] * (len(conditions) * n))
+    w.close()
+    return out
+
+
+# --- rung A6 ---------------------------------------------------------------
+
+def test_a6_is_scored_from_the_tta_bank_and_lands_in_the_table(tmp_path):
+    """The whole point of T2-4: A6 is a ROW, not a footnote."""
+    plain = _eval_bank(tmp_path)
+    argv = _argv(tmp_path, rungs=("a3", "a6"), **{
+        "--eval-bank": plain,
+        "--tta-eval-bank": _tta_eval_bank(tmp_path, plain)})
+    with _quiet_control_warning():
+        ra.main(argv)
+    rec = json.loads((tmp_path / "out" / "selection.json").read_text())
+
+    assert "a6" in rec["summary"], "A6 produced no row"
+    # a6 is in ELIGIBLE_RUNGS, so it is a CANDIDATE and not an
+    # excluded control -- unlike a4vq/a4both/aF, which are not.
+    assert "a6" in rec["candidates"]
+    assert rec["tta"]["scored_here"] is True
+    assert rec["tta"]["scored_rungs"] == ["a6"]
+    assert rec["tta"]["cost_multiplier"] == 3
+    table = (tmp_path / "out" / "robustness_table.md").read_text()
+    assert "a6" in table
+
+
+def test_a6_is_registered_with_the_bank_that_actually_produced_it(tmp_path):
+    """Borrowing the plain bank would make the comparability check pass on an
+    evaluation A6 never had, and would state a cost multiplier of one for a
+    rung that paid three."""
+    plain = _eval_bank(tmp_path)
+    tta = _tta_eval_bank(tmp_path, plain)
+    argv = _argv(tmp_path, rungs=("a3", "a6"),
+                 **{"--eval-bank": plain, "--tta-eval-bank": tta})
+    with _quiet_control_warning():
+        ra.main(argv)
+    rec = json.loads((tmp_path / "out" / "selection.json").read_text())
+    assert rec["tta"]["eval_bank"] == tta
+
+
+def test_a6_scores_differ_from_its_base_rung(tmp_path):
+    """Same head, different views: if the two rows were identical the TTA bank
+    was not being read at all."""
+    plain = _eval_bank(tmp_path)
+    argv = _argv(tmp_path, rungs=("a3", "a6"), **{
+        "--eval-bank": plain,
+        "--tta-eval-bank": _tta_eval_bank(tmp_path, plain)})
+    with _quiet_control_warning():
+        ra.main(argv)
+    rec = json.loads((tmp_path / "out" / "selection.json").read_text())
+    assert (rec["summary"]["a3"][SELECTION_METRIC]
+            != rec["summary"]["a6"][SELECTION_METRIC])
+
+
+def test_a6_head_is_bit_identical_to_its_base_rungs_head(tmp_path):
+    """The one-flag claim, measured on the WEIGHTS.
+
+    `tta` is inference-only, so an A6 head trained from the same seed on the
+    same rows must BE a3's head. If it is not, something in training read the
+    flag and A6's score stops being a measurement of test-time augmentation.
+    """
+    plain = _eval_bank(tmp_path)
+    argv = _argv(tmp_path, rungs=("a3", "a6"), **{
+        "--eval-bank": plain,
+        "--tta-eval-bank": _tta_eval_bank(tmp_path, plain)})
+    with _quiet_control_warning():
+        ra.main(argv)
+    rec = json.loads((tmp_path / "out" / "selection.json").read_text())
+    assert rec["tta"]["weight_delta_vs_base"]["a6_vs_a3"] == 0.0
+
+
+def test_a6_without_a_tta_bank_is_refused_by_name(tmp_path):
+    """Scoring it off the plain bank would average over CONDITIONS -- a number
+    that looks like a robustness score and is nothing of the kind."""
+    with pytest.raises(SystemExit, match="tta-eval-bank"):
+        with _quiet_control_warning():
+            ra.main(_argv(tmp_path, rungs=("a3", "a6")))
+
+
+def test_a_tta_bank_from_another_evaluation_is_refused_before_training(tmp_path):
+    """Before, not after: the alternative is finding out once every rung in the
+    ladder has been fitted."""
+    plain = _eval_bank(tmp_path)
+    other = _eval_bank(tmp_path, name="other", fingerprint="different")
+    argv = _argv(tmp_path, rungs=("a3", "a6"), **{
+        "--eval-bank": plain,
+        "--tta-eval-bank": _tta_eval_bank(tmp_path, other, name="tta_other")})
+    with pytest.raises(ValueError, match="manifest_sha256"):
+        ra.main(argv)
+    assert not (tmp_path / "rungs" / "a3" / "checkpoint.pt").exists(), (
+        "a rung was trained before the TTA bank was checked")
+
+
+def test_the_a6_temperature_is_refitted_on_the_averaged_logits(tmp_path):
+    """The trap named in `aigcdet.eval.tta`'s docstring, discharged.
+
+    A mean of correlated logits has a narrower spread than the single-view
+    logits a temperature was fitted on, so A6 must carry its OWN `T`. It is
+    recorded and not applied -- selection is invariant to a monotone rescale --
+    but the shipped bundle's calibration is not, and this is where that number
+    comes from.
+    """
+    plain = _eval_bank(tmp_path)
+    argv = _argv(tmp_path, rungs=("a3", "a6"), **{
+        "--eval-bank": plain,
+        "--tta-eval-bank": _tta_eval_bank(tmp_path, plain)})
+    with _quiet_control_warning():
+        ra.main(argv)
+    t = json.loads((tmp_path / "out" / "selection.json").read_text())["tta"]["temperature"]["a6"]
+    assert t["fit_split"] == "val_internal"
+    assert t["base_rung"] == "a3"
+    assert t["T"] is not None and t["T"] > 0
+    # Fitted on the AVERAGED logits, so it is its own number rather than the
+    # base rung's copied across.
+    assert t["T"] != t["base_T_single_view"]
+
+
+def test_a_run_with_no_a6_still_records_the_cost_and_says_it_scored_nothing(tmp_path):
+    """The footnote path has to survive A6 becoming real, or every run without
+    it starts claiming an A6 row it does not have."""
+    with _quiet_control_warning():
+        ra.main(_argv(tmp_path, rungs=("a0", "a3")) + ["--tta"])
+    rec = json.loads((tmp_path / "out" / "selection.json").read_text())
+    assert rec["tta"]["scored_here"] is False
+    assert rec["tta"]["scored_rungs"] == []
+    assert "a6" not in rec["summary"]
+    # The FULL view list, because no bank narrowed it: a run that records a
+    # cost it did not pay is the thing this key exists to prevent.
+    assert rec["tta"]["cost_multiplier"] == len(ra.TTA_VIEWS)
 
 
 # --- end to end ------------------------------------------------------------

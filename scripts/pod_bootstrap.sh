@@ -40,6 +40,13 @@ GATED_MODELS=(facebook/dinov3-vitl16-pretrain-lvd1689m)
 PY_BIN="${PY_BIN:-$(command -v python || command -v python3)}"
 [ -n "$PY_BIN" ] || { echo 'FATAL: no python or python3 on PATH' >&2; exit 1; }
 
+# `pip install kaggle` drops its console script next to $PY_BIN, not onto PATH.
+# With PY_BIN overridden to a venv interpreter (a Vast image ships no torch for
+# the system python, so it must be), the bare `kaggle` further down is "command
+# not found" AFTER the deps are installed and the checkpoints are cached -- the
+# latest, most expensive point in the script at which to lose the corpus.
+export PATH="$(dirname "$PY_BIN"):$PATH"
+
 # FIRST, before anything that can fail. These were created on the last line of
 # this script, which meant a bootstrap that died anywhere -- the torch guard,
 # the model download, a bad credential -- left no logs/ for the NEXT command to
@@ -51,15 +58,22 @@ log() { echo "[$(date +%H:%M:%S)] $*"; }
 die() { echo "FATAL: $*" >&2; exit 1; }
 
 kaggle_creds_present() {
-  # TWO FORMS, because both are in use. `kaggle.json` is what "Create New
+  # THREE FORMS, because all three are in use. KAGGLE_API_TOKEN comes first
+  # because the CLI prefers it over everything else: a `KGAT_`-prefixed Kaggle
+  # ACCESS TOKEN is not a legacy API key, and putting one in kaggle.json's
+  # `key` field authenticates as nobody -- public endpoints still answer (they
+  # need no auth at all), so it looks like it worked right up until a PRIVATE
+  # dataset returns 403. `kaggle.json` is what "Create New
   # Token" downloads; KAGGLE_USERNAME/KAGGLE_KEY is what this project's own
   # ~/.kaggle/env uses and what a rented pod is easiest to configure with.
   # Requiring only the file turned the env-var form into a confusing refusal.
+  [ -n "${KAGGLE_API_TOKEN:-}" ] && return 0
   [ -f "$HOME/.kaggle/kaggle.json" ] && { chmod 600 "$HOME/.kaggle/kaggle.json"; return 0; }
   [ -n "${KAGGLE_USERNAME:-}" ] && [ -n "${KAGGLE_KEY:-}" ] && return 0
   return 1
 }
-KAGGLE_HELP='no Kaggle credentials. Either write ~/.kaggle/kaggle.json
+KAGGLE_HELP='no Kaggle credentials. Either export KAGGLE_API_TOKEN (a KGAT_ access
+     token), write ~/.kaggle/kaggle.json
      ({"username":"...","key":"..."}, chmod 600) or export KAGGLE_USERNAME and
      KAGGLE_KEY. The probe and union Datasets are PRIVATE -- they carry NTIRE
      rows, which may not be published. Use a token created for THIS pod and

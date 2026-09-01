@@ -75,6 +75,7 @@ from aigcdet.data.manifest import SPLITS, read_manifest
 from aigcdet.data.verify import verify_images
 from aigcdet.eval.grid import BENCHMARK_SEED, extract_eval_bank, stratified_subsample
 from aigcdet.eval.report import TIER_CONDITIONS
+from aigcdet.eval.tta import TTA_VIEWS
 from aigcdet.features.bank import CHECKPOINT_EVERY, FeatureBank
 from aigcdet.features.extract import shard_bounds
 
@@ -370,6 +371,20 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--crop-side", type=int, default=CANON_CROP_SIDE,
                     help="window size for --canon-mode crop; must match the "
                          "training bank's")
+    ap.add_argument("--tta-views", default="", metavar="A,B,C",
+                    help="rung A6: also apply these TTA views on top of every "
+                         "condition, making the view axis condition x tta_view "
+                         "(flattened j*len(views)+k). Pass 'all' for the full "
+                         f"set {','.join(TTA_VIEWS)}. Costs one forward per "
+                         "(image, condition, view) -- 8x the plain bank -- and "
+                         "produces a bank that only `score_grid_tta` can read.")
+    ap.add_argument("--tower-checkpoint", default=None,
+                    help="unfreeze ladder (D1..D4): load this rung's finetuned "
+                         "tower before extracting. A tower whose weights moved "
+                         "does not produce the features in the frozen bank, so "
+                         "each depth needs its own. The weights' sha256 is "
+                         "written into config.json, which is what stops two "
+                         "depths' shards merging into one bank.")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--batch-size", type=int, default=16)
     ap.add_argument("--seed", type=int, default=BENCHMARK_SEED,
@@ -423,11 +438,22 @@ def main(argv: list[str] | None = None) -> int:
         preflight(df, digest="auto" if a.verify else None,
                   sample=a.verify_sample)
 
+    # 'all' rather than requiring the eight names to be typed, because a
+    # partial list is a real and useful thing to pass (a cheap 2-view probe)
+    # and a MISTYPED one would otherwise silently produce a narrower average.
+    # `extract_eval_bank` rejects an unknown name before decoding anything.
+    tta_views = None
+    if a.tta_views:
+        tta_views = (list(TTA_VIEWS) if a.tta_views.strip() == "all"
+                     else [v.strip() for v in a.tta_views.split(",") if v.strip()])
+
     extract_eval_bank(
         df, a.backbone, a.out, conditions=conditions, device=a.device,
+        tta_views=tta_views,
         seed=a.seed, batch_size=a.batch_size, resume=a.resume,
         checkpoint_every=a.checkpoint_every,
         policy=CanonPolicy(mode=a.canon_mode, crop_side=a.crop_side),
+        tower_checkpoint=a.tower_checkpoint,
         # The subsample changes `manifest_fingerprint`, which is what makes
         # `report._check_banks` refuse to compare a subsampled ablation bank
         # against a full final-report one. That refusal is right but mute: it
@@ -443,8 +469,10 @@ def main(argv: list[str] | None = None) -> int:
         })
 
     bank = FeatureBank.open(a.out)
-    print(f"wrote {a.out}: {len(bank.meta)} rows x "
-          f"{bank.config['n_views']} conditions, backbone "
+    axis = (f"{len(conditions)} conditions x {len(tta_views)} TTA views"
+            if tta_views else f"{bank.config['n_views']} conditions")
+    print(f"wrote {a.out}: {len(bank.meta)} rows x {axis} "
+          f"= {bank.config['n_views']} views, backbone "
           f"{bank.config['backbone']}, tier {bank.config['tier']}")
     if a.shard:
         print(f"shard {a.shard} done -- recombine every shard with "

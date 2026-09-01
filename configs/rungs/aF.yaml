@@ -1,0 +1,26 @@
+# + the frequency branch (NPR), CROP ONLY
+#
+# One flag from a3 (use_freq). `baselines/npr.py:npr_feature` is a 4-d
+# descriptor of the periodic cell structure a transposed-convolution upsampler
+# leaves behind -- two magnitudes plus contrast_h/contrast_v.
+#
+# Only measurable under crop. Band resampling replaces the generator's native
+# pixel grid with the resampler's own, and the content-blind probe shows band
+# LEAKS from low-level statistics (pooled 0.6105, SID_Set 0.9976) where crop is
+# near chance (0.5081 / 0.6316). `features/freq.py` refuses a band bank.
+#
+# MANDATORY CONTROL before believing any gain: proxy_vector's sharpness alone
+# already reaches AUC 0.672, so a 4-d frequency descriptor could simply relearn
+# it. Train a frequency-only head with no backbone and run
+# `content_blind_probe.py` on it; a high frequency-only score is a red flag,
+# not a result.
+name: aF
+use_augmented: true
+use_degradation: true
+use_consistency: true
+use_recon: false
+use_recon_vq: false
+use_freq: true
+use_film: false
+tta: false
+epochs: 30

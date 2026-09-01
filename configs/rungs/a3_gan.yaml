@@ -36,7 +36,10 @@ use_augmented: true
 use_degradation: true
 use_consistency: true
 use_recon: false
+use_recon_vq: false
+use_freq: false
 use_film: false
+tta: false
 epochs: 93
 train_exclude_generators:
   # diffusion / latent-diffusion -- the other expert's half

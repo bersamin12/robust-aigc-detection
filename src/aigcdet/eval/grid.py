@@ -15,6 +15,7 @@ the manifest yields byte-identical views to the full run.
 """
 from __future__ import annotations
 
+import os
 from typing import Mapping, Sequence
 
 import numpy as np
@@ -35,6 +36,7 @@ from aigcdet.features.bank import (
 )
 from aigcdet.features.proxies import proxy_vector
 from aigcdet.augment.canonical import DEFAULT_POLICY, CanonPolicy, canonicalise
+from aigcdet.eval.tta import TTA_VIEWS, apply_tta_view
 
 #: The benchmark subsample seed, fixed by the plan so the tier is reproducible
 #: from nothing but this constant.
@@ -70,7 +72,9 @@ def extract_eval_bank(manifest_df: pd.DataFrame, backbone_name: str, out_dir: st
                       batch_size: int = 16, resume: bool = False,
                       checkpoint_every: int = CHECKPOINT_EVERY,
                       policy: CanonPolicy = DEFAULT_POLICY,
-                      extra_config: dict | None = None) -> str:
+                      extra_config: dict | None = None,
+                      tta_views: Sequence[str] | None = None,
+                      tower_checkpoint: str | None = None) -> str:
     """Write a bank whose view axis is the fixed evaluation condition axis.
 
     `config["conditions"]` records the condition names in view order, through
@@ -91,6 +95,36 @@ def extract_eval_bank(manifest_df: pd.DataFrame, backbone_name: str, out_dir: st
     run's exact pixels. `resume=True` continues an interrupted extraction into
     an existing `out_dir`, skipping the rows already written, and
     `checkpoint_every` is how much work a killed session can cost.
+
+    **`tta_views` (rung A6).** Given a view list, the view axis becomes the
+    CROSS PRODUCT `condition x tta_view`, flattened as `j * len(tta_views) + k`,
+    and `config["tta_views"]` records the second factor. The order of
+    composition is canonicalise -> CONDITION -> TTA view, and it is not
+    interchangeable: the condition is what the world did to the image before it
+    reached us, and TTA is what the detector chooses to do to the image it was
+    handed. Applying TTA first would measure a detector that got to clean the
+    picture up before it was degraded, which is not a detector anyone can
+    deploy.
+
+    The condition's RNG stays keyed on `(seed, row_id, j)` -- the CONDITION
+    index, not the flattened one -- so all `len(tta_views)` views of condition
+    `j` are views of the SAME degraded image rather than of `len(tta_views)`
+    independent draws. That is what makes the average a test-time average over
+    transforms instead of an average over noise realisations, and it has a
+    checkable consequence: when `identity` is among the views, its column of
+    condition `j` is built from exactly the pixels the plain eval bank's
+    column `j` was built from, given the same seed.
+
+    The PIXELS are identical and `tests/eval/test_tta_bank.py` asserts that
+    exactly, under a deterministic stub embedder. What the two banks STORE
+    agrees to about one float16 ULP rather than exactly, and the reason is
+    worth knowing before someone reads a 1-ULP report as a bug: the plain bank
+    embeds an image's 20 views in one batch and this one embeds 160, different
+    batch shapes take different GEMM reduction orders, and the float16 cast of
+    two float32 values that differ in the last bits can land one step apart.
+    `scripts/verify_tta_bank.py` measures that distance in ULPs, where a real
+    divergence -- a flipped composition order, a re-keyed RNG, a transposed
+    flattening -- shows up three to four orders of magnitude above it.
     """
     conditions = EVAL_GRID if conditions is None else conditions
     names = _check_condition_order(conditions)
@@ -103,6 +137,20 @@ def extract_eval_bank(manifest_df: pd.DataFrame, backbone_name: str, out_dir: st
             f"{dupes[:3]!r}; extract_eval_bank keys each image's RNG on its "
             "index label, so a duplicate would make two different images draw "
             "identical noise. Deduplicate the index first.")
+
+    # Validated before anything is decoded: an unknown view name is a typo that
+    # would otherwise surface tens of thousands of forwards into the run.
+    if tta_views is not None:
+        tta_views = list(tta_views)
+        if not tta_views:
+            raise ValueError(
+                "tta_views=[] would give this bank a zero-width view axis; "
+                "pass None for a plain eval bank")
+        unknown = [v for v in tta_views if v not in TTA_VIEWS]
+        if unknown:
+            raise ValueError(
+                f"unknown TTA view(s) {unknown}; expected a subset of "
+                f"{list(TTA_VIEWS)}")
 
     extras = {"conditions": names}
     if extra_config:
@@ -119,8 +167,46 @@ def extract_eval_bank(manifest_df: pd.DataFrame, backbone_name: str, out_dir: st
     # them -- and an eval bank read against a rung trained under the other
     # policy would report a robustness curve for pixels the head never saw.
     extras["canon_policy"] = policy.as_record()
+    # Recorded through `extra_config`, so it joins `conditions` in the resume
+    # and merge equality checks: continuing a plain eval extraction into a TTA
+    # bank (or the reverse) is a different bank, not a continuation, and their
+    # view axes differ by a factor of eight with no shape error to say so.
+    if tta_views is not None:
+        extras["tta_views"] = list(tta_views)
 
     model, spec = load_backbone(backbone_name, device=device)
+    # The unfreeze ladder (D1..D4) scores each depth on a bank extracted by ITS
+    # OWN tower -- a tower whose weights have moved does not produce the
+    # features on disk, so there is no way to reuse the frozen bank.
+    #
+    # The weights therefore become part of the bank's identity, and are
+    # recorded as such. `BankWriter` treats every unrecognised config key as
+    # must-match, so `tower_sha256` alone stops two depths' shards merging into
+    # one bank -- which would otherwise be a bank half-computed by each of two
+    # different models, with no shape error to say so. `unfreeze_depth` is
+    # recorded beside it because a hash names nothing a human can act on.
+    if tower_checkpoint:
+        import hashlib
+
+        ck = torch.load(tower_checkpoint, map_location="cpu", weights_only=False)
+        if "tower_state_dict" not in ck:
+            raise ValueError(
+                f"{tower_checkpoint} has no 'tower_state_dict'. A frozen-head "
+                "checkpoint cannot re-extract a bank: at depth 0 the tower is "
+                "unchanged and the existing bank already holds its features, "
+                "and at depth > 0 the head alone does not describe the model.")
+        sd = ck["tower_state_dict"]
+        model.load_state_dict(sd)
+        model.eval()
+        h = hashlib.sha256()
+        for k in sorted(sd):
+            h.update(k.encode())
+            h.update(np.ascontiguousarray(
+                sd[k].detach().to(torch.float32).cpu().numpy()).tobytes())
+        extras["tower_sha256"] = h.hexdigest()
+        extras["tower_checkpoint"] = os.path.basename(tower_checkpoint)
+        extras["unfreeze_depth"] = int(
+            (ck.get("unfrozen") or {}).get("depth", -1))
     # `manifest_root` is where this session's copy of the dataset is mounted.
     # The bank stores each row's path relative to it, so an eval shard
     # extracted on Kaggle (/kaggle/input/<slug>/...) carries the same portable
@@ -131,7 +217,8 @@ def extract_eval_bank(manifest_df: pd.DataFrame, backbone_name: str, out_dir: st
     # the merged artefact after the whole fleet has paid for it. None for a
     # frame with no `rel_path` (an ad-hoc fixture rather than a frozen
     # manifest), which falls back to absolute paths.
-    writer = BankWriter(out_dir, len(df), len(names), spec.dim, backbone_name, seed,
+    n_views = len(names) * (1 if tta_views is None else len(tta_views))
+    writer = BankWriter(out_dir, len(df), n_views, spec.dim, backbone_name, seed,
                         manifest_sha256=manifest_fingerprint(df),
                         manifest_root=dataset_root(df),
                         resume=resume, checkpoint_every=checkpoint_every,
@@ -142,6 +229,29 @@ def extract_eval_bank(manifest_df: pd.DataFrame, backbone_name: str, out_dir: st
     presence = np.stack([l["presence"] for l in labels])
     severity = np.stack([l["severity"] for l in labels])
     recipe_json = [r.to_json() for r in recipes]
+    if tta_views is not None:
+        # The degradation labels describe the CONDITION, so each condition's
+        # row is repeated once per TTA view rather than recomputed from the
+        # view. This is not an approximation being tolerated: `jpeg_95` and
+        # `blur_0.3` are things the DETECTOR chose to do to the image it was
+        # handed, not things that happened to the image in the world, and the
+        # degradation head's target is the latter. Labelling a TTA-blurred
+        # view as "blurred" would teach the readout to report the detector's
+        # own preprocessing as evidence about the image's history.
+        presence = np.repeat(presence, len(tta_views), axis=0)
+        severity = np.repeat(severity, len(tta_views), axis=0)
+        # The CONDITION's recipe, repeated -- not a composite object naming
+        # the TTA view as well. Two reasons, and either alone is decisive.
+        # `recipe_json` must stay a parseable `Recipe`: `check_invariants`
+        # replays it, so a richer object here fails at the end of every
+        # extraction. And the TTA view does not belong in a recipe in the
+        # first place, for the same reason it does not appear in `presence` --
+        # a recipe records what happened to the image, and `jpeg_95` is what
+        # the DETECTOR chose to do to it. Which view a column is remains fully
+        # recoverable: `config["tta_views"]` and the flattening give it, and
+        # `tta_axis` refuses a bank where those two disagree.
+        recipe_json = [recipe_json[j] for j in range(len(names))
+                       for _ in tta_views]
 
     for write_idx, (row_id, row) in enumerate(
             tqdm(df.iterrows(), total=len(df), desc=f"eval:{backbone_name}")):
@@ -182,6 +292,15 @@ def extract_eval_bank(manifest_df: pd.DataFrame, backbone_name: str, out_dir: st
         base = canonicalise(base, policy=policy)
         views = [r.apply(base, np.random.default_rng([seed, int(row_id), j]))
                  for j, r in enumerate(recipes)]
+        if tta_views is not None:
+            # Flattened `j * len(tta_views) + k`, and the condition's own view
+            # is computed ONCE and then transformed, so every TTA view of
+            # condition j is a view of the same degraded image. Keying the
+            # condition RNG on the flattened index instead would draw a fresh
+            # noise realisation per TTA view and turn the average over
+            # transforms into an average over noise -- a strictly easier
+            # problem, and one that would flatter A6 for the wrong reason.
+            views = [apply_tta_view(deg, v) for deg in views for v in tta_views]
         writer.write_image(
             write_idx,
             {"path": row["path"], "label": int(row["label"]),
@@ -312,7 +431,9 @@ def assert_banks_comparable(banks: Sequence[FeatureBank]) -> None:
 @torch.no_grad()
 def score_grid(model, bank: FeatureBank, use_recon: bool = False,
                device: str = "cpu", batch_size: int = 4096,
-               manifest_df: pd.DataFrame | None = None) -> pd.DataFrame:
+               manifest_df: pd.DataFrame | None = None, *,
+               use_recon_vq: bool = False,
+               use_freq: bool = False) -> pd.DataFrame:
     """One row per (condition, image): the model's logit on that cached view.
 
     `manifest_df`, when the caller has it, is checked against the bank before
@@ -325,6 +446,21 @@ def score_grid(model, bank: FeatureBank, use_recon: bool = False,
             f"the bank at {bank.path} has no 'conditions' in its config.json, so "
             "its view axis is not the condition axis -- score_grid needs a bank "
             "written by extract_eval_bank, not a training bank")
+    # A TTA bank ALSO has `conditions`, and its column `j` is
+    # (condition j // n_tta, view j % n_tta) rather than condition `j`. Nothing
+    # about that is visible downstream: the loop below would read twenty of the
+    # hundred and sixty columns, label them with the twenty condition names,
+    # and return a frame of exactly the right shape in which `jpeg_q90` is
+    # really an hflip of `clean`. Refused here, because it is the one caller
+    # that cannot detect it for itself.
+    if bank.config.get("tta_views"):
+        raise ValueError(
+            f"the bank at {bank.path} declares tta_views="
+            f"{list(bank.config['tta_views'])}, so its view axis is "
+            "condition x tta_view, not condition. score_grid would read its "
+            f"first {len(names)} columns -- which are all views of the first "
+            "few conditions -- and label them with the condition names. Use "
+            "score_grid_tta, which averages each condition's views.")
     if manifest_df is not None:
         bank.verify_against_manifest(manifest_df)
 
@@ -334,17 +470,15 @@ def score_grid(model, bank: FeatureBank, use_recon: bool = False,
             f"the bank at {bank.path} has {len(meta)} metadata rows but "
             f"{bank.feats.shape[0]} feature rows; it was not written to "
             "completion (resume the extraction before scoring it)")
-    if use_recon and bank.recon is None:
-        raise ValueError(
-            f"the bank at {bank.path} has no recon features; run attach_recon "
-            "before scoring a use_recon=True model")
+    blocks = bank.aux_blocks(use_recon, use_recon_vq, use_freq)
 
     model.eval()
     frames = []
     for j, cond in enumerate(names):
         feats = np.asarray(bank.feats[:, j, :]).astype(np.float32)
-        recon = (np.asarray(bank.recon[:, j, :]).astype(np.float32)
-                 if use_recon else None)
+        recon = (np.concatenate(
+            [np.asarray(b[:, j, :]).astype(np.float32) for b in blocks],
+            axis=-1) if blocks else None)
         scores = []
         for s in range(0, len(feats), batch_size):
             f = torch.from_numpy(feats[s:s + batch_size]).to(device)
@@ -360,6 +494,200 @@ def score_grid(model, bank: FeatureBank, use_recon: bool = False,
             "score": np.concatenate(scores),
         }))
     return pd.concat(frames, ignore_index=True)
+
+
+def tta_axis(bank) -> list[str]:
+    """The TTA view list a bank was built over, or `[]` for a plain eval bank.
+
+    Read through this rather than `config["tta_views"]` directly, so the one
+    place that decides "is this a TTA bank" is also the place that checks the
+    axis it declares is consistent with the width it actually has. A bank whose
+    `n_views` is not `len(conditions) * len(tta_views)` was written by a version
+    that disagreed with this one about the flattening, and every column index
+    computed from it would be off by a silent amount.
+    """
+    views = list(bank.config.get("tta_views") or [])
+    if not views:
+        return []
+    names = bank.config.get("conditions") or []
+    n_views = int(bank.config.get("n_views", bank.feats.shape[1]))
+    if n_views != len(names) * len(views):
+        raise ValueError(
+            f"the bank at {bank.path} declares {len(names)} condition(s) and "
+            f"{len(views)} TTA view(s), which is {len(names) * len(views)} "
+            f"columns, but its view axis is {n_views} wide. Its flattening does "
+            "not match this version's `j * len(tta_views) + k`, so every column "
+            "read out of it would be the wrong view.")
+    return views
+
+
+@torch.no_grad()
+def score_grid_tta(model, bank: FeatureBank, use_recon: bool = False,
+                   device: str = "cpu", batch_size: int = 4096,
+                   manifest_df: pd.DataFrame | None = None, *,
+                   use_recon_vq: bool = False,
+                   use_freq: bool = False) -> pd.DataFrame:
+    """Rung A6. One row per (condition, image), scored as the MEAN LOGIT over
+    the bank's TTA views of that condition.
+
+    The output frame has exactly the shape `score_grid` returns -- same
+    columns, same rows, one score per image per condition -- which is what lets
+    A6 be a row in the results table rather than a footnote beside it. The 8x
+    is spent inside this function and does not appear on the evaluation axis,
+    because after averaging A6 has covered the same twenty conditions over the
+    same images with the same backbone as every other rung. What it does appear
+    on is inference COST, which `TtaEvalBank` records.
+
+    Logits, not probabilities (`eval.tta` docstring): the mean of a saturated
+    and an unsaturated probability is dominated by the saturated one, whereas
+    in logit space every view contributes on the same scale.
+
+    The returned scores are means of `len(views)` correlated logits and so have
+    a NARROWER spread than the single-view logits any fitted temperature was
+    calibrated on. They must not be pushed through a `T` fitted on single-view
+    logits; refit it on these. Selection is unaffected either way -- TPR at a
+    fixed FPR is computed within a condition and is invariant to a monotone
+    rescale -- but calibration, EQI and the dashboard are not.
+    """
+    views = tta_axis(bank)
+    if not views:
+        raise ValueError(
+            f"the bank at {bank.path} has no 'tta_views' in its config.json, so "
+            "it has no TTA axis to average over -- score_grid_tta needs a bank "
+            "built by `extract_eval_bank(..., tta_views=...)`. Scoring a plain "
+            "eval bank here would average over CONDITIONS instead, which is not "
+            "a robustness measurement at all.")
+    names = bank.config["conditions"]
+    if manifest_df is not None:
+        bank.verify_against_manifest(manifest_df)
+
+    meta = bank.meta
+    if len(meta) != bank.feats.shape[0]:
+        raise ValueError(
+            f"the bank at {bank.path} has {len(meta)} metadata rows but "
+            f"{bank.feats.shape[0]} feature rows; it was not written to "
+            "completion (resume the extraction before scoring it)")
+    blocks = bank.aux_blocks(use_recon, use_recon_vq, use_freq)
+
+    model.eval()
+    frames = []
+    for j, cond in enumerate(names):
+        per_view = []
+        for k in range(len(views)):
+            col = j * len(views) + k
+            feats = np.asarray(bank.feats[:, col, :]).astype(np.float32)
+            recon = (np.concatenate(
+                [np.asarray(b[:, col, :]).astype(np.float32) for b in blocks],
+                axis=-1) if blocks else None)
+            scores = []
+            for st in range(0, len(feats), batch_size):
+                f = torch.from_numpy(feats[st:st + batch_size]).to(device)
+                r = (torch.from_numpy(recon[st:st + batch_size]).to(device)
+                     if recon is not None else None)
+                scores.append(model(f, r)["logit"].cpu().numpy())
+            per_view.append(np.concatenate(scores))
+        frames.append(pd.DataFrame({
+            "condition": cond,
+            "image_idx": meta["image_idx"].to_numpy(),
+            "label": meta["label"].to_numpy(),
+            "generator": meta["generator"].to_numpy(),
+            "source": meta["source"].to_numpy(),
+            "score": np.mean(np.stack(per_view, axis=0), axis=0),
+        }))
+    return pd.concat(frames, ignore_index=True)
+
+
+def assert_tta_bank_matches(plain, tta) -> None:
+    """Refuse an A6 bank that is not the same evaluation as the rest of the run.
+
+    A6's whole claim is "the same images under the same conditions, scored
+    eight ways". Every part of that is a property of the bank, and every part
+    of it fails silently: a TTA bank over a different manifest subsample, or
+    with the conditions in a different order, or canonicalised under the other
+    policy, has the right shape and the wrong meaning, and the score it
+    produces lands in the table beside A3 as though the two were comparable.
+
+    Checked BEFORE the ladder trains, because the alternative is discovering it
+    after every rung has been fitted.
+    """
+    if not tta_axis(tta):
+        raise ValueError(
+            f"the bank at {tta.path} declares no 'tta_views', so it is a plain "
+            "eval bank. Averaging over the axis it does have would average "
+            "over CONDITIONS, which is not a robustness measurement.")
+    for key in ("manifest_sha256", "conditions", "backbone", "canon_policy"):
+        want, got = plain.config.get(key), tta.config.get(key)
+        if want != got:
+            raise ValueError(
+                f"the TTA bank at {tta.path} disagrees with the eval bank at "
+                f"{plain.path} on {key!r}: {got!r} against {want!r}. A6 must be "
+                "the same evaluation as the rungs it is tabulated beside, or "
+                "its row compares an evaluation rather than a rung.")
+    if len(plain.meta) != len(tta.meta):
+        raise ValueError(
+            f"the TTA bank at {tta.path} holds {len(tta.meta)} rows and the "
+            f"eval bank at {plain.path} holds {len(plain.meta)}. A6 would be "
+            "scored on a different subsample of the tier.")
+    a = plain.meta["row_id"].to_numpy()
+    b = tta.meta["row_id"].to_numpy()
+    if not np.array_equal(a, b):
+        n = int((a != b).sum()) if a.shape == b.shape else -1
+        raise ValueError(
+            f"the TTA bank at {tta.path} and the eval bank at {plain.path} hold "
+            f"the same number of rows in a different ORDER ({n} position(s) "
+            "differ). Scores are joined positionally, so A6's row would carry "
+            "another image's label.")
+
+
+class TtaEvalBank:
+    """The evaluation identity of rung A6, as `robustness_table` reads it.
+
+    Duck-types the `path`/`config` surface that `assert_banks_comparable` and
+    `report._check_banks` use, exactly as `eval.fusion.FusedEvalBank` does for
+    A5, and for the same reason: the row must register the evaluation that
+    produced it rather than borrow another one.
+
+    The declared `n_views` is the CONDITION count, not the bank's physical
+    width. That is the honest statement and it is worth being explicit about,
+    because the alternative reading is available and wrong. `n_views` is in
+    `_COMPARABLE_KEYS` to stop a table from comparing augmentation BUDGETS --
+    a rung scored over more views of the world than another has been asked an
+    easier or a harder question. A6 is not that: after averaging it has been
+    asked about the same 4000 images under the same 20 conditions as every
+    other rung, and the eight views are eight looks at ONE degraded image,
+    collapsed before a single number leaves this bank. Reporting 160 here would
+    make A6 non-comparable with its own base rung and so unreportable, which is
+    the A5 problem (R43) in a different costume.
+
+    What the 8x really is, is inference cost, and that is recorded -- under its
+    own name, next to the view list -- so no reader can mistake A6's score for
+    one obtained at the same price as A3's.
+    """
+
+    def __init__(self, bank):
+        self.bank = bank
+        views = tta_axis(bank)
+        if not views:
+            raise ValueError(
+                f"the bank at {getattr(bank, 'path', '?')} declares no TTA "
+                "views, so it is not the bank that produced an A6 row; "
+                "registering it here would state a cost multiplier of one for "
+                "a rung that paid eight")
+        names = list(bank.config.get("conditions") or [])
+        self.path = f"tta({bank.path})"
+        self.config = {
+            "n_views": len(names),
+            "conditions": names,
+            "manifest_sha256": bank.config.get("manifest_sha256"),
+            "backbone": bank.config.get("backbone"),
+            "n_images": int(len(bank.meta)),
+            "tta_views": list(views),
+            "tta_cost_multiplier": len(views),
+            "physical_n_views": int(bank.config.get("n_views", 0)),
+        }
+
+    def __repr__(self) -> str:
+        return f"TtaEvalBank({self.path!r})"
 
 
 def _allocate(capacities: list[int], total: int, rng: np.random.Generator) -> list[int]:

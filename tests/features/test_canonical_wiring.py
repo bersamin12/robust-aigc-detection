@@ -32,7 +32,7 @@ import pytest
 from PIL import Image
 
 from aigcdet.eval import grid
-from aigcdet.features import extract, recon
+from aigcdet.features import extract, recon, replay
 from aigcdet.features.backbones import BackboneSpec
 from aigcdet.features.bank import RECON_DIM, FeatureBank
 
@@ -111,12 +111,17 @@ def test_attach_recon_to_bank_canonicalises_every_image_it_decodes(tmp_path, mon
     extract.extract_bank(df, "fake", out, seed=1, device="cpu")
     bank = FeatureBank.open(out)
 
-    monkeypatch.setattr(recon, "load_recon_models", lambda device: (None, None))
+    monkeypatch.setattr(recon, "load_recon_models", lambda device, kind='kl': (None, None))
     monkeypatch.setattr(
         recon, "recon_features",
         lambda img, vae, lp, device: np.zeros(RECON_DIM, dtype=np.float32))
-    spy = _Spy(recon.canonicalise)
-    monkeypatch.setattr(recon, "canonicalise", spy)
+    # The replay loop moved into `features.replay` so the reconstruction and
+    # frequency blocks share one canonicalisation site; the guarantee under
+    # test is unchanged, so the spy follows the call rather than the module it
+    # used to live in. Still driven through `attach_recon_to_bank`, which is
+    # the entry point that must keep honouring it.
+    spy = _Spy(replay.canonicalise)
+    monkeypatch.setattr(replay, "canonicalise", spy)
 
     recon.attach_recon_to_bank(bank, df, device="cpu", seed=1)
 

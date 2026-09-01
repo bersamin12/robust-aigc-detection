@@ -93,7 +93,8 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 
-from aigcdet.eval.errors import SELECTION_SPLITS
+from aigcdet.eval.errors import SELECTION_SPLITS, SELECTION_TARGET_FPR
+from aigcdet.eval.metrics import tpr_at_fpr
 
 #: The columns that identify a row of a `score_grid` frame.
 _KEYS = ["condition", "image_idx"]
@@ -127,6 +128,18 @@ _REQUIRED = object()
 #: selection metric is computed on -- and the organisers' benchmark subsample
 #: is in neither. Aliased rather than re-spelled so the two cannot drift.
 FIT_SPLITS_FOR_SELECTION: tuple[str, ...] = tuple(SELECTION_SPLITS)
+
+#: The z-score population to use when the fusion WEIGHT is being fitted too.
+#:
+#: `FIT_SPLITS_FOR_SELECTION` above is defensible for an A5 whose weights are a
+#: fixed constant: the standardisation sees the held-out rows, but nothing is
+#: CHOSEN from what it sees. The moment a weight is selected, that stops being
+#: true -- the sweep's objective is computed on scores whose scale was set
+#: partly by held-out rows, so the held-out number is no longer read exactly
+#: once. `scripts/family_experts.py` made this argument first, for the same
+#: reason, and fixed it the same way; the constant lives here so the two
+#: cannot drift into disagreeing about what a clean fused number is.
+FIT_SPLITS_WHEN_FITTING_WEIGHT: tuple[str, ...] = ("val_internal",)
 
 
 def _population_label(fit_splits: Sequence[str]) -> str:
@@ -351,6 +364,103 @@ def fuse_scores(dfs: Sequence[pd.DataFrame],
     fused[POPULATION_COLUMN] = population
     fused.attrs[POPULATION_COLUMN] = population
     return fused
+
+
+# --- fitting the weight, on val_internal alone ------------------------------
+#
+# Equal weighting is `fuse_scores`' default, not its only option, and the
+# default has a known failure mode: a weaker parent dilutes a stronger one in
+# exact proportion to how much weight it is handed for free. Fitting the weight
+# lets a parent that is better on SOME subset contribute there without paying
+# for it everywhere -- and lets a parent that is simply worse fall to a small
+# weight instead of half the vote.
+#
+# The whole difficulty is that fitting is a SELECTION, and a selection that has
+# seen the held-out rows has spent them. `heldout_robust_tpr` is read on
+# val_internal authentic against heldout_generator generated; a weight swept
+# against that objective is a weight fitted on the rows being reported. So the
+# sweep maximises `val_robust_tpr` below -- the same metric shape, both classes
+# drawn from val_internal -- and the held-out number is read exactly once,
+# after w is fixed. This discipline was written for `scripts/family_experts.py`
+# and lives here so A5 and the family-expert probe cannot drift apart on it.
+
+#: Weight on parent 0; parent 1 gets 1 - w. 21 points is a 0.05 grid, and finer
+#: buys nothing when the objective is a mean of TPRs over a few thousand
+#: validation images and therefore moves in steps of 1/n.
+WEIGHT_GRID: np.ndarray = np.linspace(0.0, 1.0, 21)
+
+
+def val_robust_tpr(scores_df: pd.DataFrame, splits,
+                   target_fpr: float = SELECTION_TARGET_FPR) -> float:
+    """Mean TPR @ `target_fpr` over the DEGRADED conditions, val_internal only.
+
+    The same shape as `errors.heldout_robust_tpr` -- mean over the degraded
+    grid, same operating point -- with both classes drawn from `val_internal`
+    instead of authentic-from-val against generated-from-heldout. It exists so
+    a fusion weight can be chosen without the held-out rows entering the choice.
+
+    It is NOT a substitute for the selection metric and must never be reported
+    as one: its positives come from families the heads trained on, so it
+    measures fit, not generalisation. It is a knob-setter.
+    """
+    row_split = np.asarray(splits).astype(str)[scores_df["image_idx"].to_numpy()]
+    sub = scores_df[row_split == "val_internal"]
+    sub = sub[sub["condition"] != "clean"]
+    if sub.empty:
+        raise ValueError(
+            "no val_internal rows in a degraded condition, so the weight "
+            "objective is empty; the eval bank must carry val_internal rows "
+            "over the degraded grid for a weight to be fitted off the "
+            "held-out families at all")
+    values = []
+    for cond, g in sub.groupby("condition", sort=False):
+        y = g["label"].to_numpy()
+        if len(np.unique(y)) != 2:
+            raise ValueError(
+                f"condition {cond!r} has only class {sorted(set(y.tolist()))} "
+                "among val_internal rows, so its TPR@FPR is undefined. "
+                "Averaging what survived would be a mean over an unstated "
+                "subset of the grid -- the same refusal heldout_robust_tpr "
+                "makes for the same reason.")
+        values.append(tpr_at_fpr(y, g["score"].to_numpy(), target_fpr))
+    return float(np.mean(values))
+
+
+def fit_fusion_weight(dfs: Sequence[pd.DataFrame], splits, *,
+                      fit_splits: Sequence[str] | str = _REQUIRED,
+                      grid: np.ndarray = WEIGHT_GRID,
+                      target_fpr: float = SELECTION_TARGET_FPR
+                      ) -> tuple[tuple[float, float], list[dict]]:
+    """Choose `(w, 1 - w)` for two parents by maximising `val_robust_tpr`.
+
+    Returns the weights and the full sweep, so `selection.json` can record the
+    objective at every grid point rather than only the argmax -- a flat sweep
+    and a sharply peaked one justify very different confidence in the same w.
+
+    `fit_splits` is passed through to `fuse_scores` unchanged and is still
+    REQUIRED: the z-score population and the weight are two separate fits, and
+    silently defaulting either is how A5's number becomes a function of the
+    organisers' demo set (see this module's docstring).
+
+    **Ties go to 0.5, not to the lowest w.** Equal weighting is the null this
+    sweep exists to test; moving off it on a tie would report a fitted weight
+    that bought nothing. `max` would otherwise return the first grid point,
+    making w=0.0 -- "drop parent 0 entirely" -- the silent winner of a flat
+    objective.
+    """
+    if len(dfs) != 2:
+        raise ValueError(
+            f"fit_fusion_weight sweeps a single scalar w over TWO parents, got "
+            f"{len(dfs)}. An n-parent fit is a different problem with a "
+            "different number of degrees of freedom to justify.")
+    sweep = []
+    for w in grid:
+        fused = fuse_scores(dfs, weights=[float(w), 1.0 - float(w)],
+                            splits=splits, fit_splits=fit_splits)
+        sweep.append({"w0": float(w),
+                      "val_robust_tpr": val_robust_tpr(fused, splits, target_fpr)})
+    best = max(sweep, key=lambda r: (r["val_robust_tpr"], -abs(r["w0"] - 0.5)))
+    return (best["w0"], 1.0 - best["w0"]), sweep
 
 
 # --- which bank a fused frame belongs to -----------------------------------

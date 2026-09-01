@@ -98,6 +98,25 @@ class ModelSpec:
     #: guidance while the manifest recorded ours, which is a silent lie in
     #: every row rather than a failure.
     guidance_kw: str = "guidance_scale"
+    #: True when the checkpoint ships Stable Diffusion's NSFW safety checker,
+    #: which `run.load` then refuses to load.
+    #:
+    #: The checker does not raise and does not skip the row -- it replaces the
+    #: decoded image with a BLACK FRAME and returns it as a normal result. So
+    #: it lands as `check`'s "near-constant output", i.e. as a generation
+    #: failure, and 3 unlucky black frames in `sd15_t2i`'s first 55 crossed
+    #: `run_family`'s 5% abort and took the lane down 40 minutes into a 2.3 h
+    #: run. Measured over the shards that got further, the real rate is ~0.8%
+    #: -- benign Open Images captions, on a checker whose false-positive rate
+    #: on photographs of people is notorious.
+    #:
+    #: Off, and not "retry on a new seed": the reals are already a public
+    #: curated corpus, the prompts are Florence-2 captions OF those reals, and
+    #: a retry would spend wall clock re-rolling a verdict that was never
+    #: about the image. Loading it also costs 1.2 GB of VRAM to do nothing.
+    #: `check` still rejects a genuinely degenerate frame, so the guard the
+    #: black frames tripped is untouched.
+    safety_checker: bool = False
     note: str = ""
 
 
@@ -119,6 +138,7 @@ MODELS: dict[str, ModelSpec] = {
         hf_id="stable-diffusion-v1-5/stable-diffusion-v1-5",
         licence_tag="creativeml-openrail-m", commercial=True,
         lineage="sd_vae", arch="unet", vram_gb=3.0, recon_probe_collision=True,
+        safety_checker=True,
         note="Third lineage and cheap volume. Its VAE is the one "
              "features/recon.py loads, verbatim -- so these fakes reconstruct "
              "at near-zero error and the A4/A7 recon rungs separate them for "
@@ -173,22 +193,10 @@ MODELS: dict[str, ModelSpec] = {
              "generator coverage -- but the held-out rung measures the "
              "decoder. NOT in AutoPipelineForText2Image's mapping, so "
              "`run.load` dispatches it explicitly on arch."),
-    "cogview4_6b": ModelSpec(
-        hf_id="THUDM/CogView4-6B",
-        licence_tag="apache-2.0", commercial=True,
-        lineage="cogview_vae", arch="cogview_dit", vram_gb=29.0,
-        size_multiple=32, offload_mode="model",
-        note="Seventh lineage: its own AutoencoderKL at 16 latent channels "
-             "and scaling_factor 1.0, which is neither SDXL's 4-channel nor "
-             "FLUX's 16-channel/0.3611. Apache-2.0. 29 GiB across the repo -- "
-             "13 GiB of transformer plus an 18 GiB GLM-4 text encoder -- so "
-             "it needs offload on a 20 GB card; MODEL offload, not "
-             "sequential, because the largest single component still fits and "
-             "sequential would cost far more than it needs to."),
     "zimage_turbo": ModelSpec(
         hf_id="Tongyi-MAI/Z-Image-Turbo",
         licence_tag="apache-2.0", commercial=True,
-        lineage="flux1_vae", arch="zimage_dit", vram_gb=19.0,
+        lineage="flux1_vae", arch="zimage_dit", vram_gb=23.0,
         size_multiple=16, offload_mode="model",
         note="Eighth lineage, and the ONE ENTRY HERE THAT CARRIES A KNOWN "
              "RISK. 6B S3-DiT, apache-2.0, 9 steps at guidance 0.0 (turbo "
@@ -211,6 +219,54 @@ MODELS: dict[str, ModelSpec] = {
              "so 8 would be a size the pipeline silently rounds -- the "
              "Kandinsky failure (§11) with a different divisor."),
     # --- Refused. Kept so the next person does not re-derive the refusal. ---
+    "hunyuandit_v12": ModelSpec(
+        hf_id="Tencent-Hunyuan/HunyuanDiT-v1.2-Diffusers",
+        licence_tag="other", commercial=True,
+        lineage="sdxl_vae", arch="unet", vram_gb=10.0,
+        note="REFUSED AS REDUNDANT, and recorded because it was previously "
+             "refused for the WRONG REASON. `ai_ov7_generation.md` §11 listed "
+             "it under 'on licence' with no ModelSpec and no config check -- "
+             "the only refusal in this registry that was a bare assertion. "
+             "Tencent's Hunyuan Community licence does permit commercial use, "
+             "so that refusal was void. It is refused anyway, on the second "
+             "gate: vae/config.json fetched 2026-08-31 reads AutoencoderKL, "
+             "latent_channels 4, scaling_factor 0.13025 -- SDXL's VAE, the "
+             "identical signature to `kolors`. It would add volume to a "
+             "lineage that already has 5,400 pairs and nothing to the "
+             "held-out axis. ARCHITECTURE NOVELTY IS NOT DECODER NOVELTY. "
+             "The Hunyuan models that DO carry their own decoders are "
+             "HunyuanImage 2.1 (32x spatial) and 3.0 (f16, 32-dim), both "
+             "genuinely new lineages and both out of reach here -- 17B and "
+             "an 80B MoE, neither in diffusers layout (vae/config.json 404s "
+             "on both). HunyuanVideo has its own 3D causal VAE and is "
+             "refused on the Wan2.2 argument: a still from a temporally-"
+             "causal video VAE puts motion blur and codec artefacts into the "
+             "generated class only."),
+    "cogview4_6b": ModelSpec(
+        hf_id="THUDM/CogView4-6B",
+        licence_tag="apache-2.0", commercial=True,
+        lineage="cogview_vae", arch="cogview_dit", vram_gb=29.0,
+        size_multiple=32, offload_mode="model",
+        note="REFUSED ON THROUGHPUT, not licence and not decoder. The "
+             "decoder is genuinely new and this refusal costs the corpus a "
+             "lineage: its own AutoencoderKL at 16 latent channels and "
+             "scaling_factor 1.0, which is neither SDXL's 4-channel nor "
+             "FLUX's 16-channel/0.3611. Apache-2.0. It is refused because it "
+             "is 29 GiB across the repo -- 13 GiB of transformer plus an "
+             "18 GiB GLM-4 text encoder -- so it does not fit a 24 GB card "
+             "resident and runs under MODEL offload, where it measured "
+             "~39 s/image at this corpus's ~416x640. That is 13x the next "
+             "slowest family (klein4b_ref_image at 6.62) and 33x the "
+             "fastest (sana at 1.17): 2,000 images is 21.7 h against 2.3 h "
+             "for the whole rest of the outstanding work. THE NUMBER IS AN "
+             "OFFLOAD ARTEFACT, NOT THE MODEL -- it is PCIe traffic, not "
+             "compute -- so on a single card that holds 29 GiB resident it "
+             "should be several times faster and this refusal should be "
+             "revisited. It is not rescued by having four 24 GB cards, "
+             "because offload is per process and 4x24 is not 1x96; what "
+             "four cards buy is four shards in parallel, ~5.4 h of wall "
+             "clock for 2,000 images. Restore on a 40 GB+ card, or accept "
+             "the wall clock and run it sharded."),
     "sdxl_turbo": ModelSpec(
         hf_id="stabilityai/sdxl-turbo",
         licence_tag="sai-nc-community", commercial=False,
@@ -222,9 +278,16 @@ MODELS: dict[str, ModelSpec] = {
         hf_id="black-forest-labs/FLUX.1-schnell",
         licence_tag="apache-2.0", commercial=True,
         lineage="flux1_vae", arch="flow_dit", vram_gb=23.8,
-        note="REFUSED ON HARDWARE, not licence. 12B at bf16 does not fit this "
-             "20 GB card, and fp8 would put the compute budget into the "
-             "traces (docs/03 §3). Restore it on a 40 GB card."),
+        note="REFUSED AS REDUNDANT (2026-08-31). The hardware gate that used "
+             "to carry this refusal is GONE -- 23.8 GB at bf16 fits the "
+             "24 GB cards now available -- but lifting it does not admit the "
+             "model, it only moves the refusal down to the second gate. Its "
+             "VAE is AutoencoderKL 16ch/0.3611, i.e. `flux1_vae`, which "
+             "`zimage_t2i` already carries at ~1 s/image against this "
+             "model's 12B. Adding it would buy volume in a lineage that has "
+             "one family already AND would deepen the LINEAGE_COUSINS bet, "
+             "since flux1_vae trains against a held-out flux2_vae. Note also "
+             "the repo is now gated=auto on the Hub, which shuttle3 is not."),
     "flux2_klein_9b": ModelSpec(
         hf_id="black-forest-labs/FLUX.2-klein-9B",
         licence_tag="other", commercial=False,
@@ -235,13 +298,15 @@ MODELS: dict[str, ModelSpec] = {
         hf_id="shuttleai/shuttle-3-diffusion",
         licence_tag="apache-2.0", commercial=True,
         lineage="flux1_vae", arch="flow_dit", vram_gb=23.8,
-        note="REFUSED, and it is the near-miss worth recording: apache-2.0 "
-             "and UNGATED, which FLUX.1-schnell no longer is, so it is the "
-             "only reachable route to the flux1_vae lineage. But its VAE "
-             "config is 16ch/0.3611 -- FLUX's -- and its transformer is "
-             "FLUX-dev sized, 53.6 GiB of repo, which on a 20 GB card means "
-             "offload for a lineage we would be adding for variety. Take it "
-             "on a 40 GB card."),
+        note="REFUSED AS REDUNDANT (2026-08-31). Was 'take it on a 40 GB "
+             "card'; that is no longer the operative reason. apache-2.0 and "
+             "UNGATED (re-probed 2026-08-31: gated=False, against "
+             "FLUX.1-schnell's gated=auto), so it IS the reachable route to "
+             "flux1_vae -- but flux1_vae stopped being a gap the moment "
+             "`zimage_t2i` was added, and its VAE config is the same "
+             "16ch/0.3611. 53.6 GiB of repo for a lineage the corpus already "
+             "has, plus a deeper LINEAGE_COUSINS bet against the held-out "
+             "flux2_vae. Revisit only if zimage_t2i is dropped."),
     "kolors": ModelSpec(
         hf_id="Kwai-Kolors/Kolors-diffusers",
         licence_tag="apache-2.0", commercial=True,
@@ -280,9 +345,18 @@ MODELS: dict[str, ModelSpec] = {
         licence_tag="apache-2.0", commercial=True,
         lineage="wan_vae", arch="flow_dit", vram_gb=40.9,
         offload_mode="sequential",
-        note="REFUSED ON HARDWARE, not licence -- the same refusal as "
-             "flux1_schnell and shuttle3, and all three come back together on "
-             "a 40 GB card. The newest Qwen text-to-image weights that "
+        note="REFUSED ON HARDWARE, not licence. STILL REFUSED after the "
+             "2026-08-31 hardware change to 4x24 GB: the 40.86 GB "
+             "transformer does not fit a 24 GB card, sequential offload "
+             "cannot rescue it because the largest single component IS that "
+             "transformer, and four cards do not help because offload is per "
+             "process -- 4x24 is not 1x96 and this harness gives one GPU per "
+             "family. It is now the ONLY refused model that would still add "
+             "a lineage (`wan_vae`), so it is the one to revisit first on a "
+             "48 GB+ card. The 7B Qwen-Image-2.0 that would fit was "
+             "re-probed on 2026-08-31 and is STILL 401 (as are -2602/-2601); "
+             "Qwen/Qwen-Image-2512 is ungated and real, and it is the 40.9 "
+             "GB one. The newest Qwen text-to-image weights that "
              "actually exist (2025-12-30); the 7B Qwen-Image-2.0 was never "
              "published. Its transformer shard index totals 40.86 GB at bf16, "
              "which is `ai_ov7_generation.md` §11's 'Qwen-Image at 40.9 GB on "
@@ -408,8 +482,14 @@ LINEAGE_SUPPLEMENT: dict[str, FamilySpec] = {
 #: DECODER step count for Wuerstchen; its prior runs separately and is set in
 #: that model's `call_kwargs`.
 LINEAGE_SUPPLEMENT_2: dict[str, FamilySpec] = {
-    "wuerstchen_t2i": FamilySpec("wuerstchen",  "t2i", 0.5, 12, 4.0),
-    "cogview4_t2i":   FamilySpec("cogview4_6b", "t2i", 0.5, 30, 5.0),
+    "wuerstchen_t2i": FamilySpec("wuerstchen",  "t2i", 1.0, 12, 4.0),
+    # cogview4_t2i was the other half of this suite and was REMOVED on
+    # throughput (2026-08-31), not on licence or on decoder novelty -- see the
+    # `cogview4_6b` note. Removing it costs the corpus the `cogview_vae`
+    # lineage outright, taking the rotation from seven points to six, and
+    # nothing currently reachable replaces it. That is a deliberate trade of
+    # one rotation point for ~21.7 h of wall clock, and it is reversible: put
+    # the family back at share 0.5 and rerun this suite on a fresh shard.
 }
 
 #: Fourth run, one family. Z-Image-Turbo is the fastest Apache text-to-image
@@ -429,12 +509,60 @@ LINEAGE_SUPPLEMENT_3: dict[str, FamilySpec] = {
     "zimage_t2i": FamilySpec("zimage_turbo", "t2i", 1.0, 9, 0.0),
 }
 
+#: The scale-up: every family at once, over a fresh pool of reals the first
+#: four runs never dealt. This is the suite that finishes the corpus.
+#:
+#: Shares are NOT a style choice -- they are solved backwards from a balanced
+#: target, AND THE SOLVE IS TIED TO ONE TOTAL. At the 42,646-real pool this
+#: was run on the corpus ends at 54,624 pairs over seven lineages, so a
+#: balanced corpus is 7,803 each, and each family's share here is whatever
+#: brings its lineage from where it already stands UP to that line. That is
+#: why `sdxl_t2i` -- the largest family in the frozen corpus at 3,000 -- has
+#: the smallest share here (0.0313): `sdxl_vae` already has 5,400 pairs and
+#: needs only 2,403 more, while `paella_vq` and `flux1_vae` start at zero and
+#: are owed the whole 7,803.
+#:
+#: Because the solve is tied to that total, THESE SHARES ARE NOT PORTABLE TO A
+#: DIFFERENT ONE. Run them at 32,774 and the spread across lineages is 1,247
+#: pairs; at 42,646 it is 8. A later run of a different size must redo the
+#: arithmetic, not reuse these numbers;
+#: `docs/ai_ov7_generation.md` §17 has the table.
+#:
+#: Within a lineage, families keep the base suite's ratios (sdxl_t2i 30 :
+#: self_cond 14 : img2img 10, and sd15_t2i 20 : img2img 8), so the
+#: fully-synthetic/image-conditioned balance of each lineage is preserved
+#: rather than re-argued.
+#:
+#: RUN IT ON EVERY SHARD OF A FREE POOL -- the production run sharded its
+#: 42,646 previously-undealt reals four ways and ran shards 0-3, which is
+#: legal and is the point: blocks are disjoint by construction, so the boxes
+#: need no lock and no shared filesystem, and each shard is a balanced
+#: microcosm of the same deal rather than a lineage-shaped slice. What rule 1
+#: forbids is a DIFFERENT suite on reals some suite has already been dealt --
+#: which is a property of the POOL, not of a shard index. A pool that overlaps
+#: an earlier run is backfilled by raising --total on the suite it already
+#: owns, never by pointing this suite at it.
+LINEAGE_FULL: dict[str, FamilySpec] = {
+    "wuerstchen_t2i":    FamilySpec("wuerstchen",     "t2i",       0.1831, 12, 4.0),
+    "zimage_t2i":        FamilySpec("zimage_turbo",   "t2i",       0.1830,  9, 0.0),
+    "kandinsky22_t2i":   FamilySpec("kandinsky22",    "t2i",       0.1595, 25, 4.0),
+    "sana1600m_t2i":     FamilySpec("sana_1600m",     "t2i",       0.1595, 20, 4.5),
+    "klein4b_t2i":       FamilySpec("flux2_klein_4b", "t2i",       0.0938, 20, 1.0),
+    "sd15_t2i":          FamilySpec("sd15_base",      "t2i",       0.0842, 30, 7.5),
+    "klein4b_ref_image": FamilySpec("flux2_klein_4b", "ref_image", 0.0469, 20, 1.0),
+    "sd15_img2img":      FamilySpec("sd15_base",      "img2img",   0.0337, 30, 7.5, strength=0.75),
+    "sdxl_t2i":          FamilySpec("sdxl_base",      "t2i",       0.0313, 25, 6.0),
+    "sdxl_self_cond":    FamilySpec("sdxl_inpaint",   "self_cond", 0.0146, 25, 6.0),
+    "sdxl_img2img":      FamilySpec("sdxl_base",      "img2img",   0.0104, 25, 6.0, strength=0.75),
+}
+
 #: Runnable suites by name (`generate_ov7.py --suite`).
 SUITES: dict[str, dict[str, FamilySpec]] = {
     "ov7": SUITE,
     "ov7_lineage": LINEAGE_SUPPLEMENT,
     "ov7_lineage2": LINEAGE_SUPPLEMENT_2,
     "ov7_lineage3": LINEAGE_SUPPLEMENT_3,
+    "ov7_full": LINEAGE_FULL,
 }
 
 #: Which already-generated suites each one is generated INTO. A supplement is
@@ -445,6 +573,9 @@ SUITE_EXTENDS: dict[str, tuple[str, ...]] = {
     "ov7_lineage": ("ov7",),
     "ov7_lineage2": ("ov7", "ov7_lineage"),
     "ov7_lineage3": ("ov7", "ov7_lineage", "ov7_lineage2"),
+    # ov7_full contains every family itself, so it extends nothing:
+    # corpus_of("ov7_full") is already the whole corpus.
+    "ov7_full": (),
 }
 
 #: Held out as a whole lineage or not at all (`presets.heldout_groups`).

@@ -1,0 +1,21 @@
+# + reconstruction features from a VECTOR-QUANTISED autoencoder
+#
+# One flag from a3 (use_recon_vq), exactly as a4 is one flag from a3
+# (use_recon). The two are SIBLINGS, not a ladder: a4 asks "does a KL VAE's
+# round-trip help?", a4vq asks the same of a VQ autoencoder, and a4both asks
+# whether they are complementary. Read each against a3.
+#
+# Why it exists: the held-out families are SDwithAdaptor_controlnet (latent
+# diffusion, SD's own KL lineage) and VQGAN. A continuous KL VAE has no
+# structural reason to round-trip a VQ decoder's output anomalously, so a4 is
+# arguably blind to half the population selection rests on.
+name: a4vq
+use_augmented: true
+use_degradation: true
+use_consistency: true
+use_recon: false
+use_recon_vq: true
+use_freq: false
+use_film: false
+tta: false
+epochs: 30

@@ -62,21 +62,83 @@ def native_center_crop(img: np.ndarray, size: int = 256) -> np.ndarray:
     return img[top:top + size, left:left + size]
 
 
-def load_recon_models(device: str = "cuda"):
-    """Load the frozen SD 1.5 VAE and LPIPS(AlexNet), both eval-mode, no grad.
+#: The autoencoders the reconstruction branch can be computed against, and the
+#: bank block each one writes. TWO SEPARATE 12-d BLOCKS, never one wider one:
+#: `bank.attach_recon` pins `(N, V, 12)` and `tests/test_rung_ladder.py`
+#: enforces one-flag steps, so widening `RECON_DIM` would break the artefact
+#: contract and the ladder at once. A second named block breaks neither.
+RECON_KINDS: dict[str, str] = {"kl": "recon", "vq": "recon_vq"}
+
+#: Why a second autoencoder exists at all. The held-out families are
+#: `SDwithAdaptor_controlnet` (latent diffusion, SD's own KL lineage) and
+#: `VQGAN` (vector-quantised). A continuous KL VAE has no structural reason to
+#: round-trip a VQ decoder's output anomalously, so the branch as originally
+#: built is arguably blind to half the population selection rests on. Measured
+#: on 220 images per class at the centre crop, real vs generated:
+#:
+#:     family                      KL      VQ     both
+#:     VQGAN                     0.7919  0.8248  0.8427
+#:     SDwithAdaptor_controlnet  0.7823  0.7959  0.8100
+#:
+#: VQ wins on both and by 2.4x more on VQGAN, and the pair beats either alone
+#: -- they are complementary, which is what makes `a4both` a real rung and not
+#: a tidier way to spell `a4vq`.
+_VQ_REPO = "CompVis/ldm-super-resolution-4x-openimages"
+
+
+class _VQRoundtrip:
+    """`VQModel` wearing `AutoencoderKL`'s encode interface.
+
+    `_roundtrip` calls `encode(x).latent_dist.mode()`; a `VQModel` returns
+    `.latents` and quantises inside `decode`. Adapting here rather than
+    branching inside `_roundtrip` keeps `recon_features` autoencoder-agnostic,
+    which is the property that lets one 12-d extractor serve both blocks.
+    """
+
+    def __init__(self, model):
+        self.model = model
+
+    def encode(self, x):
+        from types import SimpleNamespace
+        latents = self.model.encode(x).latents
+        return SimpleNamespace(
+            latent_dist=SimpleNamespace(mode=lambda: latents))
+
+    def decode(self, z):
+        return self.model.decode(z)
+
+    def parameters(self):
+        return self.model.parameters()
+
+
+def load_recon_models(device: str = "cuda", kind: str = "kl"):
+    """Load a frozen autoencoder and LPIPS(AlexNet), both eval-mode, no grad.
+
+    `kind` selects which autoencoder, and therefore which bank block the
+    features belong in -- see `RECON_KINDS`.
 
     Only ever call this against a real GPU with confirmed free VRAM -- see
     the module docstring and project-constraints.md. Never call this from a
     test that is not marked `@pytest.mark.gpu` and guarded on free VRAM.
     """
-    from diffusers import AutoencoderKL
     import lpips
 
-    vae = AutoencoderKL.from_pretrained(
-        "stable-diffusion-v1-5/stable-diffusion-v1-5", subfolder="vae",
-        dtype=torch.float16).to(device).eval()
+    if kind not in RECON_KINDS:
+        raise ValueError(
+            f"unknown recon kind {kind!r}; known: {sorted(RECON_KINDS)}")
+    if kind == "kl":
+        from diffusers import AutoencoderKL
+        vae = AutoencoderKL.from_pretrained(
+            "stable-diffusion-v1-5/stable-diffusion-v1-5", subfolder="vae",
+            dtype=torch.float16).to(device).eval()
+    else:
+        from diffusers import VQModel
+        vae = VQModel.from_pretrained(
+            _VQ_REPO, subfolder="vqvae", dtype=torch.float16).to(device).eval()
     for p in vae.parameters():
         p.requires_grad_(False)
+    if kind == "vq":
+        vae = _VQRoundtrip(vae)
     lp = lpips.LPIPS(net="alex").to(device).eval()
     for p in lp.parameters():
         p.requires_grad_(False)
@@ -159,8 +221,29 @@ def error_map(img: np.ndarray, vae, device: str = "cuda") -> np.ndarray:
     return err
 
 
+
+def recon_bounds(n: int, i: int, n_shards: int) -> tuple[int, int]:
+    """Contiguous block `i` of `n_shards` over `n` rows. See `replay.shard_bounds`."""
+    from aigcdet.features.replay import shard_bounds
+
+    return shard_bounds(n, i, n_shards)
+
+
+def merge_recon_shards(bank, parts, kind: str = "kl") -> np.ndarray:
+    """Assemble contiguous reconstruction shards and attach them."""
+    from aigcdet.features.bank import RECON_DIM
+    from aigcdet.features.replay import merge_blocks
+
+    if kind not in RECON_KINDS:
+        raise ValueError(
+            f"unknown recon kind {kind!r}; known: {sorted(RECON_KINDS)}")
+    return merge_blocks(bank, parts, RECON_KINDS[kind], RECON_DIM)
+
+
 def attach_recon_to_bank(bank, manifest_df, device: str = "cuda",
-                          seed: int = 20260827) -> None:
+                          seed: int = 20260827, *, kind: str = "kl",
+                          start: int = 0, stop: int | None = None,
+                          attach: bool = True) -> np.ndarray:
     """Recompute every view exactly as Stage A did, then cache `r` for ALL of
     them. Partial view coverage would make A3 vs A4 a comparison across
     different augmentation budgets (spec §3.3).
@@ -187,51 +270,17 @@ def attach_recon_to_bank(bank, manifest_df, device: str = "cuda",
     consumed, because that step used a different generator instance
     entirely (see `aigcdet.features.extract`'s module docstring).
     """
-    from PIL import Image
-    from tqdm import tqdm
-
-    from aigcdet.augment.recipes import Recipe
     from aigcdet.features.bank import RECON_DIM
+    from aigcdet.features.replay import replay_views
 
-    bank.verify_against_manifest(manifest_df)
-
-    vae, lp = load_recon_models(device)
-    # A bank written before these keys existed has neither, and that can only
-    # mean the band policy with no geometry -- there was nothing else.
-    policy = CanonPolicy.from_record(bank.config["canon_policy"]) \
-        if "canon_policy" in bank.config else DEFAULT_POLICY
-    geometric = bool(bank.config.get("geometric"))
-    n, v = len(bank.meta), bank.config["n_views"]
-    row_ids = bank.row_ids
-    out = np.zeros((n, v, RECON_DIM), dtype=np.float32)
-    for i in tqdm(range(n), desc="recon"):
-        with Image.open(bank.meta.iloc[i]["path"]) as im:
-            decoded = np.asarray(im.convert("RGB"), dtype=np.uint8)
-        base = decoded
-        # Resolution canonicalisation, BEFORE any stored recipe is replayed
-        # (docs/resolution_shortcut.md). This site is the dangerous one: it
-        # re-decodes and re-runs recipes to reproduce the EXACT pixels that
-        # extract.py cached. If extract.py and grid.py canonicalise and this
-        # does not, reconstruction features are computed on different pixels
-        # than were cached -- silently, with no shape error anywhere. All
-        # three sites or none.
-        # The policy comes from the BANK, never from the caller. This site
-        # exists to reproduce pixels that are already on disk, so the one
-        # authority on how they were made is the artefact that holds them --
-        # `extract_bank` writes `canon_policy` and `geometric` into the config
-        # for exactly this. A caller-supplied policy would be one more thing
-        # that can silently disagree with the cache.
-        base = None if policy.mode == MODE_CROP else canonicalise(
-            base, policy=policy)
-        rid = int(row_ids[i])
-        for j in range(v):
-            # Same three-step reconstruction as extract._prepare_image, in the
-            # same order, from the same keys: standardise, orient, degrade.
-            std = base if base is not None else canonicalise(
-                decoded, policy=policy, rng=canonical_rng(seed, rid, j))
-            if geometric:
-                std = dihedral(std, sample_dihedral(geometric_rng(seed, rid, j)))
-            apply_rng = np.random.default_rng([seed, rid, j])
-            view = Recipe.from_json(bank.recipe_json(i, j)).apply(std, apply_rng)
-            out[i, j] = recon_features(view, vae, lp, device)
-    bank.attach_recon(out)
+    vae, lp = load_recon_models(device, kind=kind)
+    out = replay_views(
+        bank, manifest_df,
+        # Resolved from this module's globals at CALL time, which is what lets
+        # a test substitute a stub extractor for the real VAE round-trip.
+        lambda view: recon_features(view, vae, lp, device),
+        RECON_DIM, seed=seed, start=start, stop=stop,
+        allow_partial=not attach, desc=f"recon:{kind}")
+    if attach:
+        bank.attach_recon(out, kind=kind)
+    return out

@@ -1,0 +1,18 @@
+# + BOTH autoencoders' reconstruction features
+#
+# One flag from a4 (use_recon_vq added to use_recon). Read it against a4, never
+# against a3 -- against a3 it moves two flags at once.
+#
+# The 24-d input is two 12-d blocks concatenated in the fixed order
+# `FeatureBank.recon_blocks` defines (kl, then vq); `recon_width` is what tells
+# the head to expect 24 rather than 12.
+name: a4both
+use_augmented: true
+use_degradation: true
+use_consistency: true
+use_recon: true
+use_recon_vq: true
+use_freq: false
+use_film: false
+tta: false
+epochs: 30

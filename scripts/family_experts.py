@@ -65,7 +65,8 @@ from aigcdet.eval.errors import (
     heldout_robust_tpr,
 )
 from aigcdet.eval.fusion import (
-    FIT_SPLITS_FOR_SELECTION, POPULATION_COLUMN, fuse_scores,
+    FIT_SPLITS_FOR_SELECTION, POPULATION_COLUMN, WEIGHT_GRID, fuse_scores,
+    val_robust_tpr,
 )
 from aigcdet.eval.grid import assert_heldout_not_trained, score_grid
 from aigcdet.eval.metrics import tpr_at_fpr
@@ -80,10 +81,17 @@ _ROOT = pathlib.Path(__file__).resolve().parent
 #: FIT_SPLITS_FOR_SELECTION.
 PRIMARY_FIT_SPLITS: tuple[str, ...] = ("val_internal",)
 
-#: Weight on the GAN expert. The diffusion expert gets 1 - w. 21 points is a
-#: 0.05 grid; finer buys nothing when the objective is a mean of TPRs over
-#: ~6.5k validation images and moves in steps of 1/n.
-WEIGHT_GRID: np.ndarray = np.linspace(0.0, 1.0, 21)
+# WEIGHT_GRID and val_robust_tpr now live in `eval.fusion`, imported above.
+#
+# They moved on 2026-08-31, when rung A5 grew a fitted weight of its own
+# (`fusion.fit_fusion_weight`). Two copies of the val-only objective is two
+# places for the leakage discipline to be relaxed in, and only one of them
+# would be noticed: this file's docstring explains at length why the weight is
+# chosen on val_internal alone, and a second copy under `run_ablation.py` would
+# have carried the code without the explanation. Here w is the weight on the
+# GAN expert and the diffusion expert gets 1 - w; in A5 the parents are two
+# backbones, but the objective and the refusal to look at held-out rows are
+# identical, which is the point of sharing them.
 
 
 def _selection_summary_fn():
@@ -101,45 +109,6 @@ def _selection_summary_fn():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod._selection_summary
-
-
-# --- the val-only objective the weight and the sign are chosen on -----------
-
-def val_robust_tpr(scores_df: pd.DataFrame, splits, 
-                   target_fpr: float = SELECTION_TARGET_FPR) -> float:
-    """Mean TPR @ `target_fpr` over the DEGRADED conditions, val_internal only.
-
-    The same shape as `heldout_robust_tpr` -- mean over the degraded grid, same
-    operating point -- with both classes drawn from `val_internal` instead of
-    authentic-from-val against generated-from-heldout. It exists so the fusion
-    weight and the disagreement sign can be chosen without the held-out rows
-    entering the choice.
-
-    It is NOT a substitute for the selection metric and must never be reported
-    as one: its positives come from families both experts trained on, so it
-    measures fit, not generalisation. It is a knob-setter.
-    """
-    row_split = np.asarray(splits).astype(str)[scores_df["image_idx"].to_numpy()]
-    sub = scores_df[row_split == "val_internal"]
-    sub = sub[sub["condition"] != "clean"]
-    if sub.empty:
-        raise ValueError(
-            "no val_internal rows in a degraded condition, so the weight "
-            "objective is empty; the eval bank must carry val_internal rows "
-            "over the degraded grid for a weight to be fitted off the "
-            "held-out families at all")
-    values = []
-    for cond, g in sub.groupby("condition", sort=False):
-        y = g["label"].to_numpy()
-        if len(np.unique(y)) != 2:
-            raise ValueError(
-                f"condition {cond!r} has only class {sorted(set(y.tolist()))} "
-                "among val_internal rows, so its TPR@FPR is undefined. "
-                "Averaging what survived would be a mean over an unstated "
-                "subset of the grid -- the same refusal heldout_robust_tpr "
-                "makes for the same reason.")
-        values.append(tpr_at_fpr(y, g["score"].to_numpy(), target_fpr))
-    return float(np.mean(values))
 
 
 def _selection_grid(scores_df: pd.DataFrame, splits) -> tuple:

@@ -12,6 +12,7 @@ dimensions, and saved through that real's own JPEG quantisation tables. See
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import shutil
 import sys
@@ -22,7 +23,7 @@ import pandas as pd
 from aigcdet.generate import registry
 from aigcdet.generate.captions import caption_pool
 from aigcdet.generate.pool import build_pool, rebase_paths, select
-from aigcdet.generate.run import run
+from aigcdet.generate.run import EXIT_SOME_FAILED, run
 
 DEFAULT_SEED = 20260830
 PORTRAIT = "/mnt/berstorage/techjam/open_images/portrait"
@@ -126,7 +127,16 @@ def main(argv=None) -> int:
         if unknown:
             ap.error(f"unknown families {sorted(unknown)}; "
                      f"suite has {sorted(suite)}")
-        suite = {k: suite[k] for k in want}
+        # Renormalise the SHARES too, not just the membership. A strict subset
+        # of a suite sums to less than 1, and `validate_suite` -- which
+        # `run()` re-runs on whatever it is handed -- refuses that, correctly:
+        # `resolve_suite` divides --total by the shares, so a suite summing to
+        # 0.5 would silently generate half of what was asked. Only the full
+        # suite had ever been passed here, so this never showed.
+        sub = {k: suite[k] for k in want}
+        tot = sum(f.share for f in sub.values())
+        suite = {k: dataclasses.replace(f, share=f.share / tot)
+                 for k, f in sub.items()}
 
     if args.smoke:
         per = max(1, args.total // len(suite))
@@ -206,7 +216,7 @@ def main(argv=None) -> int:
         if s["reasons"]:
             print(f"  {s['family']} failures: {s['reasons']}", flush=True)
     (rows_dir / "stats.json").write_text(json.dumps(stats, indent=2))
-    return 1 if failed else 0
+    return EXIT_SOME_FAILED if failed else 0
 
 
 if __name__ == "__main__":

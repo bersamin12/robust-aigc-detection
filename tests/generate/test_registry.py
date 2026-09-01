@@ -223,18 +223,35 @@ def test_kandinsky_declares_the_second_repo_its_pipeline_pulls():
 
 # --- the second lineage supplement -----------------------------------------
 
-def test_supplement_2_brings_two_more_decoder_classes():
+def test_supplement_2_brings_one_more_decoder_class():
+    """Was two (`paella_vq` + `cogview_vae`) until cogview4_t2i was removed on
+    throughput, 2026-08-31. The removal is what this asserts: the suite still
+    contributes a lineage nothing before it had, and it contributes exactly
+    one."""
     have = {registry.lineage_of(n, registry.corpus_of("ov7_lineage"))
             for n in registry.corpus_of("ov7_lineage")}
     new = {registry.lineage_of(n, registry.LINEAGE_SUPPLEMENT_2)
            for n in registry.LINEAGE_SUPPLEMENT_2}
     assert new.isdisjoint(have)
-    assert new == {"paella_vq", "cogview_vae"}
+    assert new == {"paella_vq"}
 
 
-def test_seven_lineages_after_the_second_supplement():
+def test_cogview4_is_refused_but_still_registered():
+    """Removed from the suite, kept in MODELS. The refusal is on THROUGHPUT --
+    it is the only decoder in this registry that was dropped while still being
+    a genuine unseen lineage, so the entry has to survive to say so."""
+    assert "cogview4_t2i" not in registry.LINEAGE_SUPPLEMENT_2
+    spec = registry.MODELS["cogview4_6b"]
+    assert spec.commercial and spec.licence_tag == "apache-2.0"
+    assert spec.note.startswith("REFUSED ON THROUGHPUT")
+    assert spec.lineage not in {registry.lineage_of(n, registry.corpus_of(s))
+                                for s in registry.SUITES
+                                for n in registry.corpus_of(s)}
+
+
+def test_six_lineages_after_the_second_supplement():
     c = registry.corpus_of("ov7_lineage2")
-    assert len({registry.lineage_of(n, c) for n in c}) == 7
+    assert len({registry.lineage_of(n, c) for n in c}) == 6
 
 
 def test_supplement_2_validates_against_everything_before_it():
@@ -370,3 +387,68 @@ def test_no_two_registry_lineages_collide_by_accident():
     stops measuring a lineage jump."""
     assert MODELS["qwen_image_2512"].lineage == "wan_vae"
     assert MODELS["wan22_ti2v_5b"].lineage == "wan22_vae"
+
+
+# --- the scale-up suite -----------------------------------------------------
+
+def test_ov7_full_holds_every_family_and_lineage():
+    c = registry.corpus_of("ov7_full")
+    assert set(c) == set(registry.SUITES["ov7_full"])
+    assert len(c) == 11
+    assert len({registry.lineage_of(n, c) for n in c}) == 7
+    assert registry.HELDOUT_LINEAGE in {registry.lineage_of(n, c) for n in c}
+
+
+def test_ov7_full_shares_sum_to_one():
+    assert round(sum(f.share for f in registry.SUITES["ov7_full"].values()), 6) == 1.0
+
+
+#: Pairs per lineage already on disk when the scale-up was planned, and the
+#: size of the free pool it was solved against. `ov7_full`'s shares are only
+#: balanced AT THIS TOTAL -- see the note on `registry.LINEAGE_FULL`.
+FULL_DONE = {"sdxl_vae": 5400, "sd_vae": 2778, "flux2_vae": 1800,
+             "movq": 1000, "dc_ae": 1000, "paella_vq": 0, "flux1_vae": 0}
+FULL_TOTAL = 42646
+
+
+def _ov7_full_lineage_totals(total):
+    s = registry.SUITES["ov7_full"]
+    out = dict(FULL_DONE)
+    for n, f in s.items():
+        out[registry.lineage_of(n, s)] += f.share * total
+    return out
+
+
+def test_ov7_full_shares_balance_the_lineages():
+    """The shares are solved backwards from a balanced target, so the family
+    that is LARGEST in the frozen corpus must be near-smallest here."""
+    s = registry.SUITES["ov7_full"]
+    assert s["sdxl_t2i"].share < s["wuerstchen_t2i"].share
+    # Both lineages start at zero, so they are owed the same number of pairs.
+    # The shares are not exactly equal: they are rounded to 4 dp and the slack
+    # that makes the suite sum to exactly 1.0 (asserted just above) is absorbed
+    # into one of them. One part in ten thousand, or 4 images over the run.
+    assert round(abs(s["zimage_t2i"].share - s["wuerstchen_t2i"].share), 6) <= 1e-4
+    final = _ov7_full_lineage_totals(FULL_TOTAL).values()
+    # 4-dp shares over 42,646 reals cannot land closer than a few pairs.
+    assert max(final) - min(final) < 20, sorted(final)
+
+
+def test_ov7_full_shares_do_not_survive_a_different_total():
+    """The failure this pins down is silent: reuse these shares at another
+    total and every family still runs, every count still sums, and the corpus
+    just comes out lopsided. The suite carried a docstring solved for 32,774
+    long after the code had been re-solved for 42,646, and nothing caught it
+    because the arithmetic lives in a comment. If a later run legitimately
+    changes the total, this test is SUPPOSED to fail: re-solve the shares and
+    move FULL_TOTAL, do not widen the bound."""
+    off = _ov7_full_lineage_totals(32774).values()
+    assert max(off) - min(off) > 1000, sorted(off)
+
+
+def test_ov7_full_deals_every_family_on_one_shard():
+    """Largest-remainder must not round any family to zero at a shard's size."""
+    c = registry.corpus_of("ov7_full")
+    counts = registry.resolve_suite(10925, registry.SUITES["ov7_full"], corpus=c)
+    assert sum(counts.values()) == 10925
+    assert min(counts.values()) > 0

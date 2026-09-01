@@ -1,0 +1,20 @@
+# a3 + degradation-aware test-time augmentation (rung A6).
+#
+# The only rung whose flag changes nothing about training. The head is
+# a3's, trained from the same seed on the same rows -- run_ablation
+# prints max|w_a6 - w_a3| to show it. What differs is that each image is
+# scored as the mean logit over eight views of the DEGRADED image, which
+# multiplies inference cost by eight (TtaEvalBank records that).
+#
+# Read against a3, never against a4: TTA is asked here as an independent
+# question from the reconstruction branch, not as a step past it.
+name: a6
+use_augmented: true
+use_degradation: true
+use_consistency: true
+use_recon: false
+use_recon_vq: false
+use_freq: false
+use_film: false
+tta: true
+epochs: 30

@@ -4,5 +4,8 @@ use_augmented: true
 use_degradation: true
 use_consistency: false
 use_recon: false
+use_recon_vq: false
+use_freq: false
 use_film: false
+tta: false
 epochs: 30
