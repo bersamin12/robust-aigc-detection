@@ -238,6 +238,34 @@ without a GPU or any downloaded model.
 | Shuen Wei | 
 
 ## Licences
+Apache 2.0 / MIT models were tested
 
-Model weights: DINOv2 is Apache-2.0 ([docs/model_licences.md](docs/model_licences.md)).
-Dataset terms are catalogued in [docs/dataset_licences.md](docs/dataset_licences.md).
+## References
+
+### Challenge & task definition
+- **NTIRE 2026: Robust AI-Generated Image Detection in the Wild** ([arXiv:2604.11487](https://arxiv.org/abs/2604.11487), CVPRW 2026) — primary external dataset (108k real / 185k generated, 42 generators, 36 distortions): its train split is 40% of our training corpus, its val/val-hard sets sit in our validation split, and its distortion protocol shaped our robustness grid.
+
+### Detection methods adapted
+- **UnivFD — Ojha et al., *Towards Universal Fake Image Detectors that Generalize Across Generative Models*** ([arXiv:2302.10174](https://arxiv.org/abs/2302.10174), CVPR 2023) — the frozen-pretrained-features + light-readout paradigm behind our Stage A/B design and the rung-A0 baseline; our unfreezing ladder is the controlled measurement of where this paradigm stops.
+- **AEROBLADE — Ricker et al.** ([arXiv:2401.17879](https://arxiv.org/abs/2401.17879), CVPR 2024) — its autoencoder reconstruction-error + LPIPS distance is the `l1`/LPIPS slot of our 12-d reconstruction feature block (rung a4).
+- **FIRE — frequency-guided reconstruction error** ([arXiv:2412.07140](https://arxiv.org/abs/2412.07140)) — its mid-frequency-band thesis is implemented as the radial band split (`spec_b0..b3`, mid/high ratios) of the same reconstruction block.
+- **NPR — Tan et al., *Rethinking the Up-Sampling Operations…*** ([arXiv:2312.10461](https://arxiv.org/abs/2312.10461), CVPR 2024) — its neighbouring-pixel-relationship residual inspired our 4-d frequency descriptor (rung aF); ours is a summary statistic + linear head, not the published ResNet-50, and is labelled "NPR-style" accordingly.
+- **CNNDetection — Wang et al., *CNN-generated images are surprisingly easy to spot… for now*** ([arXiv:1912.11035](https://arxiv.org/abs/1912.11035), CVPR 2020) — the train-time JPEG/blur augmentation recipe for robustness that our degradation views extend with presence/severity supervision and a consistency loss.
+
+### Backbones
+- **DINOv2 — Oquab et al.** ([arXiv:2304.07193](https://arxiv.org/abs/2304.07193)) with **registers — Darcet et al., *Vision Transformers Need Registers*** ([arXiv:2309.16588](https://arxiv.org/abs/2309.16588)) — the shipped towers (2× DINOv2-reg ViT-L/14, fully fine-tuned); registers alone were worth +7.7 points at equal parameter count in our probe.
+- **SigLIP 2** ([arXiv:2502.14786](https://arxiv.org/abs/2502.14786)), **SigLIP** ([arXiv:2303.15343](https://arxiv.org/abs/2303.15343)), **EVA-02** ([arXiv:2303.11331](https://arxiv.org/abs/2303.11331)), **ConvNeXt V2** ([arXiv:2301.00808](https://arxiv.org/abs/2301.00808)) — backbone-selection ablation candidates; all lost to DINOv2-reg under both frozen probing and full fine-tuning.
+- **DINOv3** ([arXiv:2508.10104](https://arxiv.org/abs/2508.10104)) — measured as an ablation reference only; barred from the shipped bundle by team licence decision.
+
+### Components
+- **Latent Diffusion / Stable Diffusion 1.5 — Rombach et al.** ([arXiv:2112.10752](https://arxiv.org/abs/2112.10752)) — its KL autoencoder is the round-trip model of the reconstruction branch (and its VQ counterpart the a4vq variant).
+- **LPIPS — Zhang et al.** ([arXiv:1801.03924](https://arxiv.org/abs/1801.03924)) — the perceptual distance inside the reconstruction features.
+
+### Considered and ruled out (measured, not skipped)
+- **LaRE² — latent reconstruction error** ([arXiv:2403.17465](https://arxiv.org/abs/2403.17465), CVPR 2024) — its speedup (no full diffusion inversion) is already our design; its one-step-denoise increment needs a UNet against the 2 B-parameter cap, so it was recorded as out of scope.
+- **TENT** ([arXiv:2006.10726](https://arxiv.org/abs/2006.10726)) / **MEMO** ([arXiv:2110.09506](https://arxiv.org/abs/2110.09506)) — entropy-minimising test-time adaptation, piloted and found neutral-to-harmful at every learning rate (`docs/tta_entropy_pilot.json`); per-image adaptation also breaks the score comparability TPR@1%FPR requires.
+
+### Datasets
+- **MS-COCO** ([arXiv:1405.0312](https://arxiv.org/abs/1405.0312)) and **Open Images V7** ([arXiv:1811.00982](https://arxiv.org/abs/1811.00982)) — authentic pools for training, transfer and demo evaluation.
+- **WildFake** ([arXiv:2402.11843](https://arxiv.org/abs/2402.11843)) — generated-image pool and the held-out generator families behind the selection metric.
+
