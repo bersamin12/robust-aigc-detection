@@ -8,8 +8,19 @@ cropping. Clean-data accuracy is the easy half; this project is built around
 the half that isn't — and around measuring generalisation to generator
 lineages the model has never seen, rather than asserting it.
 
----
+**Presentation Slides: See ([/techjam demo slides - Google Slides](/techjam demo slides - Google Slides)**
+Contains: 
+- Architecture diagram
+- Table 1: Detection performance across evaluation splits  
+- Table 2: Robustness analysis
+- Table 3: Ablation - Backbone unfreezing depth 
+- Table 4: Ablation - Canonicalisation method (crop vs. downsampling) 
+- Table 6: Ablation - Adding Test Time Augmentation (TTA)
+- Table 7: Ablation - Adding VAE reconstruction branch
+- Table 8: Ablation - Using frequency branch
+- Error analysis on FP and FN
 
+---
 > Cleaned primary submission repo:
 > [TechJam2026-aigc-detection-AquaForge8](https://github.com/bersamin12/TechJam2026-aigc-detection-AquaForge8);
 > `master` here carries the identical submission content, and the feature
