@@ -354,3 +354,105 @@ def test_runs_as_a_command_line_program(tmp_path):
     r = subprocess.run([sys.executable, str(stub)], capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
     assert len(json.loads(out.read_text())) == 2
+
+
+# --- the finetuned-checkpoint mode ------------------------------------------
+
+def _dual_ckpt(tmp_path):
+    """A checkpoint in `_write_ckpt`'s dual shape, with weightless towers.
+
+    Identity towers with empty state dicts satisfy `_load_models`' load path
+    (fp32 cast, load_state_dict, bf16 cast) without a real backbone; the
+    forward is stubbed at `_forward_tower`, which is where the real path
+    diverges from the bundle mode anyway.
+    """
+    torch.manual_seed(0)
+    head = Detector(dim_feat=2 * DIM)
+    ck = {"state_dict": head.state_dict(),
+          "tower_state_dicts": [{}, {}],
+          "backbones": ["fakeA", "fakeB"],
+          "dim_feat": 2 * DIM,
+          "epoch": 1,
+          "config": {"policy_mode": "crop", "crop_side": 32,
+                     "nominal_side": 48, "use_recon": False,
+                     "use_film": False, "head_hidden": 512}}
+    p = tmp_path / "finetuned.pt"
+    torch.save(ck, p)
+    return str(p)
+
+
+@pytest.fixture()
+def pred_ckpt(monkeypatch):
+    """`predict.py` with the finetuned path's two seams stubbed."""
+    import importlib.util
+
+    from aigcdet.features.backbones import BackboneSpec
+    from aigcdet.train import finetune
+
+    scripts_dir = str(REPO / "scripts")
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    import score_plan_splits
+
+    spec = importlib.util.spec_from_file_location("predict_mod_ckpt", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    monkeypatch.setattr(
+        score_plan_splits, "load_backbone",
+        lambda n, device="cpu": (torch.nn.Identity(),
+                                 BackboneSpec(n, "none", 48, DIM, 1, 0)))
+    monkeypatch.setattr(
+        finetune, "_forward_tower",
+        lambda model, sp, imgs, device, dtype, chunk: torch.stack(
+            [torch.full((sp.dim,), float(np.mean(i)) / 255.0) for i in imgs]))
+    return mod
+
+
+def test_ckpt_mode_writes_the_same_contract(tmp_path, pred_ckpt):
+    paths = _images(tmp_path / "in")
+    ck = _dual_ckpt(tmp_path)
+    out = tmp_path / "p.json"
+    rc = pred_ckpt.main(["--images", str(tmp_path / "in"), "--ckpt", ck,
+                         "--out", str(out), "--device", "cpu"])
+    assert rc == 0
+    rows = json.loads(out.read_text())
+    assert [r["image_path"] for r in rows] == [str(p) for p in sorted(paths)]
+    assert all(sorted(r) == ["image_path", "pred"] for r in rows)
+    assert all(0.0 <= r["pred"] <= 1.0 for r in rows)
+
+
+def test_ckpt_mode_scores_a_bad_file_half_and_exits_nonzero(tmp_path, pred_ckpt):
+    _images(tmp_path / "in", n=2)
+    (tmp_path / "in" / "broken.png").write_bytes(b"not an image")
+    ck = _dual_ckpt(tmp_path)
+    out = tmp_path / "p.json"
+    rc = pred_ckpt.main(["--images", str(tmp_path / "in"), "--ckpt", ck,
+                         "--out", str(out), "--device", "cpu"])
+    assert rc == 1
+    rows = {r["image_path"]: r["pred"] for r in json.loads(out.read_text())}
+    assert rows[str(tmp_path / "in" / "broken.png")] == 0.5
+    assert len(rows) == 3
+
+
+def test_ckpt_and_bundle_are_mutually_exclusive(tmp_path, pred_ckpt):
+    _images(tmp_path / "in", n=1)
+    with pytest.raises(SystemExit):
+        pred_ckpt.main(["--images", str(tmp_path / "in"),
+                        "--out", str(tmp_path / "p.json"), "--device", "cpu"])
+
+
+def test_ckpt_mode_refuses_a_recon_head(tmp_path, pred_ckpt):
+    torch.manual_seed(0)
+    head = Detector(dim_feat=2 * DIM, use_recon=True)
+    ck = {"state_dict": head.state_dict(), "tower_state_dicts": [{}, {}],
+          "backbones": ["fakeA", "fakeB"], "dim_feat": 2 * DIM, "epoch": 1,
+          "config": {"policy_mode": "crop", "crop_side": 32,
+                     "nominal_side": 48, "use_recon": True,
+                     "use_film": False, "head_hidden": 512}}
+    p = tmp_path / "recon.pt"
+    torch.save(ck, p)
+    _images(tmp_path / "in", n=1)
+    with pytest.raises(SystemExit, match="recon"):
+        pred_ckpt.main(["--images", str(tmp_path / "in"), "--ckpt", str(p),
+                        "--out", str(tmp_path / "p.json"), "--device", "cpu"])
