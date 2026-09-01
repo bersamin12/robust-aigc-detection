@@ -126,8 +126,18 @@ def predict_paths_finetuned(ckpt: str, paths: list[str], device: str,
                             "error": f"{type(exc).__name__}: {exc}"}
                 continue
             # The EVAL convention: the deterministic centre window (`rng` is
-            # absent), so the same file scores the same twice.
-            imgs.append(canonicalise(arr, policy=policy))
+            # absent), so the same file scores the same twice. Canonicalising
+            # can refuse -- an image smaller than the crop window has no
+            # 200x200 centre to take -- and a judge's directory owes us no
+            # minimum size, so that refusal is this file's failure, not the
+            # run's.
+            try:
+                imgs.append(canonicalise(arr, policy=policy))
+            except ValueError as exc:
+                print(f"skipping {p}: {exc}", file=sys.stderr)
+                slots[p] = {"pred": FAILED_PRED, "logit": 0.0,
+                            "error": f"ValueError: {exc}"}
+                continue
             kept.append(p)
         if imgs:
             with torch.no_grad():

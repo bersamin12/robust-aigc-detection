@@ -456,3 +456,21 @@ def test_ckpt_mode_refuses_a_recon_head(tmp_path, pred_ckpt):
     with pytest.raises(SystemExit, match="recon"):
         pred_ckpt.main(["--images", str(tmp_path / "in"), "--ckpt", str(p),
                         "--out", str(tmp_path / "p.json"), "--device", "cpu"])
+
+
+def test_ckpt_mode_scores_an_undersized_image_as_failed(tmp_path, pred_ckpt):
+    """canonicalise refuses an image smaller than the crop window; that is the
+    file's failure, not the run's -- the other files still get real scores."""
+    ck = _dual_ckpt(tmp_path)
+    _images(tmp_path / "in", n=2)
+    Image.fromarray(np.zeros((20, 25, 3), dtype=np.uint8)).save(
+        tmp_path / "in" / "tiny.png")
+    out = tmp_path / "p.json"
+    rc = pred_ckpt.main(["--images", str(tmp_path / "in"), "--ckpt", ck,
+                         "--out", str(out), "--device", "cpu"])
+    assert rc == 1
+    rows = {r["image_path"]: r["pred"] for r in json.loads(out.read_text())}
+    assert rows[str(tmp_path / "in" / "tiny.png")] == 0.5
+    assert len(rows) == 3
+    others = [v for k, v in rows.items() if not k.endswith("tiny.png")]
+    assert all(v != 0.5 for v in others)
