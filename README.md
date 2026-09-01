@@ -10,7 +10,7 @@ lineages the model has never seen, rather than asserting it.
 
 ---
 
-> This repository is the backup mirror of our primary submission repo,
+> Cleaned primary submission repo:
 > [TechJam2026-aigc-detection-AquaForge8](https://github.com/bersamin12/TechJam2026-aigc-detection-AquaForge8);
 > `master` here carries the identical submission content, and the feature
 > branches carry the full experiment history.
@@ -216,15 +216,15 @@ without a GPU or any downloaded model.
 
 ---
 
-## Team member contributions
+## Team members
 
-| member | contribution |
-| --- | --- |
-| *[name]* | *[e.g. data acquisition & confound audits]* |
-| *[name]* | *[e.g. training infrastructure & experiments]* |
-| *[name]* | *[e.g. evaluation design & reporting]* |
-
-<!-- Fill in before submission. -->
+| members | 
+| --- | 
+| Justin | 
+| An Xian |
+| Dion |
+| SiTong |
+| Shuen Wei | 
 
 ## Licences
 
