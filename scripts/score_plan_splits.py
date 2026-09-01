@@ -71,7 +71,8 @@ def _load_models(ck: dict, device: str, use_swa: bool):
         specs.append(spec)
 
     cfg = ck["config"]
-    head = Detector(dim_feat=ck["dim_feat"], use_recon=False,
+    head = Detector(dim_feat=ck["dim_feat"],
+                    use_recon=bool(cfg.get("use_recon")),
                     use_film=bool(cfg.get("use_film")),
                     hidden=int(cfg.get("head_hidden", 512))).to(device)
     head.load_state_dict(head_sd)
@@ -84,6 +85,14 @@ def _score_split(df: pd.DataFrame, towers, specs, head, policy: CanonPolicy,
                  desc: str, tta: bool = False) -> np.ndarray:
     from PIL import Image
     from tqdm import tqdm
+
+    recon = None
+    if head.use_recon:
+        # The VAE branch scores from the SAME canonicalised image the towers
+        # see -- its clean-view feature, computed live (no bank covers the
+        # eval splits).
+        from aigcdet.features.recon import load_recon_models, recon_features
+        recon = load_recon_models(device=device)
 
     tta_views = None
     if tta:
@@ -118,7 +127,13 @@ def _score_split(df: pd.DataFrame, towers, specs, head, policy: CanonPolicy,
             feats = torch.cat(
                 [_forward_tower(t, sp, imgs, device, torch.bfloat16, chunk)
                  for t, sp in zip(towers, specs)], dim=-1)
-            logit = head(feats.float())["logit"]
+            r = None
+            if recon is not None:
+                vae, lpips_fn = recon
+                r = torch.from_numpy(np.stack(
+                    [recon_features(im, vae, lpips_fn, device=device)
+                     for im in imgs])).to(device)
+            logit = head(feats.float(), r)["logit"]
             if tta_views is not None:
                 # Mean of per-view LOGITS, then sigmoid -- eval/tta.py's
                 # aggregation. Monotone for AUC/TPR either way; acc@0.5 is

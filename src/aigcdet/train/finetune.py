@@ -286,7 +286,7 @@ class LiveViewSampler(PairedSampler):
     def targets(self, si: np.ndarray, vi: np.ndarray, device: str) -> dict:
         """The parts of a batch that come from the bank, not from the tower."""
         y = self.bank.meta["label"].to_numpy()[si].astype(np.float32)
-        return {
+        out = {
             "y_clean": torch.from_numpy(y).to(device),
             "y_deg": torch.from_numpy(y).to(device),
             "presence_deg": torch.from_numpy(
@@ -294,6 +294,20 @@ class LiveViewSampler(PairedSampler):
             "severity_deg": torch.from_numpy(
                 np.asarray(self.bank.severity[si, vi]).astype(np.float32)).to(device),
         }
+        if self.use_recon:
+            # Precomputed on the bank by the replay pass, per (row, view) --
+            # and the replay reproduces the trainer's EXACT pixels, which is
+            # what makes a cached feature valid beside a live decode. Column 0
+            # is the clean view, mirroring `PairedSampler.__iter__`.
+            if self.bank.recon is None:
+                raise ValueError(
+                    "use_recon: this bank has no recon.npy; run "
+                    "extract_features --block recon over it first")
+            out["r_clean"] = torch.from_numpy(np.asarray(
+                self.bank.recon[si, 0]).astype(np.float32)).to(device)
+            out["r_deg"] = torch.from_numpy(np.asarray(
+                self.bank.recon[si, vi]).astype(np.float32)).to(device)
+        return out
 
 
 # ---------------------------------------------------------------------------
@@ -437,6 +451,9 @@ class FinetuneConfig:
     #: by corpus size rather than by depth -- so that a decision about a much
     #: larger corpus rests on a measured slope instead of an argument.
     train_subsample_frac: float = 1.0
+    #: Feed the head the bank's precomputed 12-d reconstruction block (the
+    #: VAE branch, spec section 3.3). The block must already be attached.
+    use_recon: bool = False
 
     def policy(self) -> CanonPolicy:
         kw = {} if self.nominal_side is None else {
@@ -471,13 +488,13 @@ def _step_loss(head, batch: dict, cfg: FinetuneConfig):
     one the cached rungs used or D0 stops being their control.
     """
     if not cfg.use_augmented:
-        out_clean = head(batch["f_clean"], None)
+        out_clean = head(batch["f_clean"], batch.get("r_clean"))
         loss = classification_loss(out_clean["logit"], batch["y_clean"])
         v = float(loss.detach())
         return loss, {"cls": v, "deg": 0.0, "con": 0.0, "total": v}
 
-    out_clean = head(batch["f_clean"], None)
-    out_deg = head(batch["f_deg"], None)
+    out_clean = head(batch["f_clean"], batch.get("r_clean"))
+    out_deg = head(batch["f_deg"], batch.get("r_deg"))
     if cfg.use_degradation:
         w = cfg.weights if cfg.use_consistency else LossWeights(
             lambda_deg=cfg.weights.lambda_deg, alpha=0.0, beta=0.0)
@@ -842,7 +859,7 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
 
     with torch.random.fork_rng(devices=[]):
         torch.manual_seed(cfg.seed)
-        head = Detector(dim_feat=spec.dim, use_recon=False,
+        head = Detector(dim_feat=spec.dim, use_recon=cfg.use_recon,
                         use_film=cfg.use_film, hidden=cfg.head_hidden).to(cfg.device)
 
     tower_params = [p for p in tower.parameters() if p.requires_grad]
@@ -856,7 +873,8 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
     reducer = _GradReducer(list(head.parameters()) + tower_params) if world > 1 else None
 
     sampler = LiveViewSampler(
-        bank, train_idx, root=cfg.root, seed=int(bank.config["seed"]),
+        bank, train_idx, root=cfg.root, use_recon=cfg.use_recon,
+        seed=int(bank.config["seed"]),
         policy=cfg.policy(), geometric=cfg.geometric,
         exclude_families=(), n_src=cfg.n_src, m_deg=cfg.m_deg,
         rng=np.random.default_rng(cfg.seed), device=cfg.device)

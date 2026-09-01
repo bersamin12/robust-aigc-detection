@@ -62,6 +62,8 @@ MINLR=${MINLR:-0.01}
 SWA=${SWA:-1}
 SWA_START=${SWA_START:-0.75}
 SWA_FLAG=""; [ "$SWA" = "1" ] && SWA_FLAG="--swa"
+RECON=${RECON:-0}
+RECON_FLAG=""; [ "$RECON" = "1" ] && RECON_FLAG="--use-recon"
 LOG=logs/${NM}.log
 mkdir -p logs outputs/dual
 
@@ -107,6 +109,6 @@ OMP_NUM_THREADS=$OMP $PY -m torch.distributed.run \
   --nominal-side "$NOMINAL" $CLAMP_FLAG \
   --device cuda --workers "$WORKERS" --src-chunk "$CHUNK" --resume \
   --lr-schedule "$SCHED" --warmup-frac "$WARMUP" \
-  --min-lr-frac "$MINLR" $SWA_FLAG --swa-start-frac "$SWA_START" \
+  --min-lr-frac "$MINLR" $SWA_FLAG --swa-start-frac "$SWA_START" $RECON_FLAG \
   >> "$LOG" 2>&1
 echo "[$(date +%H:%M:%S)] exit=$? -> outputs/dual/$NM/checkpoint.pt" | tee -a "$LOG"

@@ -140,7 +140,7 @@ def train_dual(cfg: DualFinetuneConfig) -> dict:
     dim_feat = specs[0].dim + specs[1].dim
     with torch.random.fork_rng(devices=[]):
         torch.manual_seed(b.seed)
-        head = Detector(dim_feat=dim_feat, use_recon=False,
+        head = Detector(dim_feat=dim_feat, use_recon=b.use_recon,
                         use_film=b.use_film, hidden=b.head_hidden).to(b.device)
 
     tower_params = [[p for p in t.parameters() if p.requires_grad]
@@ -154,7 +154,8 @@ def train_dual(cfg: DualFinetuneConfig) -> dict:
     reducer = _GradReducer(flat) if world > 1 else None
 
     sampler = LiveViewSampler(
-        bank, train_idx, root=b.root, seed=int(bank.config["seed"]),
+        bank, train_idx, root=b.root, use_recon=b.use_recon,
+        seed=int(bank.config["seed"]),
         policy=b.policy(), geometric=b.geometric, exclude_families=(),
         n_src=b.n_src, m_deg=b.m_deg,
         rng=np.random.default_rng(b.seed), device=b.device)

@@ -66,6 +66,8 @@ def main() -> int:
                          "ladder and may not be quoted against it")
     ap.add_argument("--warmup-frac", type=float, default=0.03)
     ap.add_argument("--min-lr-frac", type=float, default=0.01)
+    ap.add_argument("--use-recon", action="store_true",
+                    help="feed the head the bank's precomputed recon block")
     ap.add_argument("--swa", action="store_true",
                     help="average weights over the tail; saved BESIDE the "
                          "final weights, both scorable")
@@ -86,6 +88,7 @@ def main() -> int:
         grad_checkpointing=not a.no_checkpointing, resume=a.resume,
         lr_schedule=a.lr_schedule, warmup_frac=a.warmup_frac,
         min_lr_frac=a.min_lr_frac, swa=a.swa, swa_start_frac=a.swa_start_frac,
+        use_recon=a.use_recon,
         train_subsample_frac=a.train_subsample_frac)
 
     res = train_finetune(cfg)
