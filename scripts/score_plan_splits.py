@@ -82,7 +82,8 @@ def _load_models(ck: dict, device: str, use_swa: bool):
 
 def _score_split(df: pd.DataFrame, towers, specs, head, policy: CanonPolicy,
                  device: str, batch: int, workers: int, chunk: int,
-                 desc: str, tta: bool = False) -> np.ndarray:
+                 desc: str, tta: bool = False,
+                 grid: dict | None = None) -> np.ndarray:
     from PIL import Image
     from tqdm import tqdm
 
@@ -98,6 +99,7 @@ def _score_split(df: pd.DataFrame, towers, specs, head, policy: CanonPolicy,
     if tta:
         from aigcdet.eval.tta import TTA_VIEWS, apply_tta_view
         tta_views = TTA_VIEWS
+    conds = list(grid.items()) if grid else None
 
     def prepare(paths: list[str]) -> list[np.ndarray]:
         out = []
@@ -108,7 +110,17 @@ def _score_split(df: pd.DataFrame, towers, specs, head, policy: CanonPolicy,
             # window (`rng is None gives the CENTRE window`). A random crop
             # here would score a different picture per invocation.
             std = canonicalise(decoded, policy=policy)
-            if tta_views is None:
+            if conds is not None:
+                # The robustness grid: each condition's recipe applied on top
+                # of the SAME centre window, exactly eval/grid's convention --
+                # one canonicalisation shared by all conditions so a
+                # condition's effect is not confounded with a different
+                # picture. The rng key is (seed, row-position, condition), so
+                # the one op that draws from it (noise) is reproducible.
+                for ci, (_, recipe) in enumerate(conds):
+                    rng = np.random.default_rng([20260827, hash(p) % (2**31), ci])
+                    out.append(recipe.apply(std, rng))
+            elif tta_views is None:
                 out.append(std)
             else:
                 # TTA composes ON TOP of the canonicalised image, one entry
@@ -118,7 +130,8 @@ def _score_split(df: pd.DataFrame, towers, specs, head, policy: CanonPolicy,
 
     paths = df["path"].tolist()
     batches = [paths[i:i + batch] for i in range(0, len(paths), batch)]
-    probs = np.empty(len(paths), dtype=np.float64)
+    width = len(conds) if conds is not None else 1
+    probs = np.empty(len(paths) * width, dtype=np.float64)
     done = 0
     with ThreadPoolExecutor(max_workers=workers) as pool, torch.no_grad():
         for _, fut in tqdm(_windowed(pool, prepare, batches, 2 * workers),
@@ -134,7 +147,9 @@ def _score_split(df: pd.DataFrame, towers, specs, head, policy: CanonPolicy,
                     [recon_features(im, vae, lpips_fn, device=device)
                      for im in imgs])).to(device)
             logit = head(feats.float(), r)["logit"]
-            if tta_views is not None:
+            if conds is not None:
+                pass  # one prob per (image, condition); no aggregation
+            elif tta_views is not None:
                 # Mean of per-view LOGITS, then sigmoid -- eval/tta.py's
                 # aggregation. Monotone for AUC/TPR either way; acc@0.5 is
                 # what logit-space averaging keeps honest.
@@ -142,8 +157,8 @@ def _score_split(df: pd.DataFrame, towers, specs, head, policy: CanonPolicy,
             p = torch.sigmoid(logit).double().cpu().numpy()
             probs[done:done + len(p)] = p
             done += len(p)
-    assert done == len(paths)
-    return probs
+    assert done == len(paths) * width
+    return probs.reshape(len(paths), width) if conds is not None else probs
 
 
 def tpr_at_fpr(labels: np.ndarray, scores: np.ndarray, fpr: float = 0.01) -> float:
@@ -184,6 +199,10 @@ def main() -> int:
     ap.add_argument("--chunk", type=int, default=8,
                     help="images per tower forward inside a batch")
     ap.add_argument("--workers", type=int, default=16)
+    ap.add_argument("--grid", action="store_true",
+                    help="score every EVAL_GRID condition (20x the compute): "
+                         "canonicalise once (centre window), then apply each "
+                         "condition recipe on top -- the robustness table")
     ap.add_argument("--tta", action="store_true",
                     help="8-view test-time augmentation: mean of per-view "
                          "LOGITS (eval/tta.py's aggregation), 8x the compute")
@@ -203,6 +222,13 @@ def main() -> int:
                     help="score only contiguous shard I of N per split (for "
                          "one process per GPU); the merge step reassembles")
     a = ap.parse_args()
+
+    if a.grid and a.tta:
+        sys.exit("REFUSING: --grid and --tta are separate measurements")
+    grid = None
+    if a.grid:
+        from aigcdet.augment.scenarios import EVAL_GRID
+        grid = dict(EVAL_GRID)
 
     ck = torch.load(a.ckpt, map_location="cpu", weights_only=False)
     towers, specs, head, tag = _load_models(ck, a.device, a.swa)
@@ -258,9 +284,33 @@ def main() -> int:
         if miss:
             sys.exit(f"REFUSING {sp}: {len(miss)} sampled paths missing, "
                      f"e.g. {miss[:2]}")
-        d["prob"] = _score_split(d, towers, specs, head, policy, a.device,
-                                 a.batch, a.workers, a.chunk, desc=sp,
-                                 tta=a.tta)
+        scored = _score_split(d, towers, specs, head, policy, a.device,
+                              a.batch, a.workers, a.chunk, desc=sp,
+                              tta=a.tta, grid=grid)
+        if grid is not None:
+            names = list(grid)
+            long = d.loc[d.index.repeat(len(names))].reset_index(drop=True)
+            long["condition"] = names * len(d)
+            long["prob"] = scored.reshape(-1)
+            out = f"{a.out_prefix}_{sp}_grid.parquet"
+            long[["path", "image_id", "source", "generator", "label",
+                  "condition", "prob"]].to_parquet(out, index=False)
+            per_cond = {}
+            for c in names:
+                g = long[long["condition"] == c]
+                per_cond[c] = split_metrics(g)
+                per_cond[c].pop("by_source", None)
+            degraded = [v["tpr_at_1pct_fpr"] for k, v in per_cond.items()
+                        if k != "clean"]
+            metrics["splits"][sp] = {
+                "n": int(len(d)), "conditions": per_cond,
+                "robust_tpr_at_1pct": float(np.mean(degraded))}
+            ms = metrics["splits"][sp]
+            print(f"{sp}: n={ms['n']:,} robust TPR@1%FPR (mean over "
+                  f"{len(degraded)} degraded) = {ms['robust_tpr_at_1pct']:.4f}"
+                  f" -> {out}")
+            continue
+        d["prob"] = scored
         out = f"{a.out_prefix}_{sp}.parquet"
         d[["path", "image_id", "source", "generator", "label", "prob"]].to_parquet(
             out, index=False)
