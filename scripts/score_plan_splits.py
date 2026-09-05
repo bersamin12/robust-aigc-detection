@@ -36,12 +36,18 @@ from aigcdet.models.heads import Detector
 from aigcdet.train.finetune import _forward_tower, _windowed
 
 
-def _policy_from_config(cfg: dict) -> CanonPolicy:
+def _policy_from_config(cfg: dict, crop_clamp: bool | None = None) -> CanonPolicy:
+    """The checkpoint's own canonicalisation, optionally with `crop_clamp`
+    forced on. The override exists for eval sets that carry images SMALLER
+    than the crop window (NTIRE's downscale distortions): without it those
+    rows can only be dropped, and dropping rows changes the leaderboard-
+    matched number. It is reported beside n by the caller."""
     kw = {}
     if cfg.get("nominal_side") is not None:
         kw["nominal_side"] = int(cfg["nominal_side"])
+    clamp = bool(cfg.get("crop_clamp", False)) if crop_clamp is None else bool(crop_clamp)
     return CanonPolicy(mode=cfg["policy_mode"], crop_side=cfg.get("crop_side"),
-                       crop_clamp=bool(cfg.get("crop_clamp", False)), **kw)
+                       crop_clamp=clamp, **kw)
 
 
 def _load_models(ck: dict, device: str, use_swa: bool):
@@ -131,7 +137,11 @@ def _score_split(df: pd.DataFrame, towers, specs, head, policy: CanonPolicy,
     paths = df["path"].tolist()
     batches = [paths[i:i + batch] for i in range(0, len(paths), batch)]
     width = len(conds) if conds is not None else 1
-    probs = np.empty(len(paths) * width, dtype=np.float64)
+    # LOGITS, in float64. The sigmoid is taken by the caller: a probability
+    # saturates at 1.0 in float32 for any logit past ~17, and two branches
+    # that both saturate carry different evidence in logit space and none
+    # in probability space -- which is what late fusion reads.
+    logits = np.empty(len(paths) * width, dtype=np.float64)
     done = 0
     with ThreadPoolExecutor(max_workers=workers) as pool, torch.no_grad():
         for _, fut in tqdm(_windowed(pool, prepare, batches, 2 * workers),
@@ -154,11 +164,11 @@ def _score_split(df: pd.DataFrame, towers, specs, head, policy: CanonPolicy,
                 # aggregation. Monotone for AUC/TPR either way; acc@0.5 is
                 # what logit-space averaging keeps honest.
                 logit = logit.view(-1, len(tta_views)).mean(dim=1)
-            p = torch.sigmoid(logit).double().cpu().numpy()
-            probs[done:done + len(p)] = p
-            done += len(p)
+            z = logit.double().cpu().numpy()
+            logits[done:done + len(z)] = z
+            done += len(z)
     assert done == len(paths) * width
-    return probs.reshape(len(paths), width) if conds is not None else probs
+    return logits.reshape(len(paths), width) if conds is not None else logits
 
 
 def tpr_at_fpr(labels: np.ndarray, scores: np.ndarray, fpr: float = 0.01) -> float:
@@ -169,22 +179,67 @@ def tpr_at_fpr(labels: np.ndarray, scores: np.ndarray, fpr: float = 0.01) -> flo
     return float((scores[labels == 1] > thr).mean())
 
 
-def split_metrics(d: pd.DataFrame) -> dict:
+def _auc(y: np.ndarray, p: np.ndarray) -> float | None:
     from sklearn.metrics import roc_auc_score
+    return float(roc_auc_score(y, p)) if len(set(y.tolist())) == 2 else None
+
+
+def _distortion_tokens(s) -> list[str]:
+    """`distortions` is stored as the challenge csv's python-list string,
+    e.g. "['jpeg', 'blur']"; an empty list or a missing value is no token."""
+    if s is None or (isinstance(s, float) and np.isnan(s)):
+        return []
+    txt = str(s).strip()
+    if txt in ("", "[]"):
+        return []
+    try:
+        import ast
+        v = ast.literal_eval(txt)
+        return [str(x) for x in (v if isinstance(v, (list, tuple)) else [v])]
+    except (ValueError, SyntaxError):
+        return [txt]
+
+
+def split_metrics(d: pd.DataFrame) -> dict:
+    """Pooled AUC / TPR@1%FPR / acc@0.5, per source, and -- when the split
+    carries `is_distorted` -- the leaderboard's pair: Robust ROC AUC over the
+    distorted rows and Clean ROC AUC over the rest, plus one AUC per
+    distortion token (that token's distorted rows against every clean row).
+    """
     y, p = d["label"].to_numpy(), d["prob"].to_numpy()
     out = {"n": int(len(d)),
-           "auc": float(roc_auc_score(y, p)) if len(set(y)) == 2 else None,
+           "auc": _auc(y, p),
            "tpr_at_1pct_fpr": tpr_at_fpr(y, p),
            "acc_at_0.5": float(((p >= 0.5) == y).mean())}
+    if "is_distorted" in d.columns:
+        dist = d["is_distorted"].to_numpy().astype(int)
+        for key, m in (("robust", dist == 1), ("clean", dist == 0)):
+            out[f"n_{key}"] = int(m.sum())
+            out[f"{key}_auc"] = _auc(y[m], p[m]) if m.any() else None
+        if "distortions" in d.columns:
+            per = {}
+            clean = dist == 0
+            toks = [_distortion_tokens(s) for s in d["distortions"]]
+            names = sorted({t for ts in toks for t in ts})
+            for name in names:
+                has = np.fromiter((name in ts for ts in toks), dtype=bool, count=len(toks))
+                m = has | clean
+                per[name] = {"n": int(has.sum()), "auc": _auc(y[m], p[m])}
+            out["by_distortion"] = per
     by = {}
     for src, g in d.groupby("source"):
         ys, ps = g["label"].to_numpy(), g["prob"].to_numpy()
         by[str(src)] = {
             "n": int(len(g)),
-            "auc": float(roc_auc_score(ys, ps)) if len(set(ys)) == 2 else None,
+            "auc": _auc(ys, ps),
             "acc_at_0.5": float(((ps >= 0.5) == ys).mean())}
     out["by_source"] = by
     return out
+
+
+#: Columns written to the per-row parquet, in this order, when present.
+OUT_COLUMNS = ("path", "image_id", "source", "generator", "label", "split",
+               "is_distorted", "distortions", "logit", "prob")
 
 
 def main() -> int:
@@ -221,6 +276,11 @@ def main() -> int:
     ap.add_argument("--shard", default=None, metavar="I/N",
                     help="score only contiguous shard I of N per split (for "
                          "one process per GPU); the merge step reassembles")
+    ap.add_argument("--crop-clamp", action="store_true",
+                    help="force CanonPolicy.crop_clamp on, so rows with a "
+                         "side below the crop window (NTIRE's downscale "
+                         "distortions) are scored instead of refused; the "
+                         "count of such rows is printed beside n")
     a = ap.parse_args()
 
     if a.grid and a.tta:
@@ -232,7 +292,7 @@ def main() -> int:
 
     ck = torch.load(a.ckpt, map_location="cpu", weights_only=False)
     towers, specs, head, tag = _load_models(ck, a.device, a.swa)
-    policy = _policy_from_config(ck["config"])
+    policy = _policy_from_config(ck["config"], True if a.crop_clamp else None)
     print(f"model: {'+'.join(ck.get('backbones', [ck.get('backbone')]))} "
           f"({tag}, epoch {ck.get('epoch')}), policy {policy.as_record()}")
 
@@ -284,17 +344,27 @@ def main() -> int:
         if miss:
             sys.exit(f"REFUSING {sp}: {len(miss)} sampled paths missing, "
                      f"e.g. {miss[:2]}")
+        if policy.crop_side and {"width", "height"} <= set(d.columns):
+            small = int((d[["width", "height"]].min(axis=1) < policy.crop_side).sum())
+            if small:
+                print(f"{sp}: {small} of {len(d)} rows have a side below the "
+                      f"{policy.crop_side}px crop window"
+                      + (" (scored under crop_clamp)" if policy.crop_clamp
+                         else " -- canonicalise will REFUSE them; pass "
+                              "--crop-clamp or --min-short-side"))
         scored = _score_split(d, towers, specs, head, policy, a.device,
                               a.batch, a.workers, a.chunk, desc=sp,
                               tta=a.tta, grid=grid)
+        cols = [c for c in OUT_COLUMNS if c in d.columns or c in ("logit", "prob")]
         if grid is not None:
             names = list(grid)
             long = d.loc[d.index.repeat(len(names))].reset_index(drop=True)
             long["condition"] = names * len(d)
-            long["prob"] = scored.reshape(-1)
+            long["logit"] = scored.reshape(-1)
+            long["prob"] = 1.0 / (1.0 + np.exp(-long["logit"].to_numpy()))
             out = f"{a.out_prefix}_{sp}_grid.parquet"
-            long[["path", "image_id", "source", "generator", "label",
-                  "condition", "prob"]].to_parquet(out, index=False)
+            long[[c for c in cols if c != "prob"] + ["condition", "prob"]
+                 ].to_parquet(out, index=False)
             per_cond = {}
             for c in names:
                 g = long[long["condition"] == c]
@@ -310,18 +380,22 @@ def main() -> int:
                   f"{len(degraded)} degraded) = {ms['robust_tpr_at_1pct']:.4f}"
                   f" -> {out}")
             continue
-        d["prob"] = scored
+        d["logit"] = scored
+        d["prob"] = 1.0 / (1.0 + np.exp(-scored))
         out = f"{a.out_prefix}_{sp}.parquet"
-        d[["path", "image_id", "source", "generator", "label", "prob"]].to_parquet(
-            out, index=False)
+        d[cols].to_parquet(out, index=False)
         metrics["splits"][sp] = split_metrics(d)
         ms = metrics["splits"][sp]
         # A contiguous shard of a source-ordered split can be single-class,
         # so AUC can legitimately be None here; the merge computes the real one.
-        auc = "n/a" if ms["auc"] is None else f"{ms['auc']:.4f}"
-        print(f"{sp}: n={ms['n']:,} AUC={auc} "
+        f4 = lambda v: "n/a" if v is None else f"{v:.4f}"  # noqa: E731
+        extra = ""
+        if "robust_auc" in ms:
+            extra = (f" robustAUC={f4(ms['robust_auc'])} (n={ms['n_robust']}) "
+                     f"cleanAUC={f4(ms['clean_auc'])} (n={ms['n_clean']})")
+        print(f"{sp}: n={ms['n']:,} AUC={f4(ms['auc'])} "
               f"TPR@1%FPR={ms['tpr_at_1pct_fpr']:.4f} acc={ms['acc_at_0.5']:.4f}"
-              f" -> {out}")
+              f"{extra} -> {out}")
 
     with open(f"{a.out_prefix}_metrics.json", "w") as f:
         json.dump(metrics, f, indent=2)

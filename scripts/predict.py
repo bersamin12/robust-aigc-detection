@@ -156,6 +156,48 @@ def predict_paths_finetuned(ckpt: str, paths: list[str], device: str,
     return results
 
 
+def predict_paths_fused(ckpts: list[str], fusion_json: str, paths: list[str],
+                        device: str, batch_size: int) -> list[dict]:
+    """Two finetuned branches, fused exactly as `scripts/fuse_branches.py` fit them.
+
+    Each checkpoint is scored under its OWN canonicalisation (the 518 branch
+    and the 224 branch standardise differently), then the logits are z-scored
+    with the fitted parameters and mixed with the fitted weight. `pred` is the
+    sigmoid of the fused z-score: monotone in the fused score, so the AUCs in
+    `docs/ntire/fusion_*.json` are the AUCs of this output, and uncalibrated
+    like the single-checkpoint path.
+
+    A file either branch could not score gets `pred=FAILED_PRED` and the
+    error, keyed by path, exactly as the single-branch path does.
+    """
+    from aigcdet.eval.late_fusion import Fusion
+
+    with open(fusion_json) as f:
+        rec = json.load(f)
+    fusion = Fusion.from_record(rec["fusion"])
+    if len(ckpts) != 2:
+        raise SystemExit(f"fused serving takes exactly two --ckpt, got {len(ckpts)}")
+    for tag, ck in zip(("a", "b"), ckpts):
+        want = (rec.get(f"branch_{tag}") or {}).get("ckpt")
+        if want and os.path.basename(want) != os.path.basename(ck):
+            print(f"note: fusion was fit on branch_{tag}={want}, serving {ck}",
+                  file=sys.stderr)
+    per = [predict_paths_finetuned(ck, paths, device, batch_size) for ck in ckpts]
+    by_path = [{r["image_path"]: r for r in res} for res in per]
+    results = []
+    for p in paths:
+        ra, rb = by_path[0][p], by_path[1][p]
+        if ra["error"] or rb["error"]:
+            results.append({"image_path": p, "pred": FAILED_PRED, "logit": 0.0,
+                            "error": ra["error"] or rb["error"]})
+            continue
+        z = float(fusion.apply(np.array([ra["logit"]]), np.array([rb["logit"]]))[0])
+        results.append({"image_path": p, "pred": float(1.0 / (1.0 + np.exp(-z))),
+                        "logit": z, "logit_a": ra["logit"], "logit_b": rb["logit"],
+                        "error": None})
+    return results
+
+
 def minimal_rows(results: list[dict]) -> list[dict]:
     """`results` reduced to the two keys the brief asks for.
 
@@ -176,10 +218,15 @@ def main(argv: list[str] | None = None) -> int:
                    help="a release bundle from scripts/export_bundle.py, "
                         "e.g. outputs/release -- checkpoint, calibrator, EQI "
                         "and policy together")
-    g.add_argument("--ckpt",
+    g.add_argument("--ckpt", action="append",
                    help="a finetuned checkpoint (single- or dual-tower) in "
                         "_write_ckpt's shape; pred is sigmoid(logit), the "
-                        "quantity the results tables were computed on")
+                        "quantity the results tables were computed on. Given "
+                        "TWICE with --fusion, the two are fused as "
+                        "scripts/fuse_branches.py fit them")
+    ap.add_argument("--fusion", default=None,
+                    help="fusion json from scripts/fuse_branches.py; required "
+                         "with two --ckpt, refused with one")
     ap.add_argument("--out", default="predictions.json",
                     help="output JSON: [{image_path, pred}, ...]")
     ap.add_argument("--full", action="store_true",
@@ -192,8 +239,19 @@ def main(argv: list[str] | None = None) -> int:
 
     if not os.path.isdir(a.images):
         raise SystemExit(f"--images {a.images!r} is not a directory")
-    if a.ckpt and not os.path.isfile(a.ckpt):
-        raise SystemExit(f"--ckpt {a.ckpt!r} is not a file")
+    for ck in a.ckpt or ():
+        if not os.path.isfile(ck):
+            raise SystemExit(f"--ckpt {ck!r} is not a file")
+    if a.ckpt and len(a.ckpt) > 2:
+        raise SystemExit(f"at most two --ckpt (got {len(a.ckpt)})")
+    if a.ckpt and len(a.ckpt) == 2 and not a.fusion:
+        raise SystemExit("two --ckpt need --fusion <json from fuse_branches.py>: "
+                         "without the fitted z-scores and weight there is no "
+                         "defined way to combine them")
+    if a.fusion and (not a.ckpt or len(a.ckpt) != 2):
+        raise SystemExit("--fusion applies to exactly two --ckpt")
+    if a.fusion and not os.path.isfile(a.fusion):
+        raise SystemExit(f"--fusion {a.fusion!r} is not a file")
     if a.bundle and not os.path.isdir(a.bundle):
         raise SystemExit(
             f"--bundle {a.bundle!r} is not a directory. It should be the "
@@ -208,8 +266,11 @@ def main(argv: list[str] | None = None) -> int:
             "file would be indistinguishable from a model that scored nothing.")
     print(f"{len(paths)} images under {a.images}")
 
-    if a.ckpt:
-        results = predict_paths_finetuned(a.ckpt, paths, a.device,
+    if a.ckpt and len(a.ckpt) == 2:
+        results = predict_paths_fused(a.ckpt, a.fusion, paths, a.device,
+                                      a.batch_size)
+    elif a.ckpt:
+        results = predict_paths_finetuned(a.ckpt[0], paths, a.device,
                                           a.batch_size)
     else:
         predictor = Predictor.load(a.bundle, device=a.device)
