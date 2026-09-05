@@ -162,6 +162,44 @@ SOURCES: dict[str, SourceSpec] = {
         pseudo_bucket="generated",
         generator_buckets=False,
     ),
+    # The organisers' own labelled sets for the same challenge: val (10k),
+    # val_hard (2.5k) and test-public (2.5k), each half distorted, each
+    # shipped as a flat `*_images/` directory plus a `*_labels.csv` carrying
+    # `label`, `distortions` and `is_distorted`. They are the SELECTION and
+    # TEST populations of the NTIRE stream (scripts/build_ntire_manifest.py)
+    # and are barred from training the same way the TechJam demo set is: by
+    # source, so a mislabelled row cannot route around it. No bucket layout is
+    # declared -- these never pass through build_dataset -- and no pseudo
+    # bucket, so `PSEUDO_GENERATORS` stays what the ladder was built against.
+    "ntire_val": SourceSpec(
+        name="ntire_val",
+        licence="NTIRE 2026 Robust AI-Generated Image Detection (deepfakesMSU) "
+                "-- validation split, labels released after the challenge; "
+                "https://huggingface.co/datasets/deepfakesMSU/NTIRE-RobustAIGenDetection-val "
+                "; selection only, never trained on",
+        real_buckets=frozenset(),
+        generator_buckets=True,
+        exclude_from_training=True,
+    ),
+    "ntire_val_hard": SourceSpec(
+        name="ntire_val_hard",
+        licence="NTIRE 2026 Robust AI-Generated Image Detection (deepfakesMSU) "
+                "-- hard validation split; same repo as ntire_val; selection "
+                "only, never trained on",
+        real_buckets=frozenset(),
+        generator_buckets=True,
+        exclude_from_training=True,
+    ),
+    "ntire_test_public": SourceSpec(
+        name="ntire_test_public",
+        licence="NTIRE 2026 Robust AI-Generated Image Detection (deepfakesMSU) "
+                "-- public test split; "
+                "https://huggingface.co/datasets/deepfakesMSU/NTIRE-RobustAIGenDetection-test-public "
+                "; the sealed test set, read once, never trained on",
+        real_buckets=frozenset(),
+        generator_buckets=True,
+        exclude_from_training=True,
+    ),
     # Open Images V7 portrait-orientation photographs, harvested by
     # `scripts/acquire_open_images_portrait.py` under a hard CC BY 2.0 filter
     # with per-image attribution written to `attribution.csv`.
