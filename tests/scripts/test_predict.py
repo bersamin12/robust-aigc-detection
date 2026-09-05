@@ -404,7 +404,7 @@ def pred_ckpt(monkeypatch):
                                  BackboneSpec(n, "none", 48, DIM, 1, 0)))
     monkeypatch.setattr(
         finetune, "_forward_tower",
-        lambda model, sp, imgs, device, dtype, chunk: torch.stack(
+        lambda model, sp, imgs, device, dtype, chunk, pooler=None: torch.stack(
             [torch.full((sp.dim,), float(np.mean(i)) / 255.0) for i in imgs]))
     return mod
 

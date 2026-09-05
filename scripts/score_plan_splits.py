@@ -32,6 +32,9 @@ import torch
 
 from aigcdet.augment.canonical import CanonPolicy, canonicalise
 from aigcdet.features.backbones import load_backbone
+from aigcdet.models.pooling import (
+    TOKEN_POOL_MEAN, build_pooler, pooled_dim, tower_poolers,
+)
 from aigcdet.models.heads import Detector
 from aigcdet.train.finetune import _forward_tower, _windowed
 
@@ -77,10 +80,18 @@ def _load_models(ck: dict, device: str, use_swa: bool):
         specs.append(spec)
 
     cfg = ck["config"]
+    # A checkpoint from before the readout was a variable carries no
+    # `token_pool`; it was trained with the mean, which the default says.
+    mode = str(cfg.get("token_pool", TOKEN_POOL_MEAN))
+    want = pooled_dim(mode, specs)
+    if int(ck["dim_feat"]) != want:
+        sys.exit(f"REFUSING: checkpoint dim_feat={ck['dim_feat']} but token_pool="
+                 f"{mode!r} over {names} pools to {want}")
     head = Detector(dim_feat=ck["dim_feat"],
                     use_recon=bool(cfg.get("use_recon")),
                     use_film=bool(cfg.get("use_film")),
-                    hidden=int(cfg.get("head_hidden", 512))).to(device)
+                    hidden=int(cfg.get("head_hidden", 512)),
+                    pooler=build_pooler(mode, specs)).to(device)
     head.load_state_dict(head_sd)
     head.eval()
     return towers, specs, head, tag
@@ -136,6 +147,7 @@ def _score_split(df: pd.DataFrame, towers, specs, head, policy: CanonPolicy,
 
     paths = df["path"].tolist()
     batches = [paths[i:i + batch] for i in range(0, len(paths), batch)]
+    poolers = tower_poolers(head, len(towers))
     width = len(conds) if conds is not None else 1
     # LOGITS, in float64. The sigmoid is taken by the caller: a probability
     # saturates at 1.0 in float32 for any logit past ~17, and two branches
@@ -148,8 +160,9 @@ def _score_split(df: pd.DataFrame, towers, specs, head, policy: CanonPolicy,
                            total=len(batches), desc=desc):
             imgs = fut.result()
             feats = torch.cat(
-                [_forward_tower(t, sp, imgs, device, torch.bfloat16, chunk)
-                 for t, sp in zip(towers, specs)], dim=-1)
+                [_forward_tower(t, sp, imgs, device, torch.bfloat16, chunk,
+                                pooler=pl)
+                 for t, sp, pl in zip(towers, specs, poolers)], dim=-1)
             r = None
             if recon is not None:
                 vae, lpips_fn = recon
@@ -290,15 +303,21 @@ def main() -> int:
         from aigcdet.augment.scenarios import EVAL_GRID
         grid = dict(EVAL_GRID)
 
-    ck = torch.load(a.ckpt, map_location="cpu", weights_only=False)
+    # mmap: a fat per-epoch checkpoint carries the optimiser moments and the
+    # SWA copy, three times the weights, and this reads only the weights.
+    ck = torch.load(a.ckpt, map_location="cpu", weights_only=False, mmap=True)
     towers, specs, head, tag = _load_models(ck, a.device, a.swa)
     policy = _policy_from_config(ck["config"], True if a.crop_clamp else None)
     print(f"model: {'+'.join(ck.get('backbones', [ck.get('backbone')]))} "
-          f"({tag}, epoch {ck.get('epoch')}), policy {policy.as_record()}")
+          f"({tag}, epoch {ck.get('epoch')}, token_pool "
+          f"{ck['config'].get('token_pool', TOKEN_POOL_MEAN)}), "
+          f"policy {policy.as_record()}")
 
     m = pd.read_parquet(a.manifest)
     metrics = {"ckpt": os.path.abspath(a.ckpt), "weights": tag,
                "epoch": int(ck.get("epoch", -1)),
+               "token_pool": str(ck["config"].get("token_pool", TOKEN_POOL_MEAN)),
+               "dim_feat": int(ck["dim_feat"]),
                "policy": policy.as_record(), "splits": {}}
     for sp in a.splits.split(","):
         d = m[m["split"] == sp].reset_index(drop=True)

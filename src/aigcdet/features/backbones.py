@@ -639,6 +639,17 @@ def model_inputs(spec: BackboneSpec, imgs: list[np.ndarray], device: str,
     raise ValueError(f"unknown input_format {spec.input_format!r}")
 
 
+def tokens(model, spec: BackboneSpec, inputs: dict) -> "torch.Tensor":
+    """Run one batch through `model` and return its final-layer token sequence
+    (B, T, D), prefix tokens included, for a pooler that reads them itself
+    (`aigcdet.models.pooling`). Only a token-pooled ViT has one."""
+    if spec.pool != POOL_TOKENS:
+        raise ValueError(
+            f"{spec.name} pools by {spec.pool!r}; only a {POOL_TOKENS!r} tower "
+            "has a token sequence for a TokenPooler to read")
+    return model(**inputs).last_hidden_state
+
+
 def _pool(model, spec: BackboneSpec, inputs: dict) -> "torch.Tensor":
     """Run one batch through `model` and reduce it per `spec.pool`, to
     (B, spec.dim) float32."""

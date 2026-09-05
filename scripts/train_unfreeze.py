@@ -22,6 +22,7 @@ import argparse
 import json
 import os
 
+from aigcdet.models.pooling import TOKEN_POOLS
 from aigcdet.train.finetune import FinetuneConfig, train_finetune
 
 
@@ -76,6 +77,12 @@ def main() -> int:
                     help="continue from <out-dir>/<name>/checkpoint.pt if it "
                          "exists; refuses if its config differs on anything "
                          "that changes the model or the data")
+    ap.add_argument("--token-pool", default="mean", choices=TOKEN_POOLS,
+                    help="how the tower's tokens become the head's input: "
+                         "mean (patch mean, every run before this existed), "
+                         "cls, cls_mean, cls_reg_mean (CLS + registers + "
+                         "mean, 6x width on dinov2regl) or attn (a learned "
+                         "query over the patches). See models/pooling.py")
     ap.add_argument("--family-weighting", default="uniform",
                     choices=("uniform", "proportional"),
                     help="how a generator family is picked before an image "
@@ -96,7 +103,8 @@ def main() -> int:
         min_lr_frac=a.min_lr_frac, swa=a.swa, swa_start_frac=a.swa_start_frac,
         use_recon=a.use_recon,
         train_subsample_frac=a.train_subsample_frac,
-        family_weighting=a.family_weighting)
+        family_weighting=a.family_weighting,
+        token_pool=a.token_pool)
 
     res = train_finetune(cfg)
     if int(os.environ.get("RANK", "0")) != 0:

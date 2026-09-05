@@ -639,3 +639,149 @@ def test_the_ladder_refuses_banks_over_different_rows(tmp_path):
     with pytest.raises(ValueError, match="different ORDER"):
         sul.assert_ladder_comparable({"d0": _bank("a", [0, 1]),
                                       "d1": _bank("b", [1, 0])})
+
+
+# ===========================================================================
+# Token pooling (models/pooling.py) through the trainer
+# ===========================================================================
+
+class _StubTokenTower(_StubTower):
+    """`_StubTower` that also emits a token sequence: CLS, two registers and
+    four patches, each a differently scaled copy of the block output, so
+    every readout in `TOKEN_POOLS` sees a different vector."""
+
+    def __init__(self, dim=8, n=4, n_tokens=7):
+        super().__init__(dim, n)
+        self.register_buffer("scales", torch.linspace(0.5, 1.5, n_tokens))
+
+    def forward(self, pixel_values):
+        from types import SimpleNamespace
+        h = pixel_values
+        for blk in self.encoder.layer:
+            h = torch.tanh(blk(h))
+        h = self.layernorm(h)
+        return SimpleNamespace(
+            last_hidden_state=h[:, None, :] * self.scales[None, :, None])
+
+
+def _patch_token_tower(monkeypatch, dim=8, n=4, prefix=3):
+    from aigcdet.features.backbones import BackboneSpec
+    from aigcdet.train import finetune
+
+    spec = BackboneSpec("fake", "none", image_size=64, dim=dim,
+                        num_prefix_tokens=prefix, params=0)
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(1234)
+        tower = _StubTokenTower(dim, n)
+    monkeypatch.setattr(finetune, "load_backbone", lambda name, device: (tower, spec))
+    monkeypatch.setattr(finetune, "model_inputs",
+                        lambda spec, imgs, device, dtype: {"pixel_values": torch.stack(
+                            [torch.as_tensor(np.asarray(im, np.float32).reshape(-1)[:spec.dim] / 255.0)
+                             for im in imgs])})
+    return tower, spec
+
+
+@pytest.mark.parametrize("mode,width", [("cls", 8), ("cls_mean", 16),
+                                        ("cls_reg_mean", 32), ("attn", 8)])
+def test_a_token_pool_trains_end_to_end_and_records_its_width(
+        tmp_path, monkeypatch, mode, width):
+    """`dim_feat` in the checkpoint is the pooled width, the pooler's
+    parameters are saved under the head, and `token_pool` is in the config
+    the scorer rebuilds from."""
+    from aigcdet.train.finetune import train_finetune
+
+    _patch_token_tower(monkeypatch)
+    bank = _corpus(tmp_path, monkeypatch)
+    res = train_finetune(_cfg(tmp_path, bank, depth=1, token_pool=mode))
+    ck = torch.load(res["checkpoint"], map_location="cpu", weights_only=False)
+    assert ck["dim_feat"] == width
+    assert ck["config"]["token_pool"] == mode
+    head_keys = [k for k in ck["state_dict"] if k.startswith("pooler.")]
+    if mode == "attn":
+        assert "pooler.query" in head_keys
+        assert "pooler.query" in ck["swa_state_dict"] if ck["swa_n"] else True
+    else:
+        assert not head_keys
+    assert ck["state_dict"]["classifier.trunk.0.weight"].shape[1] == width
+
+
+def test_attention_pooling_is_trained_with_the_head(tmp_path, monkeypatch):
+    from aigcdet.train.finetune import train_finetune
+
+    _patch_token_tower(monkeypatch)
+    bank = _corpus(tmp_path, monkeypatch)
+    res = train_finetune(_cfg(tmp_path, bank, depth=0, token_pool="attn"))
+    ck = torch.load(res["checkpoint"], map_location="cpu", weights_only=False)
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(ck["config"]["seed"])
+        from aigcdet.models.pooling import build_pooler
+        fresh = build_pooler("attn", [type("S", (), {"dim": 8, "num_prefix_tokens": 3})()])
+    assert not torch.equal(ck["state_dict"]["pooler.query"], fresh.query.detach())
+
+
+def test_two_attention_pooling_runs_agree(tmp_path, monkeypatch):
+    """The pooler is built under the head's seed, so a config is one model."""
+    from aigcdet.train.finetune import train_finetune
+
+    outs = []
+    for i in range(2):
+        _patch_token_tower(monkeypatch)
+        bank = _corpus(tmp_path / str(i), monkeypatch)
+        res = train_finetune(_cfg(tmp_path / str(i), bank, depth=1, token_pool="attn"))
+        outs.append(torch.load(res["checkpoint"], map_location="cpu",
+                               weights_only=False)["state_dict"])
+    for k in outs[0]:
+        assert torch.equal(outs[0][k], outs[1][k]), k
+
+
+def test_a_checkpoint_from_before_token_pool_existed_resumes_at_the_mean(
+        tmp_path, monkeypatch):
+    """Every older run was the mean readout. Refusing to resume it over a key
+    it could not have carried would strand all of them."""
+    from aigcdet.train.finetune import train_finetune
+
+    _patch_tower(monkeypatch)
+    bank = _corpus(tmp_path, monkeypatch)
+    res = train_finetune(_cfg(tmp_path, bank, depth=1))
+    ck = torch.load(res["checkpoint"], map_location="cpu", weights_only=False)
+    del ck["config"]["token_pool"]
+    torch.save(ck, res["checkpoint"])
+    cfg = _cfg(tmp_path, bank, depth=1, resume=True)
+    cfg.epochs = 2
+    res2 = train_finetune(cfg)
+    assert [h["epoch"] for h in res2["history"]] == [0, 1]
+
+
+def test_resuming_under_a_different_token_pool_is_refused(tmp_path, monkeypatch):
+    from aigcdet.train.finetune import train_finetune
+
+    _patch_token_tower(monkeypatch)
+    bank = _corpus(tmp_path, monkeypatch)
+    train_finetune(_cfg(tmp_path, bank, depth=1, token_pool="cls"))
+    cfg = _cfg(tmp_path, bank, depth=1, resume=True, token_pool="cls_mean")
+    cfg.epochs = 2
+    with pytest.raises(ValueError, match="token_pool"):
+        train_finetune(cfg)
+
+
+def test_the_default_readout_takes_the_historical_pool_path(monkeypatch):
+    """`token_pool="mean"` must not change a single bit of an existing run:
+    the head has no pooler and `_forward_tower` goes through `_pool`."""
+    from aigcdet.train import finetune
+    from aigcdet.models.pooling import build_pooler, tower_poolers
+
+    calls = []
+    monkeypatch.setattr(finetune, "_pool",
+                        lambda m, s, i: calls.append("pool") or torch.zeros(1, 8))
+    monkeypatch.setattr(finetune, "tokens",
+                        lambda m, s, i: calls.append("tokens") or torch.zeros(1, 4, 8))
+    monkeypatch.setattr(finetune, "model_inputs", lambda *a: {})
+    spec = type("S", (), {"dim": 8, "num_prefix_tokens": 1})()
+    head = finetune.Detector(dim_feat=8, pooler=build_pooler("mean", [spec]))
+    finetune._forward_tower(None, spec, [None], "cpu", torch.float32, 1,
+                            pooler=tower_poolers(head, 1)[0])
+    assert calls == ["pool"]
+    head = finetune.Detector(dim_feat=8, pooler=build_pooler("cls", [spec]))
+    finetune._forward_tower(None, spec, [None], "cpu", torch.float32, 1,
+                            pooler=tower_poolers(head, 1)[0])
+    assert calls == ["pool", "tokens"]

@@ -89,11 +89,18 @@ class Detector(nn.Module):
 
     def __init__(self, dim_feat: int, use_recon: bool = False,
                  recon_dim: int = 12, use_film: bool = False,
-                 hidden: int = 512):
+                 hidden: int = 512, pooler: nn.Module | None = None):
         super().__init__()
         self.use_recon = use_recon
         self.use_film = use_film
         self.hidden = hidden
+        # The token pooler, when the readout owns it (`models.pooling`). It is
+        # NOT applied in `forward`, which takes an already pooled `f`: the
+        # trainer and scorer run it between the tower and this head, per
+        # tower. It lives here so that it is trained, averaged and saved as
+        # part of the head -- `dim_feat` must equal its output width. `None`
+        # is the historical mean-of-patches readout, done in the tower path.
+        self.pooler = pooler
         dim_in = dim_feat + (recon_dim if use_recon else 0)
         # The degradation trunk keeps its historical HALF-width relation to the
         # classifier (256 against 512). Sweeping `hidden` therefore scales both

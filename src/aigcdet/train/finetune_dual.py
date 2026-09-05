@@ -41,9 +41,10 @@ from aigcdet.train.finetune import (
     FinetuneConfig, LiveViewSampler, _dist_init, _enable_eval_checkpointing,
     _Progress, _windowed,
     _forward_tower, _GradReducer, _LRSchedule, _owned_chunks, _prepare_batch,
-    _shard_task, _step_loss, _stratified_subsample, _WeightAverager,
-    unfreeze_last_n,
+    _resume_diff, _shard_task, _step_loss, _stratified_subsample,
+    _WeightAverager, unfreeze_last_n,
 )
+from aigcdet.models.pooling import build_pooler, pooled_dim, tower_poolers
 
 
 @dataclass
@@ -59,7 +60,8 @@ class DualFinetuneConfig:
 
 
 _RESUME_INVARIANT = ("name", "bank_dir", "backbone", "depth", "seed", "lr",
-                     "tower_lr", "n_src", "m_deg", "head_hidden")
+                     "tower_lr", "n_src", "m_deg", "head_hidden", "use_film",
+                     "family_weighting", "token_pool")
 
 
 def _write_ckpt(path, *, head, towers, opt, sampler, epoch, history, cfg,
@@ -137,11 +139,14 @@ def train_dual(cfg: DualFinetuneConfig) -> dict:
         # NEVER .train(): same reason as the single-tower path.
         t.eval()
 
-    dim_feat = specs[0].dim + specs[1].dim
+    dim_feat = pooled_dim(b.token_pool, specs)
     with torch.random.fork_rng(devices=[]):
         torch.manual_seed(b.seed)
+        # One pooler per tower, in tower order (the head's input order).
         head = Detector(dim_feat=dim_feat, use_recon=b.use_recon,
-                        use_film=b.use_film, hidden=b.head_hidden).to(b.device)
+                        use_film=b.use_film, hidden=b.head_hidden,
+                        pooler=build_pooler(b.token_pool, specs)).to(b.device)
+    poolers = tower_poolers(head, len(towers))
 
     tower_params = [[p for p in t.parameters() if p.requires_grad]
                     for t in towers]
@@ -178,8 +183,7 @@ def train_dual(cfg: DualFinetuneConfig) -> dict:
     if b.resume and os.path.exists(ckpt):
         ck = torch.load(ckpt, map_location=b.device, weights_only=False)
         stored = ck.get("config") or {}
-        diff = {k: (stored.get(k), getattr(b, k)) for k in _RESUME_INVARIANT
-                if stored.get(k) != getattr(b, k)}
+        diff = _resume_diff(stored, b, _RESUME_INVARIANT)
         if diff:
             raise ValueError(f"refusing to resume {ckpt}: differs on {diff}")
         if ck.get("n_towers") != len(towers):
@@ -224,12 +228,16 @@ def train_dual(cfg: DualFinetuneConfig) -> dict:
                         # is still forwarded once per source per tower and its
                         # embedding repeated, exactly as the single-tower path.
                         f_src = torch.cat(
-                            [_forward_tower(t, sp, srcs, b.device, dt, b.src_chunk)
-                             for t, sp, dt in zip(towers, specs, pdtypes)], dim=-1)
+                            [_forward_tower(t, sp, srcs, b.device, dt, b.src_chunk,
+                                            pooler=pl)
+                             for t, sp, dt, pl in zip(towers, specs, pdtypes, poolers)],
+                            dim=-1)
                         f_clean = f_src.repeat_interleave(b.m_deg, dim=0)
                         f_deg = torch.cat(
-                            [_forward_tower(t, sp, degs, b.device, dt, b.src_chunk)
-                             for t, sp, dt in zip(towers, specs, pdtypes)], dim=-1)
+                            [_forward_tower(t, sp, degs, b.device, dt, b.src_chunk,
+                                            pooler=pl)
+                             for t, sp, dt, pl in zip(towers, specs, pdtypes, poolers)],
+                            dim=-1)
                     micro = {k: (v[p0:p1] if torch.is_tensor(v) else v)
                              for k, v in batch.items()}
                     micro["f_clean"] = f_clean.float()

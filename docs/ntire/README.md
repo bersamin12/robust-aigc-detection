@@ -41,12 +41,40 @@ lists them).
 
 ```
 bash scripts/ntire_pipeline.sh          # B -> A -> score + fit fusion (unattended)
+bash scripts/epoch_watch.sh outputs/dual/ntire_dual224:16 outputs/unfreeze/ntire_d24_518:4
+                                        # scores each epoch snapshot on ntire_val_hard as it lands
 STAGE=test bash scripts/ntire_one_gpu.sh # the ONE read of ntire_test
 ```
 
 Logs: `logs/pipeline.log`, `logs/ntire_dual224.log`, `logs/ntire_d24_518.log`,
-`logs/score_*.log`, `logs/slim_watch.log`. Results: `fusion_ntire.json`
-(selection splits), `fusion_ntire_final.json` (with the test read).
+`logs/score_*.log`, `logs/slim_watch.log`, `logs/epoch_watch*.log`. Results:
+`fusion_ntire.json` (selection splits), `fusion_ntire_final.json` (with the
+test read), `outputs/scores/epochs/summary.md` (the per-epoch curve, from
+`scripts/metrics_table.py`).
+
+## Readout ablation (`scripts/ntire_pool_ablation.sh`, `models/pooling.py`)
+
+Both branches read the tower the way every earlier arm did: the mean of the
+final-layer patch tokens, CLS and registers dropped. The challenge report has
+the strongest entries reading it differently -- Ant International (2nd)
+runs one expert on attention pooling and one on first-token (CLS) pooling;
+Shallow Real concatenates CLS, the four register tokens and the patch mean.
+`--token-pool` on both trainers makes that a variable:
+
+| mode | head input | what |
+|---|---|---|
+| `mean` | D | patch mean (the default; the historical path, bit for bit) |
+| `cls` | D | the CLS token |
+| `cls_mean` | 2D | CLS ++ patch mean |
+| `cls_reg_mean` | 6D | CLS ++ 4 registers ++ patch mean (Shallow Real) |
+| `attn` | D | one learned query, 8-head attention over the patches, LayerNorm (Ant) |
+
+The pooler is part of the head (trained at the head's LR, averaged by SWA,
+saved under `state_dict`), and a checkpoint's `dim_feat` follows it. The
+ablation runs after the pipeline, on the cheap proxy: one `dinov2regl224`
+tower, depth 24, one epoch over a quarter of train, scored on `ntire_val_hard`
+and `ntire_val`; table in `pool_ablation.md`. A winner there is a candidate
+for a re-run of the real branches, not a result in itself.
 
 ## Smoke run (2026-09-05, 2% of train, 1 epoch each, 500 hard-val rows)
 

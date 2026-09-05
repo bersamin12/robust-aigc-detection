@@ -91,3 +91,29 @@ def test_crop_clamp_override_forces_the_flag_without_touching_the_rest():
 
 def test_out_columns_keep_logit_and_prob_and_the_distortion_metadata():
     assert {"logit", "prob", "is_distorted", "distortions", "split"} <= set(sps.OUT_COLUMNS)
+
+
+def test_load_models_rebuilds_the_pooler_from_the_config(monkeypatch):
+    import torch
+    from aigcdet.features.backbones import BackboneSpec
+    from aigcdet.models.heads import Detector
+    from aigcdet.models.pooling import TokenPooler, build_pooler
+
+    spec = BackboneSpec("fake", "none", image_size=64, dim=8,
+                        num_prefix_tokens=3, params=0)
+    monkeypatch.setattr(sps, "load_backbone",
+                        lambda name, device: (torch.nn.Linear(8, 8), spec))
+    head = Detector(dim_feat=16, pooler=build_pooler("cls_mean", [spec]))
+    ck = {"backbone": "fake", "tower_state_dict": torch.nn.Linear(8, 8).state_dict(),
+          "state_dict": head.state_dict(), "dim_feat": 16, "swa_n": 0,
+          "config": {"token_pool": "cls_mean"}}
+    towers, specs, got, tag = sps._load_models(ck, "cpu", use_swa=False)
+    assert isinstance(got.pooler, TokenPooler) and got.pooler.mode == "cls_mean"
+    assert tag == "final" and len(towers) == 1
+    # A legacy checkpoint: no token_pool key, dim_feat == the tower's width.
+    legacy = Detector(dim_feat=8)
+    ck2 = {**ck, "state_dict": legacy.state_dict(), "dim_feat": 8, "config": {}}
+    assert sps._load_models(ck2, "cpu", use_swa=False)[2].pooler is None
+    # A width that does not match the declared readout is refused outright.
+    with pytest.raises(SystemExit, match="dim_feat"):
+        sps._load_models({**ck, "dim_feat": 8}, "cpu", use_swa=False)

@@ -15,6 +15,7 @@ import argparse
 import os
 
 from aigcdet.train.finetune import FinetuneConfig
+from aigcdet.models.pooling import TOKEN_POOLS
 from aigcdet.train.finetune_dual import DualFinetuneConfig, train_dual
 
 
@@ -72,6 +73,12 @@ def main() -> int:
                          "final weights, both scorable")
     ap.add_argument("--swa-start-frac", type=float, default=0.75)
     ap.add_argument("--resume", action="store_true")
+    ap.add_argument("--token-pool", default="mean", choices=TOKEN_POOLS,
+                    help="how the tower's tokens become the head's input: "
+                         "mean (patch mean, every run before this existed), "
+                         "cls, cls_mean, cls_reg_mean (CLS + registers + "
+                         "mean, 6x width on dinov2regl) or attn (a learned "
+                         "query over the patches). See models/pooling.py")
     ap.add_argument("--family-weighting", default="uniform",
                     choices=("uniform", "proportional"),
                     help="see train_unfreeze.py")
@@ -89,7 +96,8 @@ def main() -> int:
         min_lr_frac=a.min_lr_frac, swa=a.swa, swa_start_frac=a.swa_start_frac,
         use_recon=a.use_recon,
         train_subsample_frac=a.train_subsample_frac,
-        family_weighting=a.family_weighting)
+        family_weighting=a.family_weighting,
+        token_pool=a.token_pool)
     cfg = DualFinetuneConfig(base=base, backbone2=a.backbone2,
                              perturb_tower2=a.perturb_tower2)
 

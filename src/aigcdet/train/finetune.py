@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 
 import numpy as np
 import torch
@@ -47,11 +47,14 @@ from PIL import Image
 from aigcdet.augment.canonical import DEFAULT_POLICY, CanonPolicy
 from aigcdet.augment.recipes import MAX_OPS_DEFAULT, RECIPE_POOL_DEFAULT
 from aigcdet.features.backbones import (
-    BackboneSpec, load_backbone, model_inputs, _pool,
+    BackboneSpec, load_backbone, model_inputs, _pool, tokens,
 )
 from aigcdet.features.bank import FeatureBank
 from aigcdet.features.extract import build_view
 from aigcdet.models.heads import Detector
+from aigcdet.models.pooling import (
+    TOKEN_POOL_MEAN, TOKEN_POOLS, build_pooler, pooled_dim, tower_poolers,
+)
 from aigcdet.models.losses import (
     LossWeights, classification_loss, consistency_loss, total_loss,
 )
@@ -473,6 +476,12 @@ class FinetuneConfig:
     #: NTIRE setting -- one pseudo-family holds most of the fakes. Part of
     #: `_RESUME_INVARIANT`: it changes the batch sequence.
     family_weighting: str = "uniform"
+    #: How the tower's token sequence becomes the head's input
+    #: (`models.pooling.TOKEN_POOLS`). "mean" is every run before this
+    #: existed and takes the bank's own `_pool` path unchanged; the others
+    #: put a `TokenPooler` inside the head, so `dim_feat` follows it. Part of
+    #: `_RESUME_INVARIANT`: it changes the head's shape.
+    token_pool: str = TOKEN_POOL_MEAN
     #: Print step, running losses, s/step and the epoch ETA every this many
     #: optimiser steps (0 = only the per-epoch line). A day-long run that
     #: prints once per epoch cannot be told apart from a hung one.
@@ -486,7 +495,7 @@ class FinetuneConfig:
 
 
 def _forward_tower(model, spec: BackboneSpec, imgs, device: str,
-                   dtype: torch.dtype, chunk: int) -> torch.Tensor:
+                   dtype: torch.dtype, chunk: int, pooler=None) -> torch.Tensor:
     """Differentiable counterpart of `features.backbones.embed`.
 
     Reuses `model_inputs` and `_pool` rather than restating them, so the
@@ -495,11 +504,18 @@ def _forward_tower(model, spec: BackboneSpec, imgs, device: str,
     included. `embed` itself cannot be reused: it is `@torch.inference_mode()`,
     which is not merely no-grad but poisons its outputs against ever being used
     in a graph.
+
+    With a `pooler` (`models.pooling.TokenPooler`, owned by the head) the
+    tower's token sequence is read by it instead of by `_pool`; `None` keeps
+    the historical path exactly.
     """
     outs = []
     for i in range(0, len(imgs), chunk):
         inputs = model_inputs(spec, imgs[i:i + chunk], device, dtype)
-        outs.append(_pool(model, spec, inputs))
+        if pooler is None:
+            outs.append(_pool(model, spec, inputs))
+        else:
+            outs.append(pooler(tokens(model, spec, inputs)))
     return torch.cat(outs, dim=0)
 
 
@@ -820,7 +836,25 @@ class _Progress:
 
 _RESUME_INVARIANT = ("name", "bank_dir", "backbone", "depth", "seed", "lr",
                      "tower_lr", "n_src", "m_deg", "head_hidden", "use_film",
-                     "family_weighting")
+                     "family_weighting", "token_pool")
+
+
+def _resume_diff(stored: dict, cfg, keys=_RESUME_INVARIANT) -> dict:
+    """{field: (stored, requested)} for every invariant that differs.
+
+    A field the stored config predates is read at the dataclass default: a
+    checkpoint written before `token_pool` existed was trained with the mean
+    readout, which is what the default says, and refusing to resume it over
+    a key it could not have carried would strand every older run.
+    """
+    defaults = {fl.name: fl.default for fl in fields(FinetuneConfig)}
+    out = {}
+    for k in keys:
+        have = stored.get(k, defaults.get(k))
+        want = getattr(cfg, k)
+        if have != want:
+            out[k] = (have, want)
+    return out
 
 
 def _write_ckpt(path, *, head, tower, opt, sampler, epoch, history, cfg,
@@ -859,8 +893,7 @@ def _load_resume(path, cfg, head, tower, opt, sampler):
     """Restore a run, or refuse. Returns the epoch to start from."""
     ck = torch.load(path, map_location=cfg.device, weights_only=False)
     stored = ck.get("config") or {}
-    differing = {k: (stored.get(k), getattr(cfg, k)) for k in _RESUME_INVARIANT
-                 if stored.get(k) != getattr(cfg, k)}
+    differing = _resume_diff(stored, cfg)
     if differing:
         raise ValueError(
             f"refusing to resume {path}: it was written by a run that differs "
@@ -919,8 +952,13 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
 
     with torch.random.fork_rng(devices=[]):
         torch.manual_seed(cfg.seed)
-        head = Detector(dim_feat=spec.dim, use_recon=cfg.use_recon,
-                        use_film=cfg.use_film, hidden=cfg.head_hidden).to(cfg.device)
+        # The pooler is built under the same seed as the head: for "attn"
+        # it has parameters, and two runs of one config must start identical.
+        dim_feat = pooled_dim(cfg.token_pool, [spec])
+        head = Detector(dim_feat=dim_feat, use_recon=cfg.use_recon,
+                        use_film=cfg.use_film, hidden=cfg.head_hidden,
+                        pooler=build_pooler(cfg.token_pool, [spec])).to(cfg.device)
+    pooler = tower_poolers(head, 1)[0]
 
     tower_params = [p for p in tower.parameters() if p.requires_grad]
     groups = [{"params": list(head.parameters()), "lr": cfg.lr}]
@@ -1017,10 +1055,12 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
                         # repeats the cached one. Forwarding it `m_deg` times
                         # would give the same number for a third more compute.
                         f_src = _forward_tower(tower, spec, srcs, cfg.device,
-                                               param_dtype, cfg.src_chunk)
+                                               param_dtype, cfg.src_chunk,
+                                               pooler=pooler)
                         f_clean = f_src.repeat_interleave(cfg.m_deg, dim=0)
                         f_deg = _forward_tower(tower, spec, degs, cfg.device,
-                                               param_dtype, cfg.src_chunk)
+                                               param_dtype, cfg.src_chunk,
+                                               pooler=pooler)
                     micro = {k: (v[p0:p1] if torch.is_tensor(v) else v)
                              for k, v in batch.items()}
                     micro["f_clean"] = f_clean.float()
@@ -1056,7 +1096,7 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
         if rank == 0:
             _write_ckpt(ckpt, head=head, tower=tower, opt=opt, sampler=sampler,
                         epoch=epoch + 1, history=history, cfg=cfg,
-                        dim_feat=spec.dim, backbone_name=backbone_name,
+                        dim_feat=dim_feat, backbone_name=backbone_name,
                         unfrozen=unfrozen, averager=averager)
         if rank == 0:
             # Keep this epoch's own copy. `checkpoint.pt` is overwritten every
@@ -1101,7 +1141,7 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
     # arm from scratch.
     _write_ckpt(ckpt, head=head, tower=tower, opt=opt, sampler=sampler,
                 epoch=cfg.epochs, history=history, cfg=cfg,
-                dim_feat=spec.dim, backbone_name=backbone_name,
+                dim_feat=dim_feat, backbone_name=backbone_name,
                 unfrozen=unfrozen, averager=averager)
     result = {"unfrozen": unfrozen, "history": history, "world_size": world}
     with open(os.path.join(out_dir, "result.json"), "w") as f:

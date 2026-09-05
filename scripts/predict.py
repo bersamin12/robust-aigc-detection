@@ -97,10 +97,12 @@ def predict_paths_finetuned(ckpt: str, paths: list[str], device: str,
     from score_plan_splits import _load_models, _policy_from_config
 
     from aigcdet.augment.canonical import canonicalise
+    from aigcdet.models.pooling import tower_poolers
     from aigcdet.train.finetune import _forward_tower
 
     ck = torch.load(ckpt, map_location="cpu", weights_only=False)
     towers, specs, head, _tag = _load_models(ck, device, use_swa=False)
+    poolers = tower_poolers(head, len(towers))
     if head.use_recon:
         raise SystemExit(
             "REFUSING: this checkpoint's head expects recon features and this "
@@ -143,8 +145,8 @@ def predict_paths_finetuned(ckpt: str, paths: list[str], device: str,
             with torch.no_grad():
                 feats = torch.cat(
                     [_forward_tower(t, sp, imgs, device, torch.bfloat16,
-                                    batch_size)
-                     for t, sp in zip(towers, specs)], dim=-1)
+                                    batch_size, pooler=pl)
+                     for t, sp, pl in zip(towers, specs, poolers)], dim=-1)
                 logits = head(feats.float(), None)["logit"].reshape(-1)
                 preds = torch.sigmoid(logits).double().cpu().numpy()
                 logits = logits.double().cpu().numpy()
