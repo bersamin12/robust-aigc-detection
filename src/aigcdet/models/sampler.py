@@ -30,6 +30,10 @@ from __future__ import annotations
 import numpy as np
 import torch
 
+#: How a generator family is chosen within a class before an image is drawn
+#: from it. See `PairedSampler.__init__`.
+FAMILY_WEIGHTINGS: tuple[str, ...] = ("uniform", "proportional")
+
 
 class PairedSampler:
     """Iterable of class- and generator-balanced clean/degraded batches.
@@ -68,11 +72,25 @@ class PairedSampler:
     def __init__(self, bank, indices: np.ndarray, n_src: int = 32, m_deg: int = 2,
                  *, rng: np.random.Generator, use_recon: bool = False,
                  use_recon_vq: bool = False, use_freq: bool = False,
-                 augmented_only: bool = False, device: str = "cpu"):
+                 augmented_only: bool = False, device: str = "cpu",
+                 family_weighting: str = "uniform"):
         if n_src % 2 != 0:
             raise ValueError("n_src must be even so batches can be class-balanced")
         if m_deg < 1:
             raise ValueError("m_deg must be >= 1")
+        if family_weighting not in FAMILY_WEIGHTINGS:
+            raise ValueError(f"family_weighting must be one of "
+                             f"{FAMILY_WEIGHTINGS}, got {family_weighting!r}")
+        # "uniform": a family is picked uniformly, then an image within it --
+        # the brief's "no generator family dominates a gradient step", and
+        # bit-identical to every run before this knob existed. "proportional":
+        # a family is picked in proportion to its row count, so the draw is a
+        # uniform draw over the POOL. That is the right choice when one
+        # pseudo-family IS the target distribution (NTIRE's 190k fakes carry
+        # one label and would otherwise get 1/10 of the fake draws against
+        # nine small OV7 families) and the wrong one for a held-out-generator
+        # ladder, which is why it is a knob rather than a change.
+        self.family_weighting = family_weighting
         self.bank = bank
         self.n_src, self.m_deg = n_src, m_deg
         self.rng = rng
@@ -103,6 +121,11 @@ class PairedSampler:
         # is milliseconds. Grouping up front makes a draw O(1).
         self._pos_groups = self._build_groups(self.pos)
         self._neg_groups = self._build_groups(self.neg)
+        # Cumulative group sizes, for the proportional draw: one `integers`
+        # over the pool total, then `searchsorted` picks the family. Built
+        # once, beside the groups, so a draw stays O(1) either way.
+        self._pos_cum = np.cumsum([len(g) for g in self._pos_groups])
+        self._neg_cum = np.cumsum([len(g) for g in self._neg_groups])
 
     def _build_groups(self, pool: np.ndarray) -> list[np.ndarray]:
         """Split `pool` into one index array per generator family present.
@@ -120,12 +143,13 @@ class PairedSampler:
         ends = np.concatenate((starts[1:], [len(pool)]))
         return [pool[order[a:b]] for a, b in zip(starts, ends)]
 
-    def _groups_for(self, pool: np.ndarray) -> list[np.ndarray]:
+    def _groups_for(self, pool: np.ndarray) -> tuple[list[np.ndarray], np.ndarray]:
         if pool is self.pos:
-            return self._pos_groups
+            return self._pos_groups, self._pos_cum
         if pool is self.neg:
-            return self._neg_groups
-        return self._build_groups(pool)
+            return self._neg_groups, self._neg_cum
+        groups = self._build_groups(pool)
+        return groups, np.cumsum([len(g) for g in groups])
 
     def __len__(self) -> int:
         half = self.n_src // 2
@@ -140,9 +164,19 @@ class PairedSampler:
         same bounds as before the grouping was precomputed, so the batch
         sequence for a given seed is unchanged -- only the cost is.
         """
-        groups = self._groups_for(pool)
+        groups, cum = self._groups_for(pool)
         n_groups = len(groups)
         chosen = np.empty(k, dtype=np.int64)
+        if self.family_weighting == "proportional":
+            total = int(cum[-1])
+            for i in range(k):
+                # Still two draws per element -- the family by a uniform draw
+                # over the pool total, then the offset -- so the "uniform"
+                # stream above is untouched and this one is its own.
+                family = groups[int(np.searchsorted(cum, self.rng.integers(total),
+                                                    side="right"))]
+                chosen[i] = family[self.rng.integers(len(family))]
+            return chosen
         for i in range(k):
             family = groups[self.rng.integers(n_groups)]
             chosen[i] = family[self.rng.integers(len(family))]

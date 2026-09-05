@@ -39,7 +39,7 @@ from aigcdet.features.bank import FeatureBank
 from aigcdet.models.heads import Detector
 from aigcdet.train.finetune import (
     FinetuneConfig, LiveViewSampler, _dist_init, _enable_eval_checkpointing,
-    _windowed,
+    _Progress, _windowed,
     _forward_tower, _GradReducer, _LRSchedule, _owned_chunks, _prepare_batch,
     _shard_task, _step_loss, _stratified_subsample, _WeightAverager,
     unfreeze_last_n,
@@ -158,7 +158,8 @@ def train_dual(cfg: DualFinetuneConfig) -> dict:
         seed=int(bank.config["seed"]),
         policy=b.policy(), geometric=b.geometric, exclude_families=(),
         n_src=b.n_src, m_deg=b.m_deg,
-        rng=np.random.default_rng(b.seed), device=b.device)
+        rng=np.random.default_rng(b.seed), device=b.device,
+        family_weighting=b.family_weighting)
 
     amp = getattr(torch, b.amp_dtype)
     pdtypes = [next(t.parameters()).dtype for t in towers]
@@ -197,6 +198,8 @@ def train_dual(cfg: DualFinetuneConfig) -> dict:
     gstep = start_epoch * steps_per_epoch
     for epoch in range(start_epoch, b.epochs):
         tasks = sampler.batch_tasks()
+        progress = _Progress(epoch, b.epochs, len(tasks), b.log_every,
+                             enabled=rank == 0)
         with ThreadPoolExecutor(max_workers=max(1, b.workers)) as pool:
             for task, fut in _windowed(
                     pool,
@@ -204,7 +207,7 @@ def train_dual(cfg: DualFinetuneConfig) -> dict:
                         _shard_task(t, rank, world, b.src_chunk)),
                     tasks, 2 * max(1, b.workers)):
                 prepared = fut.result()
-                si, vi = task[7], task[8]
+                si, vi = task[-2], task[-1]
                 batch = sampler.targets(si, vi, b.device)
                 n_src_all, n_pairs = len(task[0]), len(si)
                 opt.zero_grad(set_to_none=True)
@@ -242,13 +245,14 @@ def train_dual(cfg: DualFinetuneConfig) -> dict:
                 if averager is not None and gstep >= swa_start:
                     averager.update()
                 gstep += 1
+                progress.step(parts, lr=opt.param_groups[0]["lr"])
         if world > 1:
             import torch.distributed as dist
             t_ = torch.tensor([parts[k] for k in ("cls", "deg", "con", "total")],
                               device=b.device, dtype=torch.float64)
             dist.all_reduce(t_, op=dist.ReduceOp.SUM)
             parts = dict(zip(("cls", "deg", "con", "total"), t_.tolist()))
-        history.append({"epoch": epoch, **parts})
+        history.append({"epoch": epoch, **parts, **progress.summary()})
         if rank == 0:
             _write_ckpt(ckpt, head=head, towers=towers, opt=opt,
                         sampler=sampler, epoch=epoch + 1, history=history,

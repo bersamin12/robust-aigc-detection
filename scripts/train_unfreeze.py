@@ -76,6 +76,12 @@ def main() -> int:
                     help="continue from <out-dir>/<name>/checkpoint.pt if it "
                          "exists; refuses if its config differs on anything "
                          "that changes the model or the data")
+    ap.add_argument("--family-weighting", default="uniform",
+                    choices=("uniform", "proportional"),
+                    help="how a generator family is picked before an image "
+                         "is drawn from it: uniform (the ladder's default) or "
+                         "proportional to its row count (the NTIRE setting, "
+                         "where one pseudo-family holds most of the fakes)")
     a = ap.parse_args()
 
     cfg = FinetuneConfig(
@@ -89,7 +95,8 @@ def main() -> int:
         lr_schedule=a.lr_schedule, warmup_frac=a.warmup_frac,
         min_lr_frac=a.min_lr_frac, swa=a.swa, swa_start_frac=a.swa_start_frac,
         use_recon=a.use_recon,
-        train_subsample_frac=a.train_subsample_frac)
+        train_subsample_frac=a.train_subsample_frac,
+        family_weighting=a.family_weighting)
 
     res = train_finetune(cfg)
     if int(os.environ.get("RANK", "0")) != 0:

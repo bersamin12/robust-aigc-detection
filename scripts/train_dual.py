@@ -72,6 +72,9 @@ def main() -> int:
                          "final weights, both scorable")
     ap.add_argument("--swa-start-frac", type=float, default=0.75)
     ap.add_argument("--resume", action="store_true")
+    ap.add_argument("--family-weighting", default="uniform",
+                    choices=("uniform", "proportional"),
+                    help="see train_unfreeze.py")
     a = ap.parse_args()
 
     base = FinetuneConfig(
@@ -85,7 +88,8 @@ def main() -> int:
         lr_schedule=a.lr_schedule, warmup_frac=a.warmup_frac,
         min_lr_frac=a.min_lr_frac, swa=a.swa, swa_start_frac=a.swa_start_frac,
         use_recon=a.use_recon,
-        train_subsample_frac=a.train_subsample_frac)
+        train_subsample_frac=a.train_subsample_frac,
+        family_weighting=a.family_weighting)
     cfg = DualFinetuneConfig(base=base, backbone2=a.backbone2,
                              perturb_tower2=a.perturb_tower2)
 

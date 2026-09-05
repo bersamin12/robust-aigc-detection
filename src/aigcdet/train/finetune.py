@@ -45,6 +45,7 @@ import torch
 from PIL import Image
 
 from aigcdet.augment.canonical import DEFAULT_POLICY, CanonPolicy
+from aigcdet.augment.recipes import MAX_OPS_DEFAULT, RECIPE_POOL_DEFAULT
 from aigcdet.features.backbones import (
     BackboneSpec, load_backbone, model_inputs, _pool,
 )
@@ -215,18 +216,21 @@ def _prepare_batch(task: BatchTask) -> dict:
     running it in another process is safe by construction and produces the
     same pixels as running it inline.
     """
-    (paths, row_ids, view_ids, seed, policy, geometric, exclude) = task
+    (paths, row_ids, view_ids, seed, policy, geometric, exclude,
+     pool, max_ops) = task[:9]
     clean, deg = [], []
     m_deg = view_ids.shape[1]
     for path, row_id, views in zip(paths, row_ids, view_ids):
         with Image.open(path) as im:
             decoded = np.asarray(im.convert("RGB"), dtype=np.uint8)
         clean.append(build_view(decoded, 0, int(row_id), seed, policy=policy,
-                                geometric=geometric, exclude_families=exclude)[0])
+                                geometric=geometric, exclude_families=exclude,
+                                pool=pool, max_ops=max_ops)[0])
         for v in views:
             deg.append(build_view(decoded, int(v), int(row_id), seed,
                                   policy=policy, geometric=geometric,
-                                  exclude_families=exclude)[0])
+                                  exclude_families=exclude,
+                                  pool=pool, max_ops=max_ops)[0])
     return {"clean": clean, "deg": deg, "m_deg": m_deg}
 
 
@@ -252,6 +256,14 @@ class LiveViewSampler(PairedSampler):
         self.root, self.seed = root, seed
         self.policy, self.geometric = policy, geometric
         self.exclude_families = tuple(exclude_families)
+        # The op pool and chain depth come from the BANK, never from the
+        # trainer's config: the bank's presence/severity targets were computed
+        # from recipes sampled under them, and a trainer that rebuilt a view
+        # under a different pool would train the degradation head against
+        # targets for pixels it never saw. A bank written before pools existed
+        # carries no key and was, by construction, sampled under "legacy".
+        self.pool = str(bank.config.get("recipe_pool", RECIPE_POOL_DEFAULT))
+        self.max_ops = int(bank.config.get("max_ops", MAX_OPS_DEFAULT))
         col = "rel_path" if "rel_path" in bank.meta.columns else "path"
         self._paths = bank.meta[col].to_numpy()
         self._absolute = col == "path"
@@ -279,6 +291,7 @@ class LiveViewSampler(PairedSampler):
                 self._row_ids[src],
                 views,
                 self.seed, self.policy, self.geometric, self.exclude_families,
+                self.pool, self.max_ops,
                 si, vi,
             ))
         return tasks
@@ -454,6 +467,16 @@ class FinetuneConfig:
     #: Feed the head the bank's precomputed 12-d reconstruction block (the
     #: VAE branch, spec section 3.3). The block must already be attached.
     use_recon: bool = False
+    #: How a generator family is chosen before an image is drawn from it
+    #: (`models.sampler.FAMILY_WEIGHTINGS`). "uniform" is every run before
+    #: this existed; "proportional" draws families by row count, which is the
+    #: NTIRE setting -- one pseudo-family holds most of the fakes. Part of
+    #: `_RESUME_INVARIANT`: it changes the batch sequence.
+    family_weighting: str = "uniform"
+    #: Print step, running losses, s/step and the epoch ETA every this many
+    #: optimiser steps (0 = only the per-epoch line). A day-long run that
+    #: prints once per epoch cannot be told apart from a hung one.
+    log_every: int = 50
 
     def policy(self) -> CanonPolicy:
         kw = {} if self.nominal_side is None else {
@@ -542,13 +565,14 @@ def _shard_task(task, rank, world, src_chunk):
     the GPU into a 4x multiplication of the CPU. Slicing the task first keeps
     both halves of the step parallel.
     """
-    paths, row_ids, views, seed, policy, geometric, exclude = task[:7]
+    (paths, row_ids, views, seed, policy, geometric, exclude,
+     pool, max_ops) = task[:9]
     if world == 1:
-        return task[:7]
+        return task[:9]
     keep = [i for g0, g1, _, _ in _owned_chunks(len(paths), src_chunk, rank, world)
             for i in range(g0, g1)]
     return ([paths[i] for i in keep], row_ids[keep], views[keep],
-            seed, policy, geometric, exclude)
+            seed, policy, geometric, exclude, pool, max_ops)
 
 
 def _dist_init(cfg):
@@ -759,8 +783,44 @@ class _WeightAverager:
 #: between the run that crashed and the one picking it up; these six change what
 #: is being trained or what it is trained on, and a checkpoint that silently
 #: mixed two of them would be unattributable.
+class _Progress:
+    """Periodic one-line progress for a run that would otherwise be silent
+    for hours: step, running mean of the loss parts, s/step, epoch ETA."""
+
+    def __init__(self, epoch: int, epochs: int, steps: int, every: int,
+                 enabled: bool = True):
+        import time
+        self._time = time.time
+        self.epoch, self.epochs, self.steps = epoch, epochs, steps
+        self.every, self.enabled = int(every), enabled
+        self.t0 = self._time()
+        self.n = 0
+        self.acc = {"cls": 0.0, "deg": 0.0, "con": 0.0, "total": 0.0}
+
+    def step(self, parts: dict, lr: float) -> None:
+        self.n += 1
+        for k in self.acc:
+            self.acc[k] += float(parts.get(k, 0.0))
+        if not self.enabled or not self.every or self.n % self.every:
+            return
+        el = self._time() - self.t0
+        per = el / self.n
+        eta = per * (self.steps - self.n)
+        mean = {k: v / self.n for k, v in self.acc.items()}
+        print(f"epoch {self.epoch + 1}/{self.epochs} step {self.n}/{self.steps} "
+              f"total={mean['total']:.4f} cls={mean['cls']:.4f} "
+              f"deg={mean['deg']:.4f} con={mean['con']:.4f} lr={lr:.2e} "
+              f"{per:.2f}s/step eta {eta / 3600:.2f}h", flush=True)
+
+    def summary(self) -> dict:
+        el = self._time() - self.t0
+        return {"seconds": float(el),
+                "s_per_step": float(el / max(self.n, 1))}
+
+
 _RESUME_INVARIANT = ("name", "bank_dir", "backbone", "depth", "seed", "lr",
-                     "tower_lr", "n_src", "m_deg", "head_hidden", "use_film")
+                     "tower_lr", "n_src", "m_deg", "head_hidden", "use_film",
+                     "family_weighting")
 
 
 def _write_ckpt(path, *, head, tower, opt, sampler, epoch, history, cfg,
@@ -877,7 +937,8 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
         seed=int(bank.config["seed"]),
         policy=cfg.policy(), geometric=cfg.geometric,
         exclude_families=(), n_src=cfg.n_src, m_deg=cfg.m_deg,
-        rng=np.random.default_rng(cfg.seed), device=cfg.device)
+        rng=np.random.default_rng(cfg.seed), device=cfg.device,
+        family_weighting=cfg.family_weighting)
 
     amp = getattr(torch, cfg.amp_dtype)
     param_dtype = next(tower.parameters()).dtype
@@ -912,6 +973,8 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
     gstep = start_epoch * steps_per_epoch
     for epoch in range(start_epoch, cfg.epochs):
         tasks = sampler.batch_tasks()
+        progress = _Progress(epoch, cfg.epochs, len(tasks), cfg.log_every,
+                             enabled=rank == 0)
         # Threads, not processes: the work inside `_prepare_batch` is PIL
         # decode and OpenCV/numpy augmentation, all of which release the GIL,
         # and threads keep the memmapped bank and the already-loaded tower
@@ -923,7 +986,7 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
                         _shard_task(t, rank, world, cfg.src_chunk)),
                     tasks, 2 * max(1, cfg.workers)):
                 prepared = fut.result()
-                si, vi = task[7], task[8]
+                si, vi = task[-2], task[-1]
                 batch = sampler.targets(si, vi, cfg.device)
                 # The FULL batch's pair count on every rank, never this rank's
                 # share of it: `share` below has to be each chunk's fraction of
@@ -977,6 +1040,7 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
                 if averager is not None and gstep >= swa_start:
                     averager.update()
                 gstep += 1
+                progress.step(parts, lr=opt.param_groups[0]["lr"])
         if world > 1:
             # Each rank only accumulated its own chunks' share, so the loss
             # printed by a rank alone would be a quarter of the batch's.
@@ -985,7 +1049,7 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
                              device=cfg.device, dtype=torch.float64)
             dist.all_reduce(t, op=dist.ReduceOp.SUM)
             parts = dict(zip(("cls", "deg", "con", "total"), t.tolist()))
-        history.append({"epoch": epoch, **parts})
+        history.append({"epoch": epoch, **parts, **progress.summary()})
         # Write EVERY epoch, not just the last. A 375k-row arm is hours per
         # epoch; the cost of one 1.2 GB atomic write against losing all of them
         # is not a trade worth thinking about.
