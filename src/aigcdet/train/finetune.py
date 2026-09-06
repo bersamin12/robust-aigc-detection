@@ -44,8 +44,9 @@ import numpy as np
 import torch
 from PIL import Image
 
-from aigcdet.augment.canonical import DEFAULT_POLICY, CanonPolicy
-from aigcdet.augment.recipes import MAX_OPS_DEFAULT, RECIPE_POOL_DEFAULT
+from aigcdet.augment.canonical import DEFAULT_POLICY, MODE_CROP, CanonPolicy
+from aigcdet.augment.recipes import (
+    MAX_OPS_DEFAULT, RECIPE_POOL_DEFAULT, pool_has_pre_ops)
 from aigcdet.features.backbones import (
     BackboneSpec, load_backbone, model_inputs, _pool, tokens,
 )
@@ -267,6 +268,13 @@ class LiveViewSampler(PairedSampler):
         # carries no key and was, by construction, sampled under "legacy".
         self.pool = str(bank.config.get("recipe_pool", RECIPE_POOL_DEFAULT))
         self.max_ops = int(bank.config.get("max_ops", MAX_OPS_DEFAULT))
+        if (pool_has_pre_ops(self.pool) and self.policy.mode == MODE_CROP
+                and not self.policy.crop_clamp):
+            raise ValueError(
+                f"bank pool {self.pool!r} samples a pre-canonical downscale that "
+                f"can leave an image below the {self.policy.crop_side}px crop "
+                "window, and this policy would refuse such a view mid-epoch. "
+                "Train with --crop-clamp (the scoring policy already does).")
         col = "rel_path" if "rel_path" in bank.meta.columns else "path"
         self._paths = bank.meta[col].to_numpy()
         self._absolute = col == "path"

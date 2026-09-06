@@ -7,7 +7,9 @@ intensity scale, jitter as a signed fraction, crop as a kept fraction.
 """
 from __future__ import annotations
 
+import importlib.util
 import io
+import threading
 
 import cv2
 import numpy as np
@@ -207,6 +209,76 @@ def downscale(img: np.ndarray, scale: float, interp_down: str = "area",
     return cv2.resize(small, (w, h), interpolation=_INTERP[interp_up])
 
 
+def downscale_keep(img: np.ndarray, scale: float, interp: str = "area") -> np.ndarray:
+    """Resize by `scale` and KEEP it small -- NTIRE's `downscale` (factor
+    0.3-0.8 of the full image, never resampled back). Not shape-preserving,
+    so it is a PRE-CANONICAL op (`recipes.PRE_CANONICAL_OPS`): it acts on the
+    decoded image before the crop window is taken, exactly where the
+    organisers' transform acts, and `Recipe.apply` refuses it. The crop then
+    sees a wider field of view at lower detail, and an image that falls below
+    the window is taken whole under `crop_clamp`, as at scoring time."""
+    h, w = img.shape[:2]
+    sh, sw = max(1, int(round(h * scale))), max(1, int(round(w * scale)))
+    return np.ascontiguousarray(cv2.resize(img, (sw, sh), interpolation=_INTERP[interp]))
+
+
+#: A learned image codec standing in for JPEG AI (ISO/IEC 6048), which the
+#: challenge applies at four quality levels and whose reconstructions carry no
+#: block grid -- textures come back smoothed and re-synthesised, which is the
+#: artefact a JPEG-trained detector has never seen. compressai's
+#: `bmshj2018_factorized` (Balle et al. 2018) is the cheapest hyperprior-free
+#: learned codec with public weights: ~0.09 s per 224px image on one CPU
+#: thread. Quality 1 is ~0.18 bpp, 4 is ~1 bpp; lower is harsher.
+_JPEG_AI_ARCH = "bmshj2018_factorized"
+_JPEG_AI_QUALITIES = (1, 2, 3, 4)
+_jpeg_ai_models: dict = {}
+_jpeg_ai_lock = threading.Lock()
+
+
+def jpeg_ai_available() -> bool:
+    """Whether compressai is installed. Decided ONCE per process by the caller
+    and pinned by the pool name, as `jpeg2000_available`."""
+    return importlib.util.find_spec("compressai") is not None
+
+
+def _jpeg_ai_model(quality: int):
+    if quality not in _JPEG_AI_QUALITIES:
+        raise ValueError(f"jpeg_ai quality must be one of {_JPEG_AI_QUALITIES}, got {quality}")
+    with _jpeg_ai_lock:
+        net = _jpeg_ai_models.get(quality)
+        if net is None:
+            try:
+                from compressai import zoo
+            except ImportError as exc:
+                raise ImportError(
+                    "the jpeg_ai op needs compressai (`pip install compressai`); "
+                    "check jpeg_ai_available() before putting it in a pool") from exc
+            net = getattr(zoo, _JPEG_AI_ARCH)(quality=quality, pretrained=True).eval()
+            for p in net.parameters():
+                p.requires_grad_(False)
+            _jpeg_ai_models[quality] = net
+    return net
+
+
+def jpeg_ai(img: np.ndarray, quality: int) -> np.ndarray:
+    """Learned-codec round trip (analysis -> quantise -> synthesis; no
+    entropy coding, which does not change the pixels). Padded to a multiple
+    of 64 by edge replication and cropped back, so any size works."""
+    import torch
+    import torch.nn.functional as F
+
+    net = _jpeg_ai_model(int(quality))
+    h, w = img.shape[:2]
+    x = torch.from_numpy(np.ascontiguousarray(img)).permute(2, 0, 1).float().div_(255.0)[None]
+    ph, pw = (64 - h % 64) % 64, (64 - w % 64) % 64
+    if ph or pw:
+        x = F.pad(x, (0, pw, 0, ph), mode="replicate")
+    with torch.no_grad():
+        y = net(x)["x_hat"]
+    y = y[0, :, :h, :w].clamp_(0.0, 1.0).mul_(255.0).round_().to(torch.uint8)
+    return np.ascontiguousarray(y.permute(1, 2, 0).numpy())
+
+
 def pixelate(img: np.ndarray, block: int) -> np.ndarray:
     """Average over `block`x`block` cells and hold each cell flat."""
     h, w = img.shape[:2]
@@ -342,6 +414,8 @@ OP_FUNCS = {
     "glass_blur": glass_blur,
     "downscale": downscale,
     "pixelate": pixelate,
+    "downscale_keep": downscale_keep,
+    "jpeg_ai": jpeg_ai,
     "impulse": impulse,
     "iso_noise": iso_noise,
     "tone_curve": tone_curve,

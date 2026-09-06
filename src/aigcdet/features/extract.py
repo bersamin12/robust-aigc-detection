@@ -225,7 +225,15 @@ def build_view(decoded: np.ndarray, view_idx: int, row_id: int, seed: int, *,
     # own window from its own key, so there is nothing to share and passing a
     # base would hand all 11 views the same window -- silently, with no shape
     # error, which is why the caller does not get to decide: crop ignores it.
-    if base is not None and policy.mode != MODE_CROP:
+    # Pre-canonical ops (NTIRE's permanent downscale) act on the decoded
+    # image, before the window is taken -- so a view holding one cannot share
+    # the caller's `base` either, and canonicalises its own resized copy.
+    pre, post = r.split()
+    if pre.ops:
+        std = canonicalise(pre.apply_pre(decoded), policy=policy,
+                           rng=canonical_rng(seed, row_id, view_idx)
+                           if policy.mode == MODE_CROP else None)
+    elif base is not None and policy.mode != MODE_CROP:
         std = base
     else:
         std = canonicalise(decoded, policy=policy,
@@ -233,7 +241,7 @@ def build_view(decoded: np.ndarray, view_idx: int, row_id: int, seed: int, *,
                            if policy.mode == MODE_CROP else None)
     if geometric:
         std = dihedral(std, sample_dihedral(geometric_rng(seed, row_id, view_idx)))
-    return r.apply(std, np.random.default_rng([seed, row_id, view_idx])), r
+    return post.apply_post(std, np.random.default_rng([seed, row_id, view_idx])), r
 
 
 def _prepare_image(task: PrepareTask) -> dict:

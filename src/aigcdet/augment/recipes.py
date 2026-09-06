@@ -49,10 +49,11 @@ N_FAMILIES: int = len(FAMILIES)
 #: Every op's family. The brief's six ops carry their family's own name; the
 #: NTIRE additions are grouped by what they do to the signal.
 FAMILY_OF: dict[str, str] = {
-    "jpeg": "jpeg", "jpeg_multi": "jpeg", "jpeg2000": "jpeg",
+    "jpeg": "jpeg", "jpeg_multi": "jpeg", "jpeg2000": "jpeg", "jpeg_ai": "jpeg",
     "blur": "blur", "motion_blur": "blur", "lens_blur": "blur",
     "glass_blur": "blur",
     "resize": "resize", "downscale": "resize", "pixelate": "resize",
+    "downscale_keep": "resize",
     "noise": "noise", "impulse": "noise", "iso_noise": "noise",
     "jitter": "jitter", "tone_curve": "jitter", "clahe": "jitter",
     "contrast": "jitter", "brightness": "jitter", "quantize": "jitter",
@@ -65,6 +66,16 @@ FAMILY_OF: dict[str, str] = {
 #: byte-for-byte from the recipe json alone.
 STOCHASTIC_OPS: frozenset[str] = frozenset(
     {"noise", "glass_blur", "impulse", "iso_noise"})
+
+#: Ops that act on the DECODED image, before canonicalisation, because that is
+#: where the transform they mirror acts and they are not shape-preserving.
+#: NTIRE's downscale shrinks the whole image and leaves it small; on the
+#: hard validation set it is in 931 of 1,250 distorted rows, and the crop
+#: window then sees a wider field of view at lower detail. Applying a
+#: round-trip resize to the crop instead (`downscale`) models a different
+#: artefact. `Recipe.apply` refuses a recipe holding one of these;
+#: `features.extract.build_view` splits them out with `Recipe.split`.
+PRE_CANONICAL_OPS: frozenset[str] = frozenset({"downscale_keep"})
 
 #: Named op pools the training sampler draws from. ORDER MATTERS: the sampler
 #: indexes into a family's candidates by an rng draw, so reordering a pool
@@ -79,6 +90,23 @@ POOLS: dict[str, tuple[str, ...]] = {
         "tone_curve", "clahe", "contrast", "brightness", "quantize",
         "channel_shift", "saturation",
         "aspect_crop", "perspective",
+    ),
+    #: `ntire` plus the two distortions the epoch-3 breakdown on
+    #: ntire_val_hard ranked weakest (2026-09-06): NTIRE's permanent
+    #: downscale and a learned codec standing in for JPEG AI. Appended, so
+    #: every `ntire` recipe's family draws are unchanged; the op draw within
+    #: the jpeg and resize families is weighted (`OP_WEIGHTS`) towards them,
+    #: roughly as often as the organisers apply them. Needs compressai and a
+    #: crop policy with `crop_clamp` (the trainer checks).
+    "ntire2": FAMILIES + (
+        "jpeg_multi", "jpeg2000",
+        "motion_blur", "lens_blur", "glass_blur",
+        "downscale", "pixelate",
+        "impulse", "iso_noise",
+        "tone_curve", "clahe", "contrast", "brightness", "quantize",
+        "channel_shift", "saturation",
+        "aspect_crop", "perspective",
+        "jpeg_ai", "downscale_keep",
     ),
     #: `ntire` without JPEG 2000, for an OpenCV build that cannot encode it.
     #: A separate pool rather than a runtime skip, because the pool name is
@@ -95,6 +123,24 @@ POOLS: dict[str, tuple[str, ...]] = {
     ),
 }
 RECIPE_POOL_DEFAULT: str = "legacy"
+
+#: Per-pool relative weights for the op draw WITHIN a family (unlisted ops
+#: weigh 1). A pool without an entry draws uniformly with an integer draw,
+#: bit-identical to before this existed; a pool with one uses
+#: `rng.choice(p=...)`, so weights are part of that pool's RNG contract like
+#: its order. ntire2: downscale is in 74% of NTIRE's distorted rows and
+#: JPEG AI in 20%, against ~25% each for a uniform draw over four ops.
+OP_WEIGHTS: dict[str, dict[str, float]] = {
+    "ntire2": {"downscale_keep": 3.0, "jpeg_ai": 2.0},
+}
+
+
+def pool_has_pre_ops(pool: str) -> bool:
+    """Whether `pool` can sample an op that acts before canonicalisation."""
+    try:
+        return any(o in PRE_CANONICAL_OPS for o in POOLS[pool])
+    except KeyError:
+        raise KeyError(f"unknown recipe pool {pool!r}; known: {sorted(POOLS)}") from None
 MAX_OPS_DEFAULT: int = 3
 
 # Held-out severity bands (spec §4.6): the eval grid's q=70 and sigma=1.0
@@ -128,6 +174,8 @@ _QUANTIZE_BITS = (3, 7)
 _CHANNEL_SHIFT_RANGE = (5.0, 40.0)
 _SATURATION_RANGE = (0.4, 1.6)
 _ASPECT_FRAC_RANGE = (0.5, 0.95)
+_DOWNSCALE_KEEP_RANGE = (0.3, 0.8)  # NTIRE's own factor range (val label csv)
+_JPEG_AI_QUALITIES = (1, 2, 3, 4)   # compressai quality index; 1 is harshest
 _PERSPECTIVE_MAX = 0.10           # fraction of side per corner
 
 
@@ -160,6 +208,14 @@ def _severity(name: str, p: dict) -> float:
         return float(np.clip((p["max_delta"] * p["iters"]) / 6.0, 0.0, 1.0))
     if name == "downscale":
         return float(np.clip((1.0 - p["scale"]) / 0.75, 0.0, 1.0))
+    if name == "downscale_keep":
+        lo = _DOWNSCALE_KEEP_RANGE[0]
+        return float(np.clip((1.0 - p["scale"]) / (1.0 - lo), 0.0, 1.0))
+    if name == "jpeg_ai":
+        # Quality 4 (~1 bpp) still re-synthesises every texture, so it is not
+        # a near-identity the way JPEG q=98 is: floor at a quarter.
+        qs = _JPEG_AI_QUALITIES
+        return float(np.clip((qs[-1] + 1 - p["quality"]) / len(qs), 0.0, 1.0))
     if name == "pixelate":
         return float(np.clip(p["block"] / _PIXELATE_RANGE[1], 0.0, 1.0))
     if name == "impulse":
@@ -206,13 +262,44 @@ class Op:
 class Recipe:
     ops: tuple[Op, ...] = ()
 
-    def apply(self, img: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    def split(self) -> tuple["Recipe", "Recipe"]:
+        """(pre-canonical ops, the rest), each in chain order."""
+        pre = tuple(o for o in self.ops if o.name in PRE_CANONICAL_OPS)
+        post = tuple(o for o in self.ops if o.name not in PRE_CANONICAL_OPS)
+        return Recipe(pre), Recipe(post)
+
+    def apply_pre(self, img: np.ndarray) -> np.ndarray:
+        """The pre-canonical ops, on the DECODED image. They draw nothing, so
+        the (seed, row, view) rng the post ops read is untouched."""
         out = img
         for op in self.ops:
+            if op.name in PRE_CANONICAL_OPS:
+                out = OP_FUNCS[op.name](out, **op.params)
+        return out
+
+    def apply_post(self, img: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+        """Every shape-preserving op, on the canonicalised view."""
+        out = img
+        for op in self.ops:
+            if op.name in PRE_CANONICAL_OPS:
+                continue
             fn = OP_FUNCS[op.name]
             out = (fn(out, rng=rng, **op.params) if op.name in STOCHASTIC_OPS
                    else fn(out, **op.params))
         return out
+
+    def apply(self, img: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+        """The whole chain on an already canonicalised view. Refuses a recipe
+        with a pre-canonical op: silently running it here would change the
+        view's shape, or skip it, and either is the wrong pixels -- a replay
+        of such a recipe has to go through `features.extract.build_view`."""
+        pre = [o.name for o in self.ops if o.name in PRE_CANONICAL_OPS]
+        if pre:
+            raise ValueError(
+                f"recipe holds pre-canonical op(s) {pre}, which act on the decoded "
+                "image before the crop; rebuild the view with build_view() "
+                "(or use apply_pre / apply_post explicitly)")
+        return self.apply_post(img, rng)
 
     def labels(self) -> dict[str, np.ndarray]:
         presence = np.zeros(len(FAMILIES), dtype=np.float32)
@@ -281,6 +368,12 @@ def _sample_params(name: str, rng: np.random.Generator) -> dict:
                 "interp_up": interps[int(rng.integers(len(interps)))]}
     if name == "pixelate":
         return {"block": int(rng.integers(_PIXELATE_RANGE[0], _PIXELATE_RANGE[1] + 1))}
+    if name == "downscale_keep":
+        interps = ("area", "linear", "cubic")
+        return {"scale": float(rng.uniform(*_DOWNSCALE_KEEP_RANGE)),
+                "interp": interps[int(rng.integers(len(interps)))]}
+    if name == "jpeg_ai":
+        return {"quality": int(_JPEG_AI_QUALITIES[int(rng.integers(len(_JPEG_AI_QUALITIES)))])}
     if name == "impulse":
         return {"amount": float(rng.uniform(*_IMPULSE_RANGE))}
     if name == "iso_noise":
@@ -355,6 +448,13 @@ def sample_training_recipe(rng: np.random.Generator, max_ops: int = MAX_OPS_DEFA
         cands = ops_for_family(str(fam), pool)
         if not cands:
             raise ValueError(f"pool {pool!r} has no op for family {fam!r}")
-        name = cands[0] if len(cands) == 1 else cands[int(rng.integers(len(cands)))]
+        weights = OP_WEIGHTS.get(pool)
+        if len(cands) == 1:
+            name = cands[0]
+        elif weights:
+            p = np.array([float(weights.get(c, 1.0)) for c in cands])
+            name = cands[int(rng.choice(len(cands), p=p / p.sum()))]
+        else:
+            name = cands[int(rng.integers(len(cands)))]
         ops.append(Op(name, _sample_params(name, rng)))
     return Recipe(tuple(ops))

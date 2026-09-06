@@ -27,6 +27,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# The `jpeg_ai` op (recipe pool `ntire2`): a learned image codec standing in
+# for JPEG AI. Pure torch at run time; the wheel builds a small C++ extension.
+# NOTE: compressai 1.2.8 pins numpy < 2, so installing it downgrades numpy.
+ntire = ["compressai>=1.2"]
 # Only needed by aigcdet.features.recon's reconstruction branch (spec §3.3):
 # the SD 1.5 VAE (via diffusers) and LPIPS. Neither is installed in this
 # project's dev/test environment and neither should be -- see

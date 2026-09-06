@@ -482,3 +482,82 @@ def test_merge_still_accepts_shards_that_excluded_the_same_families(tmp_path, mo
     b = _fake_bank(tmp_path, monkeypatch, "m1", slice(3, 6), exclude=("noise",))
     merged = merge_banks([a, b], str(tmp_path / "merged_ok"))
     assert FeatureBank.open(merged).config["exclude_families"] == ["noise"]
+
+
+# --- pre-canonical ops (ntire2's permanent downscale) ------------------------
+
+def _decoded(h=300, w=400, seed=0):
+    return np.random.default_rng(seed).integers(0, 256, (h, w, 3), dtype=np.uint8)
+
+
+def test_build_view_applies_a_pre_op_before_the_crop_window():
+    """A permanent downscale acts on the decoded image; the window is then
+    taken from the SMALL image, so the view shows a wider field at lower
+    detail -- and never the same pixels as the plain crop."""
+    from aigcdet.augment.canonical import CanonPolicy
+    from aigcdet.augment.recipes import Op, Recipe
+    from aigcdet.features.extract import build_view
+
+    pol = CanonPolicy(mode="crop", crop_side=200, nominal_side=224, crop_clamp=True)
+    dec = _decoded()
+    r = Recipe((Op("downscale_keep", {"scale": 0.5, "interp": "area"}),
+                Op("jpeg", {"quality": 60})))
+    v, got = build_view(dec, 1, 0, 7, policy=pol, recipe=r)
+    assert got == r and v.shape == (224, 224, 3) and v.dtype == np.uint8
+    plain, _ = build_view(dec, 1, 0, 7, policy=pol, recipe=Recipe((Op("jpeg", {"quality": 60}),)))
+    assert not np.array_equal(v, plain)
+    # Reproducible from the key and the recipe alone.
+    assert np.array_equal(v, build_view(dec, 1, 0, 7, policy=pol, recipe=r)[0])
+
+
+def test_a_pre_op_that_shrinks_below_the_window_needs_crop_clamp():
+    from aigcdet.augment.canonical import CanonPolicy
+    from aigcdet.augment.recipes import Op, Recipe
+    from aigcdet.features.extract import build_view
+
+    dec = _decoded()                                   # 300x400 -> 0.3 -> 90x120
+    r = Recipe((Op("downscale_keep", {"scale": 0.3, "interp": "area"}),))
+    strict = CanonPolicy(mode="crop", crop_side=200, nominal_side=224)
+    with pytest.raises(ValueError, match="window"):
+        build_view(dec, 1, 0, 7, policy=strict, recipe=r)
+    clamp = CanonPolicy(mode="crop", crop_side=200, nominal_side=224, crop_clamp=True)
+    assert build_view(dec, 1, 0, 7, policy=clamp, recipe=r)[0].shape == (224, 224, 3)
+
+
+def test_a_pre_op_ignores_the_shared_base_under_a_band_policy():
+    """`base` is the caller's canonicalised full image; a view with a pre op
+    has to canonicalise its own shrunken copy instead."""
+    from aigcdet.augment.canonical import MODE_BAND, CanonPolicy, canonicalise
+    from aigcdet.augment.recipes import Op, Recipe
+    from aigcdet.features.extract import build_view
+
+    pol = CanonPolicy(mode=MODE_BAND)
+    dec = _decoded()
+    base = canonicalise(dec, policy=pol)
+    r = Recipe((Op("downscale_keep", {"scale": 0.5, "interp": "area"}),))
+    v, _ = build_view(dec, 1, 0, 7, policy=pol, recipe=r, base=base)
+    # The band policy sizes its output from the input, so the shrunken copy
+    # canonicalises to its own shape: what matters is that `base` was not
+    # what came back.
+    assert v.ndim == 3 and v.dtype == np.uint8
+    assert v.shape != base.shape or not np.array_equal(v, base)
+    assert np.array_equal(v, canonicalise(r.apply_pre(dec), policy=pol))
+
+
+def test_ntire2_views_sample_end_to_end_under_crop_clamp():
+    from aigcdet.augment.canonical import CanonPolicy
+    from aigcdet.augment.recipes import PRE_CANONICAL_OPS
+    from aigcdet.features.extract import build_view
+
+    pol = CanonPolicy(mode="crop", crop_side=200, nominal_side=224, crop_clamp=True)
+    dec = _decoded()
+    seen_pre = False
+    for v in range(1, 40):
+        try:
+            img, r = build_view(dec, v, 3, 5, policy=pol, pool="ntire2", max_ops=5)
+        except ImportError as exc:                      # jpeg_ai without compressai
+            assert "compressai" in str(exc)
+            continue
+        assert img.shape == (224, 224, 3)
+        seen_pre |= any(o.name in PRE_CANONICAL_OPS for o in r.ops)
+    assert seen_pre

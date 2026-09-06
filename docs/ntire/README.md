@@ -26,7 +26,8 @@ lists them).
 ## Recipe
 
 * Views: 1 clean + 10 degraded, recipe pool `ntire` (24 ops grouped under
-  the six family bits, up to 5 chained), `data/banks/ntire_meta`.
+  the six family bits, up to 5 chained), `data/banks/ntire_meta`. Round
+  two uses `ntire2` (26 ops; see below).
 * Loss: the a3 recipe (class-balanced BCE + 0.3 degradation multitask +
   clean/degraded consistency).
 * Sampler: class-balanced, fake families drawn **proportional** to size.
@@ -51,6 +52,41 @@ Logs: `logs/pipeline.log`, `logs/ntire_dual224.log`, `logs/ntire_d24_518.log`,
 `fusion_ntire.json` (selection splits), `fusion_ntire_final.json` (with the
 test read), `outputs/scores/epochs/summary.md` (the per-epoch curve, from
 `scripts/metrics_table.py`).
+
+## Round two: `ntire2` (`scripts/ntire_v2.sh`)
+
+The round-one epoch curve on `ntire_val_hard` (below) ranked two distortions
+weakest in every epoch: NTIRE's **downscale** (in 931 of the 1,250 distorted
+rows; factor 0.3-0.8 of the full image, left small) and **JPEG AI** (248
+rows; a learned codec, no block grid). Neither was in the `ntire` pool as
+the organisers apply it: `downscale` there is a round trip on the crop, and
+no op re-synthesised textures. Pool `ntire2` appends:
+
+* `downscale_keep` -- a PRE-canonical op (`recipes.PRE_CANONICAL_OPS`): the
+  decoded image is shrunk by 0.3-0.8 and the crop window taken from the
+  small image, as at scoring time. Needs `--crop-clamp`, which the trainer
+  now checks, so an image that falls below the window is taken whole.
+* `jpeg_ai` -- compressai's `bmshj2018_factorized` at quality 1-4 (optional
+  extra `ntire`; ~0.3 s per 224px view on a busy CPU thread).
+
+Within the resize and jpeg families the draw is weighted towards them
+(`OP_WEIGHTS`: 1 in 2 resize draws, 2 in 5 jpeg draws). Bank
+`data/banks/ntire2_meta`; runs `ntire2_dual224` / `ntire2_d24_518`; the
+script scores final and SWA weights, picks the better of each on the
+selection splits, and writes `fusion_ntire2.json` and `round2_scores.md`.
+
+## Round one, per-epoch (`outputs/scores/epochs/summary.md`)
+
+| dual224 | robust | clean | AUC |
+|---|---|---|---|
+| epoch 1 | 0.8601 | 0.9703 | 0.9231 |
+| epoch 2 | 0.8606 | 0.9819 | 0.9319 |
+| epoch 3 | 0.8647 | 0.9856 | 0.9355 |
+| epoch 3, SWA | 0.8666 | 0.9855 | 0.9364 |
+
+Weakest distortions at epoch 3 (AUC of that token's rows against every
+clean row): downscale 0.945, jpeg_ai 0.952, quantization 0.967; all others
+0.974-0.983.
 
 ## Readout ablation (`scripts/ntire_pool_ablation.sh`, `models/pooling.py`)
 

@@ -785,3 +785,27 @@ def test_the_default_readout_takes_the_historical_pool_path(monkeypatch):
     finetune._forward_tower(None, spec, [None], "cpu", torch.float32, 1,
                             pooler=tower_poolers(head, 1)[0])
     assert calls == ["pool", "tokens"]
+
+
+def test_the_live_sampler_refuses_a_pre_op_pool_without_crop_clamp(tmp_path, monkeypatch):
+    """ntire2 shrinks images below the crop window; a strict crop policy
+    would refuse such a view mid-epoch, hours in. Fail at construction."""
+    from aigcdet.augment.canonical import CanonPolicy
+    from aigcdet.train.finetune import LiveViewSampler
+
+    bank, _ = _bank_for_sampler(tmp_path, monkeypatch)
+    bank.config["recipe_pool"] = "ntire2"
+    strict = CanonPolicy(mode="crop", crop_side=200, nominal_side=224)
+    with pytest.raises(ValueError, match="crop-clamp"):
+        LiveViewSampler(bank, np.arange(len(bank.meta)), root=str(tmp_path), seed=7,
+                        policy=strict, n_src=4, m_deg=2, rng=np.random.default_rng(0),
+                        device="cpu")
+    clamp = CanonPolicy(mode="crop", crop_side=200, nominal_side=224, crop_clamp=True)
+    s = LiveViewSampler(bank, np.arange(len(bank.meta)), root=str(tmp_path), seed=7,
+                        policy=clamp, n_src=4, m_deg=2, rng=np.random.default_rng(0),
+                        device="cpu")
+    assert s.pool == "ntire2"
+    bank.config["recipe_pool"] = "ntire"
+    LiveViewSampler(bank, np.arange(len(bank.meta)), root=str(tmp_path), seed=7,
+                    policy=strict, n_src=4, m_deg=2, rng=np.random.default_rng(0),
+                    device="cpu")

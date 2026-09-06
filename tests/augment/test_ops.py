@@ -244,3 +244,27 @@ def test_impulse_sets_pixels_to_the_extremes_only(photo):
     assert changed.mean() > 0.1
     vals = out[changed]
     assert set(np.unique(vals)) <= {0, 255}
+
+
+# --- ntire2: the permanent downscale and the learned codec -------------------
+
+def test_downscale_keep_shrinks_and_keeps_it_small(photo):
+    out = ops.downscale_keep(photo, scale=0.5, interp="area")
+    assert out.shape == (64, 48, 3) and out.dtype == np.uint8
+    assert np.array_equal(out, ops.downscale_keep(photo, scale=0.5, interp="area"))
+    assert ops.downscale_keep(photo, scale=0.3, interp="cubic").shape == (38, 29, 3)
+    # And never below a pixel.
+    assert ops.downscale_keep(photo, scale=0.001, interp="linear").shape == (1, 1, 3)
+
+
+def test_jpeg_ai_round_trips_when_compressai_is_installed(photo):
+    if not ops.jpeg_ai_available():
+        pytest.skip("compressai is not installed")
+    out = ops.jpeg_ai(photo, quality=1)
+    assert out.shape == photo.shape and out.dtype == np.uint8
+    assert np.array_equal(out, ops.jpeg_ai(photo, quality=1))
+    assert _dist(ops.jpeg_ai(photo, 1), photo) > _dist(ops.jpeg_ai(photo, 4), photo)
+    # Any size, including one that is not a multiple of the codec's stride.
+    assert ops.jpeg_ai(photo[:37, :29], quality=2).shape == (37, 29, 3)
+    with pytest.raises(ValueError):
+        ops.jpeg_ai(photo, quality=9)
