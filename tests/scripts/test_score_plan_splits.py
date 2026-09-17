@@ -117,3 +117,34 @@ def test_load_models_rebuilds_the_pooler_from_the_config(monkeypatch):
     # A width that does not match the declared readout is refused outright.
     with pytest.raises(SystemExit, match="dim_feat"):
         sps._load_models({**ck, "dim_feat": 8}, "cpu", use_swa=False)
+
+
+def test_load_models_can_score_the_ema_teacher(monkeypatch):
+    """A --distil ema run keeps its teacher beside the final and SWA weights;
+    --ema loads THAT head and tower, and is refused where there is none."""
+    import torch
+    from aigcdet.features.backbones import BackboneSpec
+    from aigcdet.models.heads import Detector
+
+    spec = BackboneSpec("fake", "none", image_size=64, dim=8,
+                        num_prefix_tokens=1, params=0)
+    monkeypatch.setattr(sps, "load_backbone",
+                        lambda name, device: (torch.nn.Linear(8, 8), spec))
+    final_head, ema_head = Detector(dim_feat=8), Detector(dim_feat=8)
+    ema_tower = torch.nn.Linear(8, 8)
+    ck = {"backbone": "fake", "tower_state_dict": torch.nn.Linear(8, 8).state_dict(),
+          "state_dict": final_head.state_dict(), "dim_feat": 8, "swa_n": 0,
+          "ema_state_dict": ema_head.state_dict(),
+          "ema_tower_state_dict": ema_tower.state_dict(),
+          "config": {"token_pool": "mean", "distil": "ema"}}
+    towers, _, head, tag = sps._load_models(ck, "cpu", use_swa=False, use_ema=True)
+    assert tag == "ema"
+    assert torch.equal(head.classifier.out[-1].bias, ema_head.classifier.out[-1].bias)
+    # The scorer runs towers in bf16; the loaded weights are the EMA's, rounded.
+    assert torch.equal(towers[0].weight, ema_tower.weight.to(torch.bfloat16))
+
+    with pytest.raises(SystemExit, match="no EMA teacher"):
+        sps._load_models({**ck, "ema_tower_state_dict": None}, "cpu",
+                         use_swa=False, use_ema=True)
+    with pytest.raises(SystemExit, match="two different models"):
+        sps._load_models(ck, "cpu", use_swa=True, use_ema=True)

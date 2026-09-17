@@ -41,3 +41,17 @@ def test_missing_split_leaves_blank_cells_and_no_objective(tmp_path):
 
 def test_empty_dir_renders_a_placeholder(tmp_path):
     assert "no metrics" in mt.render(mt.load(str(tmp_path)))
+
+
+def test_a_table_can_take_several_patterns_without_duplicating_a_row(tmp_path):
+    """An ablation's arms beside the earlier run that is their baseline."""
+    import json
+    for name in ("abl_pool_mean", "abl_pool_cls", "abl_did_c1self"):
+        (tmp_path / f"{name}_metrics.json").write_text(json.dumps(
+            {"weights": "final", "epoch": 1, "token_pool": "mean", "dim_feat": 8,
+             "splits": {"v": {"robust_auc": 0.8, "clean_auc": 0.9, "auc": 0.85}}}))
+    rows = mt.load(str(tmp_path), ["abl_did_*_metrics.json", "abl_pool_mean_metrics.json",
+                                   "abl_did_*_metrics.json"])
+    assert [r["name"] for r in rows] == ["abl_did_c1self", "abl_pool_mean"]
+    assert [r["name"] for r in mt.load(str(tmp_path))] == [
+        "abl_did_c1self", "abl_pool_cls", "abl_pool_mean"]

@@ -112,6 +112,84 @@ tower, depth 24, one epoch over a quarter of train, scored on `ntire_val_hard`
 and `ntire_val`; table in `pool_ablation.md`. A winner there is a candidate
 for a re-run of the real branches, not a result in itself.
 
+## Readout ablation result (2026-09-07, `pool_ablation.md`)
+
+Mean pooling won on the proxy (objective 0.9067; cls 0.9056, cls_mean
+0.9057, cls_reg_mean 0.9054, attn 0.8995), by too little to move a branch
+off it. The proxy baseline for anything else run in that setting is
+therefore `abl_pool_mean`: ntire_val_hard robust 0.8040 / clean 0.9264,
+ntire_val robust 0.9280 / clean 0.9683.
+
+## Round one result and fusion (2026-09-07, `fusion_ntire.json`)
+
+Fitted on ntire_val + ntire_val_hard (12,500 rows), w_a = 0.5. On
+ntire_val_hard: A (518, epoch 2) robust 0.8450 / clean 0.9941, B (dual 224,
+epoch 3 SWA) 0.8647 / 0.9856, fused 0.8655 / 0.9940. Fusion buys clean AUC
+and almost no robust AUC: both branches fail on the same rows (downscale,
+JPEG AI, quantization), so a second opinion from the same failure mode
+adds nothing there. That is the case for changing the training signal
+rather than adding models.
+
+## Degradation-invariant distillation (`--distil`, `scripts/ntire_did_ablation.sh`)
+
+The method contribution. The a3 recipe already has a clean/degraded
+consistency term, but it acts on the HEAD's 512-d hidden state, which the
+head can satisfy by projecting the distortion away while the tower's own
+feature keeps it. `--distil` adds a term on the tower's pooled output:
+each degraded view's feature is pulled, by cosine, towards the clean
+view's, with the clean side a stop-gradient target
+(`models/losses.py: distillation_loss`; design memo in the session's
+artifact page). Two targets:
+
+| `--distil` | target | cost |
+|---|---|---|
+| `self` | the same tower's clean feature, detached | none (it is already computed) |
+| `ema` | an EMA of tower and head (`_EmaTeacher`, decay `--distil-ema-decay`, 0.999) | one more forward per source, a second fp32 tower on the card, +1.2 GB per checkpoint |
+
+`--distil` does not switch the a3 terms off; `--alpha 0 --beta 0` does, and
+the ablation runs both ways so the effect is attributed to the new term and
+not to the missing old ones. `dis` in the progress line is the raw cosine
+distance (0-2). A `--distil ema` checkpoint keeps its teacher as a whole
+model: `score_plan_splits.py --ema` scores it; `slim_ckpt.py --no-ema`
+drops it. Resume restores the teacher and refuses a checkpoint without one.
+
+Proxy arms (same setting as the readout ablation, so `abl_pool_mean` is the
+baseline row): `c1self` (replacing the a3 terms), `c1self_a3` (beside
+them), `c1ema` (replacing). Go/no-go, fixed before the numbers: c1self
+gains more than one robust point on ntire_val_hard over 0.8040 at no more
+than half a clean point lost, or components 2 (invariant/aware degradation
+readout) and 3 (loss-driven op sampling) are not built on it. Table:
+`did_ablation.md`.
+## Distillation ablation result (2026-09-14, `did_ablation.md`)
+
+Checkpoints on `/scratch/$USER/aigcdet/outputs/ablation` (the repo disk was
+full; `OUT_DIR=` selects it). ntire_val_hard robust / clean, delta to
+`abl_pool_mean` (0.8040 / 0.9264):
+
+| arm | robust | clean | ntire_val robust / clean |
+|---|---|---|---|
+| `c1self` (distil, a3 off) | 0.7931 (-1.1) | 0.9389 (+1.3) | 0.9251 / 0.9749 |
+| `c1self_a3` (distil + a3) | 0.7957 (-0.8) | 0.9234 (-0.3) | 0.9222 / 0.9673 |
+| `c1ema` (EMA target, a3 off) | 0.7930 (-1.1) | 0.9325 (+0.6) | 0.9304 / 0.9760 |
+| `c1ema` teacher (`--ema`) | 0.7699 | 0.8933 | 0.9105 / 0.9531 |
+
+**The go/no-go fails.** All three arms lose about one robust point on the
+hard split, with the same sign and size whichever target is used, while
+`c1self` is the largest clean gain of any proxy arm. The readout arms sat
+within 0.0002 robust of each other, so the drop is not noise. `dis` fell
+0.33 -> 0.07 over the epoch: the tower did collapse the clean/degraded
+feature gap, and that is what cost degraded-row separability -- pulling
+f(degraded) onto f(clean) asks for artefact cues the degradation has
+removed. The EMA teacher scores below its student because, at decay 0.999
+over 1,544 steps, it is still a blend with early weights.
+
+Confound known before the numbers: under crop canonicalisation the clean
+and degraded views are different 200 px windows, so the term also asks for
+crop (content) invariance. A same-window control is the one follow-up that
+tests the hypothesis rather than this test of it; a `distil_weight` sweep
+would be rescuing the method after seeing the data and is not run.
+Components 2 and 3 are not built on this result.
+
 ## Smoke run (2026-09-05, 2% of train, 1 epoch each, 500 hard-val rows)
 
 | model | AUC | robust | clean |

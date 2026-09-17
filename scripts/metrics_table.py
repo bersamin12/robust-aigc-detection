@@ -33,9 +33,15 @@ def _epoch_key(name: str):
     return (name[:m.start()], int(m.group(1))) if m else (name, -1)
 
 
-def load(scores_dir: str, pattern: str = "*_metrics.json") -> list[dict]:
+def load(scores_dir: str, pattern="*_metrics.json") -> list[dict]:
+    """`pattern` may be one glob or a list of them (a file matched by two is
+    one row), so a table can hold an ablation's arms beside the earlier run
+    that is their baseline without re-running it."""
+    patterns = [pattern] if isinstance(pattern, str) else list(pattern)
+    paths = sorted({p for pat in patterns
+                    for p in glob.glob(os.path.join(scores_dir, pat))})
     rows = []
-    for p in sorted(glob.glob(os.path.join(scores_dir, pattern))):
+    for p in paths:
         with open(p) as f:
             m = json.load(f)
         name = os.path.basename(p)[:-len("_metrics.json")]
@@ -86,11 +92,13 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("scores_dir")
-    ap.add_argument("--pattern", default="*_metrics.json")
+    ap.add_argument("--pattern", action="append", default=None,
+                    help="glob under scores_dir; repeatable (default all "
+                         "*_metrics.json)")
     ap.add_argument("--splits", default=None, help="comma list; default: all seen")
     ap.add_argument("--out", default=None, help="write the markdown here too")
     a = ap.parse_args(argv)
-    rows = load(a.scores_dir, a.pattern)
+    rows = load(a.scores_dir, a.pattern or "*_metrics.json")
     text = render(rows, a.splits.split(",") if a.splits else None)
     sys.stdout.write(text)
     if a.out:

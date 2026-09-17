@@ -22,8 +22,9 @@ import argparse
 import json
 import os
 
+from aigcdet.models.losses import LossWeights
 from aigcdet.models.pooling import TOKEN_POOLS
-from aigcdet.train.finetune import FinetuneConfig, train_finetune
+from aigcdet.train.finetune import DISTIL_MODES, FinetuneConfig, train_finetune
 
 
 def main() -> int:
@@ -89,6 +90,26 @@ def main() -> int:
                          "is drawn from it: uniform (the ladder's default) or "
                          "proportional to its row count (the NTIRE setting, "
                          "where one pseudo-family holds most of the fakes)")
+    ap.add_argument("--distil", default="off", choices=DISTIL_MODES,
+                    help="degradation-invariant distillation: pull each "
+                         "degraded view's pooled tower feature towards the "
+                         "clean view's by cosine. self = the same tower's "
+                         "clean feature, stop-gradient, free; ema = an "
+                         "exponential moving average of the tower, one more "
+                         "forward per source and a second tower on the card")
+    ap.add_argument("--distil-weight", type=float, default=1.0)
+    ap.add_argument("--log-every", type=int, default=50,
+                    help="progress line every this many optimiser steps")
+
+    ap.add_argument("--distil-ema-decay", type=float, default=0.999)
+    ap.add_argument("--lambda-deg", type=float, default=LossWeights.lambda_deg,
+                    help="weight on the degradation head's loss")
+    ap.add_argument("--alpha", type=float, default=LossWeights.alpha,
+                    help="weight on the clean->degraded prediction KL; 0 "
+                         "removes it (the a3 recipe has it at 1)")
+    ap.add_argument("--beta", type=float, default=LossWeights.beta,
+                    help="weight on the head-hidden-state MSE; 0 removes it. "
+                         "--distil does NOT switch these off by itself")
     a = ap.parse_args()
 
     cfg = FinetuneConfig(
@@ -104,7 +125,10 @@ def main() -> int:
         use_recon=a.use_recon,
         train_subsample_frac=a.train_subsample_frac,
         family_weighting=a.family_weighting,
-        token_pool=a.token_pool)
+        token_pool=a.token_pool,
+        weights=LossWeights(lambda_deg=a.lambda_deg, alpha=a.alpha, beta=a.beta),
+        distil=a.distil, distil_weight=a.distil_weight,
+        distil_ema_decay=a.distil_ema_decay, log_every=a.log_every)
 
     res = train_finetune(cfg)
     if int(os.environ.get("RANK", "0")) != 0:
@@ -115,7 +139,7 @@ def main() -> int:
           f"({u['n_blocks']} blocks at {u['block_path']!r})")
     for h in res["history"]:
         print(f"  epoch {h['epoch']}: total={h['total']:.4f} cls={h['cls']:.4f} "
-              f"deg={h['deg']:.4f} con={h['con']:.4f}")
+              f"deg={h['deg']:.4f} con={h['con']:.4f} dis={h.get('dis', 0.0):.4f}")
     print(f"checkpoint: {res['checkpoint']}")
     return 0
 

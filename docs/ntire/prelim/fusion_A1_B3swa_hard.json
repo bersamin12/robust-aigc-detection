@@ -1,0 +1,88 @@
+{
+  "branch_a": {
+    "prefix": "outputs/scores/epochs/ntire_d24_518_ep1",
+    "ckpt": "/mnt/r13justinssd/techjam/aigcdet/outputs/unfreeze/ntire_d24_518/checkpoint_ep1.pt"
+  },
+  "branch_b": {
+    "prefix": "outputs/scores/epochs/ntire_dual224_ep3swa",
+    "ckpt": "/mnt/r13justinssd/techjam/aigcdet/outputs/dual/ntire_dual224/checkpoint_ep3_slim.pt"
+  },
+  "score_col": "logit",
+  "fusion": {
+    "weight": 0.3,
+    "z_a": {
+      "mu": -0.626031575614214,
+      "sigma": 4.967275256195025
+    },
+    "z_b": {
+      "mu": 0.06065690176924691,
+      "sigma": 5.575615113234218
+    },
+    "fit_population": "split=ntire_val_hard"
+  },
+  "sweep_on_fit_rows": {
+    "0.0": 0.92608768,
+    "0.05": 0.9267711999999999,
+    "0.1": 0.92733952,
+    "0.15": 0.927872,
+    "0.2": 0.92813184,
+    "0.25": 0.92833664,
+    "0.3": 0.92836608,
+    "0.35": 0.9282496,
+    "0.4": 0.92790016,
+    "0.45": 0.92747136,
+    "0.5": 0.92690688,
+    "0.55": 0.92610816,
+    "0.6": 0.92512512,
+    "0.65": 0.92392832,
+    "0.7": 0.9225843200000001,
+    "0.75": 0.9212006400000001,
+    "0.8": 0.9195827200000001,
+    "0.85": 0.9176844800000001,
+    "0.9": 0.91561728,
+    "0.95": 0.9134924799999999,
+    "1.0": 0.9109926399999999
+  },
+  "n_fit_rows": 2500,
+  "splits": {
+    "ntire_val_hard": {
+      "a": {
+        "n": 2500,
+        "auc": 0.92803328,
+        "tpr_at_1pct_fpr": 0.3296,
+        "n_robust": 1250,
+        "robust_auc": 0.8339532799999999,
+        "n_clean": 1250,
+        "clean_auc": 0.9880319999999999
+      },
+      "b": {
+        "n": 2500,
+        "auc": 0.9363564799999999,
+        "tpr_at_1pct_fpr": 0.2848,
+        "n_robust": 1250,
+        "robust_auc": 0.8666265599999999,
+        "n_clean": 1250,
+        "clean_auc": 0.9855488
+      },
+      "fused_equal": {
+        "n": 2500,
+        "auc": 0.9409939199999999,
+        "tpr_at_1pct_fpr": 0.3256,
+        "n_robust": 1250,
+        "robust_auc": 0.8627712,
+        "n_clean": 1250,
+        "clean_auc": 0.9910425599999999
+      },
+      "fused": {
+        "n": 2500,
+        "auc": 0.9411801600000002,
+        "tpr_at_1pct_fpr": 0.3224,
+        "n_robust": 1250,
+        "robust_auc": 0.86675968,
+        "n_clean": 1250,
+        "clean_auc": 0.98997248
+      }
+    }
+  },
+  "test_split": null
+}

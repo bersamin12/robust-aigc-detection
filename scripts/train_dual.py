@@ -14,8 +14,9 @@ from __future__ import annotations
 import argparse
 import os
 
-from aigcdet.train.finetune import FinetuneConfig
+from aigcdet.models.losses import LossWeights
 from aigcdet.models.pooling import TOKEN_POOLS
+from aigcdet.train.finetune import DISTIL_MODES, FinetuneConfig
 from aigcdet.train.finetune_dual import DualFinetuneConfig, train_dual
 
 
@@ -82,6 +83,19 @@ def main() -> int:
     ap.add_argument("--family-weighting", default="uniform",
                     choices=("uniform", "proportional"),
                     help="see train_unfreeze.py")
+    ap.add_argument("--distil", default="off", choices=DISTIL_MODES,
+                    help="see train_unfreeze.py; with ema, one teacher per "
+                         "tower")
+    ap.add_argument("--distil-weight", type=float, default=1.0)
+    ap.add_argument("--log-every", type=int, default=50,
+                    help="progress line every this many optimiser steps")
+
+    ap.add_argument("--distil-ema-decay", type=float, default=0.999)
+    ap.add_argument("--lambda-deg", type=float, default=LossWeights.lambda_deg)
+    ap.add_argument("--alpha", type=float, default=LossWeights.alpha,
+                    help="see train_unfreeze.py")
+    ap.add_argument("--beta", type=float, default=LossWeights.beta,
+                    help="see train_unfreeze.py")
     a = ap.parse_args()
 
     base = FinetuneConfig(
@@ -97,7 +111,10 @@ def main() -> int:
         use_recon=a.use_recon,
         train_subsample_frac=a.train_subsample_frac,
         family_weighting=a.family_weighting,
-        token_pool=a.token_pool)
+        token_pool=a.token_pool,
+        weights=LossWeights(lambda_deg=a.lambda_deg, alpha=a.alpha, beta=a.beta),
+        distil=a.distil, distil_weight=a.distil_weight,
+        distil_ema_decay=a.distil_ema_decay, log_every=a.log_every)
     cfg = DualFinetuneConfig(base=base, backbone2=a.backbone2,
                              perturb_tower2=a.perturb_tower2)
 
@@ -111,7 +128,8 @@ def main() -> int:
               f"({u['n_blocks']} blocks at {u['block_path']!r})")
     for h in res["history"]:
         print(f"  epoch {h['epoch']}: total={h['total']:.4f} "
-              f"cls={h['cls']:.4f} deg={h['deg']:.4f} con={h['con']:.4f}")
+              f"cls={h['cls']:.4f} deg={h['deg']:.4f} con={h['con']:.4f} "
+              f"dis={h.get('dis', 0.0):.4f}")
     print(f"checkpoint: {res['checkpoint']}")
     return 0
 

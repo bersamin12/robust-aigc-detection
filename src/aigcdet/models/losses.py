@@ -4,6 +4,10 @@
       + lambda_deg * L_deg                     # degradation multi-task
       + alpha * KL(p_clean || p_degraded)      # prediction consistency
       + beta  * MSE(h_c_clean, h_c_degraded)   # feature consistency
+      [ + lambda_distil * L_distil ]           # the live trainers only: the
+                                               # tower's degraded feature pulled
+                                               # to its clean one (see
+                                               # `distillation_loss`)
 
 The feature-consistency term acts on `hidden`, the classifier head's live,
 trainable ~512-d state h_c (see aigcdet.models.heads.Detector), never the
@@ -85,6 +89,36 @@ def consistency_loss(logit_clean: torch.Tensor, logit_deg: torch.Tensor,
     feat = F.mse_loss(hidden_deg, hidden_clean)
     return alpha * pred + beta * feat
 
+
+def distillation_loss(f_student: torch.Tensor, f_teacher: torch.Tensor) -> torch.Tensor:
+    """Cosine distance from each degraded view's POOLED TOWER FEATURE to its
+    clean target (degradation-invariant distillation, component 1).
+
+        L_distil = mean_j [ 1 - cos(f(d_j), sg(f(c_j))) ]
+
+    This is not the feature-consistency term above wearing a new name. That
+    one acts on `hidden`, the head's 512-d LayerNorm-ed state, so the head
+    can satisfy it by projecting the degradation away in its first Linear
+    while the tower's own feature keeps every bit of it; the classifier then
+    reads a feature that still moves under a distortion. This term acts on
+    the tower's pooled output, BEFORE the head, so the only way to lower it
+    is to make the tower itself return the same vector for the distorted
+    image as for the clean one. Cosine rather than MSE because the pooled
+    feature's norm is not a quantity the detector reads (the head opens with
+    a LayerNorm) and an MSE would spend its gradient shrinking it.
+
+    The teacher IS detached here, unlike `consistency_loss`, because there is
+    no version of this term in which the clean side is a moving target: with
+    both sides free the cheapest solution is a constant feature, and the
+    detector on top of it would sit at AUC 0.5 while this term reads zero.
+    The student is upcast to float32 so the cosine is not taken in bf16.
+    """
+    if f_student.shape != f_teacher.shape:
+        raise ValueError(f"student {tuple(f_student.shape)} and teacher "
+                         f"{tuple(f_teacher.shape)} features differ in shape")
+    cos = F.cosine_similarity(f_student.float(), f_teacher.detach().float(),
+                              dim=-1, eps=_EPS)
+    return (1.0 - cos).mean()
 
 def total_loss(out_clean: dict, out_deg: dict, batch: dict,
                weights: LossWeights, pos_weight: torch.Tensor | None = None

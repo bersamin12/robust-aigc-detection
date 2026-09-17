@@ -1,0 +1,164 @@
+{
+  "branch_a": {
+    "prefix": "outputs/scores/A",
+    "ckpt": "/mnt/r13justinssd/techjam/aigcdet/outputs/unfreeze/ntire_d24_518/checkpoint.pt"
+  },
+  "branch_b": {
+    "prefix": "outputs/scores/B",
+    "ckpt": "/mnt/r13justinssd/techjam/aigcdet/outputs/dual/ntire_dual224/checkpoint.pt"
+  },
+  "score_col": "logit",
+  "fusion": {
+    "weight": 0.5,
+    "z_a": {
+      "mu": 0.14103905969828368,
+      "sigma": 6.141231950936524
+    },
+    "z_b": {
+      "mu": -0.08136269010636955,
+      "sigma": 6.067499041224959
+    },
+    "fit_population": "split=ntire_val+ntire_val_hard"
+  },
+  "sweep_on_fit_rows": {
+    "0.0": 0.9709599232,
+    "0.05": 0.9721200127999999,
+    "0.1": 0.9730482175999999,
+    "0.15": 0.9738415615999998,
+    "0.2": 0.9744930303999999,
+    "0.25": 0.9750296064,
+    "0.3": 0.9754642432,
+    "0.35": 0.9757865472,
+    "0.4": 0.9760122880000001,
+    "0.45": 0.9761438208,
+    "0.5": 0.9761769983999999,
+    "0.55": 0.9761129983999999,
+    "0.6": 0.975960832,
+    "0.65": 0.9756904448,
+    "0.7": 0.9753576448,
+    "0.75": 0.974903552,
+    "0.8": 0.9743535104000001,
+    "0.85": 0.9736846847999999,
+    "0.9": 0.9729114111999999,
+    "0.95": 0.972003072,
+    "1.0": 0.9708823040000001
+  },
+  "n_fit_rows": 12500,
+  "splits": {
+    "ntire_val": {
+      "a": {
+        "n": 10000,
+        "auc": 0.9827925199999998,
+        "tpr_at_1pct_fpr": 0.8498,
+        "n_robust": 5000,
+        "robust_auc": 0.96533632,
+        "n_clean": 5000,
+        "clean_auc": 0.99741856
+      },
+      "b": {
+        "n": 10000,
+        "auc": 0.98126052,
+        "tpr_at_1pct_fpr": 0.8382,
+        "n_robust": 5000,
+        "robust_auc": 0.96742336,
+        "n_clean": 5000,
+        "clean_auc": 0.99296896
+      },
+      "fused_equal": {
+        "n": 10000,
+        "auc": 0.98658508,
+        "tpr_at_1pct_fpr": 0.8732,
+        "n_robust": 5000,
+        "robust_auc": 0.9733433600000001,
+        "n_clean": 5000,
+        "clean_auc": 0.9974712
+      },
+      "fused": {
+        "n": 10000,
+        "auc": 0.98658508,
+        "tpr_at_1pct_fpr": 0.8732,
+        "n_robust": 5000,
+        "robust_auc": 0.9733433600000001,
+        "n_clean": 5000,
+        "clean_auc": 0.9974712
+      }
+    },
+    "ntire_val_hard": {
+      "a": {
+        "n": 2500,
+        "auc": 0.93689408,
+        "tpr_at_1pct_fpr": 0.3328,
+        "n_robust": 1250,
+        "robust_auc": 0.8450457600000001,
+        "n_clean": 1250,
+        "clean_auc": 0.99414528
+      },
+      "b": {
+        "n": 2500,
+        "auc": 0.935536,
+        "tpr_at_1pct_fpr": 0.2368,
+        "n_robust": 1250,
+        "robust_auc": 0.86466816,
+        "n_clean": 1250,
+        "clean_auc": 0.98562304
+      },
+      "fused_equal": {
+        "n": 2500,
+        "auc": 0.9436460799999999,
+        "tpr_at_1pct_fpr": 0.2992,
+        "n_robust": 1250,
+        "robust_auc": 0.86546944,
+        "n_clean": 1250,
+        "clean_auc": 0.9939942399999999
+      },
+      "fused": {
+        "n": 2500,
+        "auc": 0.9436460799999999,
+        "tpr_at_1pct_fpr": 0.2992,
+        "n_robust": 1250,
+        "robust_auc": 0.86546944,
+        "n_clean": 1250,
+        "clean_auc": 0.9939942399999999
+      }
+    },
+    "val": {
+      "a": {
+        "n": 45199,
+        "auc": 0.9999366919883691,
+        "tpr_at_1pct_fpr": 0.9991819160387514,
+        "n_robust": 0,
+        "robust_auc": null,
+        "n_clean": 45199,
+        "clean_auc": 0.9999366919883691
+      },
+      "b": {
+        "n": 45199,
+        "auc": 0.9998927414265787,
+        "tpr_at_1pct_fpr": 0.998665231431647,
+        "n_robust": 0,
+        "robust_auc": null,
+        "n_clean": 45199,
+        "clean_auc": 0.9998927414265787
+      },
+      "fused_equal": {
+        "n": 45199,
+        "auc": 0.9999486858086419,
+        "tpr_at_1pct_fpr": 0.9993972012917115,
+        "n_robust": 0,
+        "robust_auc": null,
+        "n_clean": 45199,
+        "clean_auc": 0.9999486858086419
+      },
+      "fused": {
+        "n": 45199,
+        "auc": 0.9999486858086419,
+        "tpr_at_1pct_fpr": 0.9993972012917115,
+        "n_robust": 0,
+        "robust_auc": null,
+        "n_clean": 45199,
+        "clean_auc": 0.9999486858086419
+      }
+    }
+  },
+  "test_split": null
+}

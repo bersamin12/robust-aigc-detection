@@ -22,7 +22,8 @@ import torch
 DROP = ("optimizer_state_dict", "sampler_rng_state", "torch_rng_state")
 
 
-def slim(path: str, out: str | None = None, keep_swa: bool = True) -> str:
+def slim(path: str, out: str | None = None, keep_swa: bool = True,
+         keep_ema: bool = True) -> str:
     ck = torch.load(path, map_location="cpu", weights_only=False)
     for k in DROP:
         ck.pop(k, None)
@@ -30,8 +31,13 @@ def slim(path: str, out: str | None = None, keep_swa: bool = True) -> str:
         for k in ("swa_state_dict", "swa_tower_state_dict", "swa_tower_state_dicts"):
             ck[k] = None
         ck["swa_n"] = 0
+    if not keep_ema:
+        # A --distil ema run's teacher: scorable like the SWA copy, and the
+        # same size again; a slim file cannot be resumed from either way.
+        for k in ("ema_state_dict", "ema_tower_state_dict", "ema_tower_state_dicts"):
+            ck[k] = None
     ck["slimmed"] = {"dropped": list(DROP), "from": os.path.abspath(path),
-                     "keep_swa": keep_swa}
+                     "keep_swa": keep_swa, "keep_ema": keep_ema}
     out = out or os.path.splitext(path)[0] + "_slim.pt"
     tmp = out + ".tmp"
     torch.save(ck, tmp)
@@ -44,13 +50,15 @@ def main(argv=None) -> int:
     ap.add_argument("ckpt", nargs="+")
     ap.add_argument("--no-swa", action="store_true",
                     help="also drop the SWA copy (halves the file again)")
+    ap.add_argument("--no-ema", action="store_true",
+                    help="also drop the EMA teacher a --distil ema run kept")
     ap.add_argument("--delete-original", action="store_true",
                     help="remove the fat checkpoint after the slim one is "
                          "written; refused for a file named checkpoint.pt")
     a = ap.parse_args(argv)
     for p in a.ckpt:
         before = os.path.getsize(p)
-        out = slim(p, keep_swa=not a.no_swa)
+        out = slim(p, keep_swa=not a.no_swa, keep_ema=not a.no_ema)
         after = os.path.getsize(out)
         print(f"{p}: {before / 1e9:.2f} GB -> {out}: {after / 1e9:.2f} GB")
         if a.delete_original:

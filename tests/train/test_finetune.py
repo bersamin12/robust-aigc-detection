@@ -809,3 +809,249 @@ def test_the_live_sampler_refuses_a_pre_op_pool_without_crop_clamp(tmp_path, mon
     LiveViewSampler(bank, np.arange(len(bank.meta)), root=str(tmp_path), seed=7,
                     policy=strict, n_src=4, m_deg=2, rng=np.random.default_rng(0),
                     device="cpu")
+
+
+# ===========================================================================
+# Degradation-invariant distillation (component 1): the tower's degraded
+# feature pulled to its clean one
+# ===========================================================================
+
+def _feature_batch(seed=0, n=4, dim=8):
+    from aigcdet.augment.recipes import N_FAMILIES
+    g = torch.Generator().manual_seed(seed)
+    f_clean = torch.randn(n, dim, generator=g)
+    f_deg = torch.randn(n, dim, generator=g)
+    return {"f_clean": f_clean, "f_deg": f_deg,
+            "y_clean": torch.tensor([1.0, 0.0] * (n // 2)),
+            "y_deg": torch.tensor([1.0, 0.0] * (n // 2)),
+            "presence_deg": (torch.rand(n, N_FAMILIES, generator=g) > 0.5).float(),
+            "severity_deg": torch.rand(n, N_FAMILIES, generator=g)}
+
+
+def _head(dim=8):
+    from aigcdet.models.heads import Detector
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(5)
+        return Detector(dim_feat=dim)
+
+
+def test_distillation_off_is_the_a3_loss_with_a_zero_term():
+    """`distil="off"` must not change a bit of an existing run's objective."""
+    from aigcdet.train.finetune import _a3_loss, _step_loss
+
+    head, batch = _head(), _feature_batch()
+    cfg = FinetuneConfig(name="x", bank_dir="b", root="r")
+    loss, parts = _step_loss(head, batch, cfg)
+    ref, ref_parts = _a3_loss(head, batch, cfg)
+    assert torch.equal(loss, ref)
+    assert parts["dis"] == 0.0 and parts["total"] == ref_parts["total"]
+    assert set(parts) == {"cls", "deg", "con", "dis", "total"}
+
+
+def test_self_distillation_adds_exactly_the_weighted_cosine_term():
+    from aigcdet.models.losses import distillation_loss
+    from aigcdet.train.finetune import _a3_loss, _step_loss
+
+    head, batch = _head(), _feature_batch()
+    batch["f_teacher"] = batch["f_clean"].detach()
+    cfg = FinetuneConfig(name="x", bank_dir="b", root="r", distil="self",
+                         distil_weight=0.7)
+    loss, parts = _step_loss(head, batch, cfg)
+    ref, _ = _a3_loss(head, batch, cfg)
+    want = distillation_loss(batch["f_deg"], batch["f_clean"])
+    assert torch.isclose(loss - ref, 0.7 * want, atol=1e-6)
+    assert parts["dis"] == pytest.approx(want.item(), abs=1e-6)
+    assert 0.0 < parts["dis"] < 2.0
+
+
+def test_the_distillation_gradient_never_reaches_the_clean_forward():
+    """The clean feature is the target. If the term also pulled the clean
+    feature towards the degraded one, both could meet at a constant and the
+    detector above them would be reading noise while the term read zero."""
+    from aigcdet.train.finetune import _step_loss
+
+    head, batch = _head(), _feature_batch()
+    f_clean = batch["f_clean"].clone().requires_grad_(True)
+    f_deg = batch["f_deg"].clone().requires_grad_(True)
+    cfg_off = FinetuneConfig(name="x", bank_dir="b", root="r", use_degradation=False,
+                             use_consistency=False)
+    cfg_on = FinetuneConfig(name="x", bank_dir="b", root="r", use_degradation=False,
+                            use_consistency=False, distil="self")
+    grads = []
+    for cfg in (cfg_off, cfg_on):
+        b = {**batch, "f_clean": f_clean, "f_deg": f_deg,
+             "f_teacher": f_clean.detach()}
+        f_clean.grad = f_deg.grad = None
+        _step_loss(head, b, cfg)[0].backward()
+        grads.append((f_clean.grad.clone(), f_deg.grad.clone()))
+    torch.testing.assert_close(grads[0][0], grads[1][0])      # clean: unchanged
+    assert not torch.allclose(grads[0][1], grads[1][1])       # degraded: pulled
+
+
+def test_distillation_needs_degraded_views():
+    from aigcdet.train.finetune import _check_distil
+    with pytest.raises(ValueError, match="use_augmented"):
+        _check_distil(FinetuneConfig(name="x", bank_dir="b", root="r",
+                                     distil="self", use_augmented=False))
+    with pytest.raises(ValueError, match="distil_weight"):
+        _check_distil(FinetuneConfig(name="x", bank_dir="b", root="r",
+                                     distil="self", distil_weight=0.0))
+    with pytest.raises(ValueError, match="choose from"):
+        _check_distil(FinetuneConfig(name="x", bank_dir="b", root="r",
+                                     distil="teacher"))
+    _check_distil(FinetuneConfig(name="x", bank_dir="b", root="r"))
+
+
+def test_self_distillation_trains_end_to_end_and_records_the_term(tmp_path, monkeypatch):
+    from aigcdet.train.finetune import train_finetune
+
+    _patch_tower(monkeypatch)
+    bank = _corpus(tmp_path, monkeypatch)
+    res = train_finetune(_cfg(tmp_path, bank, depth=1, distil="self"))
+    h = res["history"][-1]
+    assert np.isfinite(h["total"]) and 0.0 < h["dis"] < 2.0
+    ck = torch.load(res["checkpoint"], map_location="cpu", weights_only=False)
+    assert ck["config"]["distil"] == "self"
+    assert ck["ema_tower_state_dict"] is None and ck["ema_state_dict"] is None
+
+
+def test_the_ema_teacher_moves_a_fraction_of_the_way_per_update():
+    from aigcdet.train.finetune import _EmaTeacher
+
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(0)
+        tower = _StubTower()
+    teacher = _EmaTeacher(tower, decay=0.75)
+    head = torch.nn.Linear(8, 1)
+    teacher.attach_head(head)
+    start = {k: v.clone() for k, v in tower.state_dict().items()}
+    with torch.no_grad():
+        for p in tower.parameters():
+            p.add_(1.0)
+    teacher.update(tower, head)
+    for k, v in teacher.tower.state_dict().items():
+        torch.testing.assert_close(v, start[k] + 0.25)
+    assert not any(p.requires_grad for p in teacher.tower.parameters())
+    assert not any(p.requires_grad for p in teacher.head.parameters())
+
+
+def test_the_ema_teacher_refuses_a_student_already_wrapped_for_checkpointing():
+    """`deepcopy` keeps functions by reference, so a copy taken after the
+    wrappers go on has blocks whose forward runs the STUDENT's layers: the
+    teacher would be the student under another name and the term would read
+    near zero with nothing in the log to say so."""
+    from aigcdet.train.finetune import _EmaTeacher, _enable_eval_checkpointing
+
+    tower = _StubTower()
+    _EmaTeacher(tower, decay=0.9)               # fine before
+    _enable_eval_checkpointing(tower)
+    with pytest.raises(ValueError, match="checkpointing"):
+        _EmaTeacher(tower, decay=0.9)
+
+
+def test_ema_distillation_keeps_a_teacher_between_the_start_and_the_student(
+        tmp_path, monkeypatch):
+    """The teacher is neither the pretrained tower (it moved) nor the
+    student (it lags), it only moved where the student did, and it is in the
+    checkpoint beside the final weights."""
+    from aigcdet.train.finetune import train_finetune
+
+    tower, _ = _patch_tower(monkeypatch, n=4)
+    bank = _corpus(tmp_path, monkeypatch)
+    start = {k: v.clone() for k, v in tower.state_dict().items()}
+    res = train_finetune(_cfg(tmp_path, bank, depth=1, distil="ema",
+                              distil_ema_decay=0.5))
+    assert 0.0 < res["history"][-1]["dis"] < 2.0
+    ck = torch.load(res["checkpoint"], map_location="cpu", weights_only=False)
+    ema, final = ck["ema_tower_state_dict"], ck["tower_state_dict"]
+    for k in ema:
+        if k.startswith("encoder.layer.3") or k.startswith("layernorm"):
+            assert not torch.equal(ema[k], start[k]), f"{k}: teacher never moved"
+            assert not torch.equal(ema[k], final[k]), f"{k}: teacher is the student"
+        else:
+            assert torch.equal(ema[k], start[k]), f"{k}: a frozen weight moved"
+    assert set(ck["ema_state_dict"]) == set(ck["state_dict"])
+
+
+def test_an_ema_run_resumed_after_a_kill_equals_the_uninterrupted_one(
+        tmp_path, monkeypatch):
+    """The teacher is training state. A resume that restarted it from the
+    student would hand the remaining epochs a different target from the one
+    the finished epochs saw, and nothing downstream could tell."""
+    from aigcdet.train.finetune import train_finetune
+
+    def cfg(sub, epochs, **kw):
+        c = _cfg(tmp_path / sub, bank, depth=1, distil="ema",
+                 distil_ema_decay=0.5, **kw)
+        c.epochs = epochs
+        return c
+
+    _patch_tower(monkeypatch)
+    bank = _corpus(tmp_path / "a", monkeypatch)
+    straight = train_finetune(cfg("a", 2))
+
+    _patch_tower(monkeypatch)
+    bank = _corpus(tmp_path / "b", monkeypatch)
+    train_finetune(cfg("b", 1))
+    # A fresh tower, as a new process would load: the stub above hands the
+    # same object back, already wrapped for checkpointing by the first run,
+    # and the teacher refuses to copy a wrapped tower (see `_EmaTeacher`).
+    _patch_tower(monkeypatch)
+    resumed = train_finetune(cfg("b", 2, resume=True))
+
+    a = torch.load(straight["checkpoint"], map_location="cpu", weights_only=False)
+    b = torch.load(resumed["checkpoint"], map_location="cpu", weights_only=False)
+    for key in ("tower_state_dict", "ema_tower_state_dict", "state_dict", "ema_state_dict"):
+        for k in a[key]:
+            torch.testing.assert_close(a[key][k], b[key][k], rtol=0, atol=0,
+                                       msg=lambda m: f"{key}/{k}: {m}")
+
+
+def test_resuming_an_ema_run_from_a_checkpoint_without_a_teacher_is_refused(
+        tmp_path, monkeypatch):
+    from aigcdet.train.finetune import train_finetune
+
+    _patch_tower(monkeypatch)
+    bank = _corpus(tmp_path, monkeypatch)
+    res = train_finetune(_cfg(tmp_path, bank, depth=1, distil="ema"))
+    ck = torch.load(res["checkpoint"], map_location="cpu", weights_only=False)
+    ck["ema_tower_state_dict"] = None
+    torch.save(ck, res["checkpoint"])
+    cfg = _cfg(tmp_path, bank, depth=1, distil="ema", resume=True)
+    cfg.epochs = 2
+    _patch_tower(monkeypatch)                  # a fresh, unwrapped tower
+    with pytest.raises(ValueError, match="carries none"):
+        train_finetune(cfg)
+
+
+def test_resuming_under_a_different_distil_mode_is_refused(tmp_path, monkeypatch):
+    from aigcdet.train.finetune import train_finetune
+
+    _patch_tower(monkeypatch)
+    bank = _corpus(tmp_path, monkeypatch)
+    train_finetune(_cfg(tmp_path, bank, depth=1))
+    for kw in ({"distil": "self"}, {"distil": "self", "distil_weight": 2.0}):
+        cfg = _cfg(tmp_path, bank, depth=1, resume=True, **kw)
+        cfg.epochs = 2
+        with pytest.raises(ValueError, match="distil"):
+            train_finetune(cfg)
+
+
+def test_a_checkpoint_from_before_distil_existed_resumes_with_it_off(
+        tmp_path, monkeypatch):
+    """Every older run trained without the term, which is what the default
+    says; refusing to resume over keys it could not carry would strand them."""
+    from aigcdet.train.finetune import train_finetune
+
+    _patch_tower(monkeypatch)
+    bank = _corpus(tmp_path, monkeypatch)
+    res = train_finetune(_cfg(tmp_path, bank, depth=1))
+    ck = torch.load(res["checkpoint"], map_location="cpu", weights_only=False)
+    for k in ("distil", "distil_weight", "distil_ema_decay"):
+        del ck["config"][k]
+    for k in ("ema_state_dict", "ema_tower_state_dict"):
+        del ck[k]
+    torch.save(ck, res["checkpoint"])
+    cfg = _cfg(tmp_path, bank, depth=1, resume=True)
+    cfg.epochs = 2
+    assert [h["epoch"] for h in train_finetune(cfg)["history"]] == [0, 1]

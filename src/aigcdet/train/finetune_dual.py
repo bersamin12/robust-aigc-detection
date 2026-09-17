@@ -38,8 +38,9 @@ from aigcdet.features.backbones import load_backbone
 from aigcdet.features.bank import FeatureBank
 from aigcdet.models.heads import Detector
 from aigcdet.train.finetune import (
-    FinetuneConfig, LiveViewSampler, _dist_init, _enable_eval_checkpointing,
-    _Progress, _windowed,
+    DISTIL_EMA, DISTIL_SELF, LOSS_PARTS, _RESUME_INVARIANT,
+    FinetuneConfig, LiveViewSampler, _check_distil, _dist_init,
+    _EmaTeacher, _enable_eval_checkpointing, _Progress, _windowed,
     _forward_tower, _GradReducer, _LRSchedule, _owned_chunks, _prepare_batch,
     _resume_diff, _shard_task, _step_loss, _stratified_subsample,
     _WeightAverager, unfreeze_last_n,
@@ -59,13 +60,8 @@ class DualFinetuneConfig:
     perturb_tower2: float = 0.0
 
 
-_RESUME_INVARIANT = ("name", "bank_dir", "backbone", "depth", "seed", "lr",
-                     "tower_lr", "n_src", "m_deg", "head_hidden", "use_film",
-                     "family_weighting", "token_pool")
-
-
 def _write_ckpt(path, *, head, towers, opt, sampler, epoch, history, cfg,
-                dim_feat, names, unfrozen, averager=None) -> None:
+                dim_feat, names, unfrozen, averager=None, teachers=()) -> None:
     """Atomic per-epoch checkpoint holding BOTH towers.
 
     Both state dicts are required, and in a fixed order: the eval bank for this
@@ -75,11 +71,16 @@ def _write_ckpt(path, *, head, towers, opt, sampler, epoch, history, cfg,
     """
     tmp = path + ".tmp"
     swa = averager.state_dicts() if averager is not None else None
+    # One teacher per tower, in tower order; the head's average is the same
+    # object on each and is taken from the first.
+    ema = [t.state_dicts() for t in teachers] or None
     torch.save({"state_dict": head.state_dict(),
                 "tower_state_dicts": [t.state_dict() for t in towers],
                 "swa_state_dict": None if swa is None else swa[0],
                 "swa_tower_state_dicts": None if swa is None else swa[1:],
                 "swa_n": 0 if averager is None else averager.n,
+                "ema_state_dict": None if ema is None else ema[0][0],
+                "ema_tower_state_dicts": None if ema is None else [e[1] for e in ema],
                 "optimizer_state_dict": opt.state_dict(),
                 "sampler_rng_state": sampler.rng.bit_generator.state,
                 "epoch": epoch, "history": history,
@@ -99,6 +100,7 @@ def train_dual(cfg: DualFinetuneConfig) -> dict:
             "ONE-tower run; running it here would build a head expecting "
             "2*dim and feed it dim.")
     b = cfg.base
+    _check_distil(b)
     rank, world = _dist_init(b)
     bank = FeatureBank.open(b.bank_dir)
     name1 = b.backbone or bank.config["backbone"]
@@ -132,6 +134,10 @@ def train_dual(cfg: DualFinetuneConfig) -> dict:
             "mismatch is fine arithmetically and meaningless experimentally -- "
             "state which half is which before allowing it.")
 
+    # Copied before the checkpointing wrappers and before unfreezing, as the
+    # single-tower path does (see `_EmaTeacher`).
+    teachers = ([_EmaTeacher(t, b.distil_ema_decay) for t in towers]
+                if b.distil == DISTIL_EMA else [])
     unfrozen = [unfreeze_last_n(t, b.depth) for t in towers]
     for t in towers:
         if b.grad_checkpointing and b.depth:
@@ -147,6 +153,13 @@ def train_dual(cfg: DualFinetuneConfig) -> dict:
                         use_film=b.use_film, hidden=b.head_hidden,
                         pooler=build_pooler(b.token_pool, specs)).to(b.device)
     poolers = tower_poolers(head, len(towers))
+    teacher_poolers = []
+    if teachers:
+        # Each teacher averages the WHOLE head (so the checkpoint's EMA head
+        # matches either tower's), and reads its own tower's pooler slot.
+        for i, t in enumerate(teachers):
+            t.attach_head(head)
+            teacher_poolers.append(tower_poolers(t.head, len(towers))[i])
 
     tower_params = [[p for p in t.parameters() if p.requires_grad]
                     for t in towers]
@@ -196,6 +209,13 @@ def train_dual(cfg: DualFinetuneConfig) -> dict:
         opt.load_state_dict(ck["optimizer_state_dict"])
         if ck.get("sampler_rng_state") is not None:
             sampler.rng.bit_generator.state = ck["sampler_rng_state"]
+        if teachers:
+            if ck.get("ema_tower_state_dicts") is None:
+                raise ValueError(
+                    f"refusing to resume {ckpt}: this run distils from EMA "
+                    "teachers and the checkpoint carries none")
+            for t, sd in zip(teachers, ck["ema_tower_state_dicts"]):
+                t.load_state_dicts(ck["ema_state_dict"], sd)
         start_epoch, history = int(ck.get("epoch", 0)), list(ck.get("history") or [])
         print(f"resuming {b.name} from epoch {start_epoch}/{b.epochs}", flush=True)
 
@@ -215,7 +235,7 @@ def train_dual(cfg: DualFinetuneConfig) -> dict:
                 batch = sampler.targets(si, vi, b.device)
                 n_src_all, n_pairs = len(task[0]), len(si)
                 opt.zero_grad(set_to_none=True)
-                parts = {"cls": 0.0, "deg": 0.0, "con": 0.0, "total": 0.0}
+                parts = {k: 0.0 for k in LOSS_PARTS}
                 for g0, g1, l0, l1 in _owned_chunks(n_src_all, b.src_chunk,
                                                     rank, world):
                     srcs = prepared["clean"][l0:l1]
@@ -238,10 +258,24 @@ def train_dual(cfg: DualFinetuneConfig) -> dict:
                                             pooler=pl)
                              for t, sp, dt, pl in zip(towers, specs, pdtypes, poolers)],
                             dim=-1)
+                        if teachers:
+                            # The averaged towers' view of the clean image,
+                            # concatenated in the same tower order, no graph.
+                            with torch.no_grad():
+                                f_teach = torch.cat(
+                                    [_forward_tower(te.tower, sp, srcs, b.device,
+                                                    dt, b.src_chunk, pooler=pl)
+                                     for te, sp, dt, pl in zip(
+                                         teachers, specs, pdtypes, teacher_poolers)],
+                                    dim=-1).repeat_interleave(b.m_deg, dim=0)
                     micro = {k: (v[p0:p1] if torch.is_tensor(v) else v)
                              for k, v in batch.items()}
                     micro["f_clean"] = f_clean.float()
                     micro["f_deg"] = f_deg.float()
+                    if b.distil == DISTIL_SELF:
+                        micro["f_teacher"] = f_clean.detach().float()
+                    elif teachers:
+                        micro["f_teacher"] = f_teach.float()
                     loss, part = _step_loss(head, micro, b)
                     (loss * share).backward()
                     for k in parts:
@@ -250,22 +284,24 @@ def train_dual(cfg: DualFinetuneConfig) -> dict:
                     reducer.reduce()
                 sched.apply(gstep)
                 opt.step()
+                for te, t in zip(teachers, towers):
+                    te.update(t, head)
                 if averager is not None and gstep >= swa_start:
                     averager.update()
                 gstep += 1
                 progress.step(parts, lr=opt.param_groups[0]["lr"])
         if world > 1:
             import torch.distributed as dist
-            t_ = torch.tensor([parts[k] for k in ("cls", "deg", "con", "total")],
+            t_ = torch.tensor([parts[k] for k in LOSS_PARTS],
                               device=b.device, dtype=torch.float64)
             dist.all_reduce(t_, op=dist.ReduceOp.SUM)
-            parts = dict(zip(("cls", "deg", "con", "total"), t_.tolist()))
+            parts = dict(zip(LOSS_PARTS, t_.tolist()))
         history.append({"epoch": epoch, **parts, **progress.summary()})
         if rank == 0:
             _write_ckpt(ckpt, head=head, towers=towers, opt=opt,
                         sampler=sampler, epoch=epoch + 1, history=history,
                         cfg=cfg, dim_feat=dim_feat, names=(name1, name2),
-                        unfrozen=unfrozen, averager=averager)
+                        unfrozen=unfrozen, averager=averager, teachers=teachers)
         if rank == 0:
             # Keep this epoch's own copy. `checkpoint.pt` is overwritten every
             # epoch, so without this the only scorable model is the last one and
@@ -295,7 +331,7 @@ def train_dual(cfg: DualFinetuneConfig) -> dict:
         _write_ckpt(ckpt, head=head, towers=towers, opt=opt, sampler=sampler,
                     epoch=b.epochs, history=history, cfg=cfg,
                     dim_feat=dim_feat, names=(name1, name2), unfrozen=unfrozen,
-                    averager=averager)
+                    averager=averager, teachers=teachers)
     result = {"unfrozen": unfrozen, "history": history, "world_size": world,
               "backbones": [name1, name2], "dim_feat": dim_feat}
     with open(os.path.join(out_dir, "result.json"), "w") as f:

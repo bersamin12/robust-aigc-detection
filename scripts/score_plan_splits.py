@@ -53,14 +53,20 @@ def _policy_from_config(cfg: dict, crop_clamp: bool | None = None) -> CanonPolic
                        crop_clamp=clamp, **kw)
 
 
-def _load_models(ck: dict, device: str, use_swa: bool):
+def _load_models(ck: dict, device: str, use_swa: bool, use_ema: bool = False):
     """(towers, specs, head, tag). Dual and single share everything but keys."""
+    if use_swa and use_ema:
+        sys.exit("REFUSING: --swa and --ema are two different models; score "
+                 "them in two runs")
     dual = "tower_state_dicts" in ck
     names = ck["backbones"] if dual else [ck["backbone"]]
     tower_sds = ck["tower_state_dicts"] if dual else [ck["tower_state_dict"]]
     swa_towers = (ck.get("swa_tower_state_dicts") if dual
                   else ([ck["swa_tower_state_dict"]]
                         if ck.get("swa_tower_state_dict") is not None else None))
+    ema_towers = (ck.get("ema_tower_state_dicts") if dual
+                  else ([ck["ema_tower_state_dict"]]
+                        if ck.get("ema_tower_state_dict") is not None else None))
     head_sd, tag = ck["state_dict"], "final"
     if use_swa:
         if not ck.get("swa_n"):
@@ -68,6 +74,11 @@ def _load_models(ck: dict, device: str, use_swa: bool):
                      f"(swa_n={ck.get('swa_n')}); score the final weights or "
                      "a later epoch")
         head_sd, tower_sds, tag = ck["swa_state_dict"], swa_towers, "swa"
+    if use_ema:
+        if ema_towers is None or ck.get("ema_state_dict") is None:
+            sys.exit("REFUSING --ema: this checkpoint holds no EMA teacher "
+                     "(the run was not trained with --distil ema)")
+        head_sd, tower_sds, tag = ck["ema_state_dict"], ema_towers, "ema"
 
     towers, specs = [], []
     for name, sd in zip(names, tower_sds):
@@ -276,6 +287,9 @@ def main() -> int:
                          "LOGITS (eval/tta.py's aggregation), 8x the compute")
     ap.add_argument("--swa", action="store_true",
                     help="score the SWA average instead of the final weights")
+    ap.add_argument("--ema", action="store_true",
+                    help="score the EMA teacher (tower and head) a --distil "
+                         "ema run kept, instead of the final weights")
     ap.add_argument("--limit", type=int, default=0,
                     help="rows per split, stratified by (source,label); 0 = all")
     ap.add_argument("--path-map", action="append", default=[], metavar="OLD=NEW",
@@ -306,7 +320,7 @@ def main() -> int:
     # mmap: a fat per-epoch checkpoint carries the optimiser moments and the
     # SWA copy, three times the weights, and this reads only the weights.
     ck = torch.load(a.ckpt, map_location="cpu", weights_only=False, mmap=True)
-    towers, specs, head, tag = _load_models(ck, a.device, a.swa)
+    towers, specs, head, tag = _load_models(ck, a.device, a.swa, a.ema)
     policy = _policy_from_config(ck["config"], True if a.crop_clamp else None)
     print(f"model: {'+'.join(ck.get('backbones', [ck.get('backbone')]))} "
           f"({tag}, epoch {ck.get('epoch')}, token_pool "
