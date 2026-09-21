@@ -175,6 +175,7 @@ def train_dual(cfg: DualFinetuneConfig) -> dict:
         bank, train_idx, root=b.root, use_recon=b.use_recon,
         seed=int(bank.config["seed"]),
         policy=b.policy(), geometric=b.geometric, exclude_families=(),
+        share_window=b.share_window,
         n_src=b.n_src, m_deg=b.m_deg,
         rng=np.random.default_rng(b.seed), device=b.device,
         family_weighting=b.family_weighting)

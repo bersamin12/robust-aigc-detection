@@ -91,6 +91,10 @@ def main() -> int:
                     help="progress line every this many optimiser steps")
 
     ap.add_argument("--distil-ema-decay", type=float, default=0.999)
+    ap.add_argument("--share-window", action="store_true",
+                    help="degraded views take the clean view's crop window, "
+                         "so each pair differs in degradation only (the "
+                         "crop-confound control; default: a window per view)")
     ap.add_argument("--lambda-deg", type=float, default=LossWeights.lambda_deg)
     ap.add_argument("--alpha", type=float, default=LossWeights.alpha,
                     help="see train_unfreeze.py")
@@ -114,7 +118,8 @@ def main() -> int:
         token_pool=a.token_pool,
         weights=LossWeights(lambda_deg=a.lambda_deg, alpha=a.alpha, beta=a.beta),
         distil=a.distil, distil_weight=a.distil_weight,
-        distil_ema_decay=a.distil_ema_decay, log_every=a.log_every)
+        distil_ema_decay=a.distil_ema_decay, log_every=a.log_every,
+        share_window=a.share_window)
     cfg = DualFinetuneConfig(base=base, backbone2=a.backbone2,
                              perturb_tower2=a.perturb_tower2)
 

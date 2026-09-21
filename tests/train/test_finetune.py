@@ -295,6 +295,45 @@ def test_the_live_sampler_never_draws_the_clean_view_as_a_degraded_partner(
         assert (task[2] >= 1).all()
 
 
+def test_share_window_builds_the_degraded_view_on_the_clean_views_window():
+    """The crop-confound control. With it, a (clean, degraded) pair differs
+    in degradation and nothing else: the same window, the same upscale, so
+    an empty recipe reproduces the clean pixels exactly. Without it the two
+    views draw their own windows and do not."""
+    from aigcdet.augment.recipes import Recipe
+    from aigcdet.features.extract import build_view
+
+    img = np.random.default_rng(0).integers(0, 256, (300, 340, 3), dtype=np.uint8)
+    policy = CanonPolicy(mode=MODE_CROP, crop_side=48, nominal_side=64)
+    empty = Recipe(())
+    clean, _ = build_view(img, 0, 5, 7, policy=policy, recipe=empty)
+    shared, _ = build_view(img, 3, 5, 7, policy=policy, recipe=empty, window_view=0)
+    own, _ = build_view(img, 3, 5, 7, policy=policy, recipe=empty)
+    np.testing.assert_array_equal(shared, clean)
+    assert not np.array_equal(own, clean)
+
+
+def test_the_live_sampler_carries_share_window_into_every_task_and_batch(
+        tmp_path, monkeypatch):
+    """The flag rides in the task tuple, so a worker process builds the
+    pair the sampler was asked for; `_shard_task` must pass it through."""
+    from aigcdet.train.finetune import _prepare_batch, _shard_task
+
+    bank, _ = _bank_for_sampler(tmp_path, monkeypatch)
+    idx = np.arange(len(bank.meta))
+    policy = CanonPolicy(mode=MODE_CROP, crop_side=32, nominal_side=64)
+    for flag in (False, True):
+        live = LiveViewSampler(bank, idx, root=str(tmp_path), seed=7, n_src=4,
+                               m_deg=2, rng=np.random.default_rng(3),
+                               device="cpu", policy=policy, share_window=flag)
+        tasks = live.batch_tasks()
+        assert all(t[9] is flag for t in tasks)
+        assert _shard_task(tasks[0], 0, 1, 2)[9] is flag
+        out = _prepare_batch(tasks[0])
+        assert len(out["clean"]) == 4 and len(out["deg"]) == 8
+        assert all(v.shape == (64, 64, 3) for v in out["clean"] + out["deg"])
+
+
 # ===========================================================================
 # The config
 # ===========================================================================

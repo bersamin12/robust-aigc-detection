@@ -190,6 +190,33 @@ tests the hypothesis rather than this test of it; a `distil_weight` sweep
 would be rescuing the method after seeing the data and is not run.
 Components 2 and 3 are not built on this result.
 
+### Same-window control (2026-09-17)
+
+`--share-window` builds every degraded view on its clean partner's crop
+window (`build_view(window_view=0)`), so the pair differs in degradation
+only. Two arms, both on shared windows, gate written before the numbers:
+`sw_c1self` beats `sw_base` by more than one robust point at no more than
+half a clean point lost, or DID is recorded as refuted rather than
+confounded. ntire_val_hard robust / clean:
+
+| arm | robust | clean | ntire_val robust / clean | `dis` at step 1500 |
+|---|---|---|---|---|
+| `sw_base` (shared window, a3 off, no distil) | 0.7900 | 0.9364 | 0.9264 / 0.9760 | -- |
+| `sw_c1self` (shared window, a3 off, distil) | 0.7884 | 0.9333 | 0.9232 / 0.9742 | 0.062 |
+| `c1self` (own windows, for reference) | 0.7931 | 0.9389 | 0.9251 / 0.9749 | 0.075 |
+
+**The control fails too: -0.16 robust, -0.3 clean for the term, against a
+pair that differs in nothing else.** With the crop confound removed the
+distillation term does nothing a readout swap would not (the readout arms
+spanned 0.0002). DID is refuted on this proxy, not confounded; the paper
+records it as a negative result and the contribution is coverage (round
+two). Secondary reading: `sw_base` sits 1.4 robust points below
+`abl_pool_mean` and 1.0 clean point above it, which is the same trade every
+arm without the a3 consistency terms shows (`c1self`, `c1ema`); the
+window sharing and the missing a3 terms are not separated here, and no
+further arm is run to separate them. Component-1 code stays on the branch
+as the record of what was tested.
+
 ## Smoke run (2026-09-05, 2% of train, 1 epoch each, 500 hard-val rows)
 
 | model | AUC | robust | clean |

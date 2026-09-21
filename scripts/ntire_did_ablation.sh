@@ -15,9 +15,25 @@
 # than one robust point on ntire_val_hard at no more than half a clean
 # point lost, or components 2 and 3 are not built on it.
 #
+# Result (2026-09-14): the gate failed; every arm lost ~1 robust point. The
+# one open confound is the crop window -- under crop canonicalisation each
+# view draws its own 200px window, so the term pulled features together
+# across a change of CONTENT as well as of degradation. The control pair,
+# both with --share-window (degraded views on the clean view's window):
+#
+#   sw_base     no distillation, --alpha 0 --beta 0 (c1self minus its term)
+#   sw_c1self   c1self on shared windows
+#
+# Gate for the control, written before its numbers: sw_c1self beats sw_base
+# by more than one robust point on ntire_val_hard at no more than half a
+# clean point lost, or DID is recorded as refuted rather than confounded.
+# sw_base against abl_pool_mean is the cost of sharing the window itself.
+#
 #   bash scripts/ntire_did_ablation.sh                # right now (GPU permitting)
 #   ARMS="c1self" bash scripts/ntire_did_ablation.sh  # one arm
 #   OUT_DIR=/scratch/$USER/aigcdet/outputs/ablation bash scripts/ntire_did_ablation.sh  # checkpoints on a disk with room
+#
+#   ARMS="sw_c1self sw_base" OUT_DIR=/scratch/$USER/aigcdet/outputs/ablation bash scripts/ntire_did_ablation.sh
 #
 # Idempotent: an arm with a metrics file is skipped. Each arm: train ->
 # score ntire_val_hard + ntire_val (final weights; the EMA arm also scores
@@ -56,6 +72,8 @@ flags_for() {
     c1self)    echo "--distil self --distil-weight $DISTIL_WEIGHT --alpha 0 --beta 0" ;;
     c1self_a3) echo "--distil self --distil-weight $DISTIL_WEIGHT" ;;
     c1ema)     echo "--distil ema --distil-weight $DISTIL_WEIGHT --distil-ema-decay $EMA_DECAY --alpha 0 --beta 0" ;;
+    sw_base)   echo "--share-window --alpha 0 --beta 0" ;;
+    sw_c1self) echo "--share-window --distil self --distil-weight $DISTIL_WEIGHT --alpha 0 --beta 0" ;;
     *) log "unknown arm $1"; return 1 ;;
   esac
 }

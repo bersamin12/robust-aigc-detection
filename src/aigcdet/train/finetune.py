@@ -237,7 +237,11 @@ def _prepare_batch(task: BatchTask) -> dict:
     same pixels as running it inline.
     """
     (paths, row_ids, view_ids, seed, policy, geometric, exclude,
-     pool, max_ops) = task[:9]
+     pool, max_ops, share_window) = task[:10]
+    # The crop-confound control: degraded views built on the clean view's
+    # window, so each pair differs in degradation only. Off, every view draws
+    # its own window, which is what the bank's extraction did.
+    window_view = 0 if share_window else None
     clean, deg = [], []
     m_deg = view_ids.shape[1]
     for path, row_id, views in zip(paths, row_ids, view_ids):
@@ -250,7 +254,8 @@ def _prepare_batch(task: BatchTask) -> dict:
             deg.append(build_view(decoded, int(v), int(row_id), seed,
                                   policy=policy, geometric=geometric,
                                   exclude_families=exclude,
-                                  pool=pool, max_ops=max_ops)[0])
+                                  pool=pool, max_ops=max_ops,
+                                  window_view=window_view)[0])
     return {"clean": clean, "deg": deg, "m_deg": m_deg}
 
 
@@ -267,14 +272,20 @@ class LiveViewSampler(PairedSampler):
 
     What this yields is IMAGES, not features. The forward is the caller's, so
     the tower stays in the training loop where its gradients are.
+
+    `share_window` builds every degraded view on its clean partner's crop
+    window (`build_view`'s `window_view=0`). The draw and the bank's targets
+    do not change with it; only the pixels do.
     """
 
     def __init__(self, bank, indices, *, root: str, seed: int,
                  policy: CanonPolicy = DEFAULT_POLICY, geometric: bool = False,
-                 exclude_families: tuple[str, ...] = (), **kw):
+                 exclude_families: tuple[str, ...] = (),
+                 share_window: bool = False, **kw):
         super().__init__(bank, indices, **kw)
         self.root, self.seed = root, seed
         self.policy, self.geometric = policy, geometric
+        self.share_window = bool(share_window)
         self.exclude_families = tuple(exclude_families)
         # The op pool and chain depth come from the BANK, never from the
         # trainer's config: the bank's presence/severity targets were computed
@@ -318,7 +329,7 @@ class LiveViewSampler(PairedSampler):
                 self._row_ids[src],
                 views,
                 self.seed, self.policy, self.geometric, self.exclude_families,
-                self.pool, self.max_ops,
+                self.pool, self.max_ops, self.share_window,
                 si, vi,
             ))
         return tasks
@@ -484,6 +495,11 @@ class FinetuneConfig:
     #: See `CanonPolicy.crop_clamp`. Gate it on the content-blind probe.
     crop_clamp: bool = False
     geometric: bool = False
+    #: Degraded views take the clean view's crop window, so a distillation
+    #: or consistency pair differs in degradation only. Off by default: the
+    #: banks and every run to date drew a window per view. A control, not a
+    #: recipe change -- see `LiveViewSampler`.
+    share_window: bool = False
     train_exclude_generators: tuple[str, ...] = ()
     #: Fraction of the train rows to keep, stratified by (generator, label).
     #: 1.0 is the whole split and the default; anything smaller exists to
@@ -750,13 +766,13 @@ def _shard_task(task, rank, world, src_chunk):
     both halves of the step parallel.
     """
     (paths, row_ids, views, seed, policy, geometric, exclude,
-     pool, max_ops) = task[:9]
+     pool, max_ops, share_window) = task[:10]
     if world == 1:
-        return task[:9]
+        return task[:10]
     keep = [i for g0, g1, _, _ in _owned_chunks(len(paths), src_chunk, rank, world)
             for i in range(g0, g1)]
     return ([paths[i] for i in keep], row_ids[keep], views[keep],
-            seed, policy, geometric, exclude, pool, max_ops)
+            seed, policy, geometric, exclude, pool, max_ops, share_window)
 
 
 def _dist_init(cfg):
@@ -1170,6 +1186,7 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
         bank, train_idx, root=cfg.root, use_recon=cfg.use_recon,
         seed=int(bank.config["seed"]),
         policy=cfg.policy(), geometric=cfg.geometric,
+        share_window=cfg.share_window,
         exclude_families=(), n_src=cfg.n_src, m_deg=cfg.m_deg,
         rng=np.random.default_rng(cfg.seed), device=cfg.device,
         family_weighting=cfg.family_weighting)

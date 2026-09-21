@@ -201,7 +201,8 @@ def build_view(decoded: np.ndarray, view_idx: int, row_id: int, seed: int, *,
                recipe: Recipe | None = None,
                base: np.ndarray | None = None,
                pool: str = RECIPE_POOL_DEFAULT,
-               max_ops: int = MAX_OPS_DEFAULT) -> tuple[np.ndarray, Recipe]:
+               max_ops: int = MAX_OPS_DEFAULT,
+               window_view: int | None = None) -> tuple[np.ndarray, Recipe]:
     """One cached view's pixels, from the decoded image and nothing else.
 
     `(pixels, recipe)`. Standardise, then orient, then degrade -- the same
@@ -215,6 +216,15 @@ def build_view(decoded: np.ndarray, view_idx: int, row_id: int, seed: int, *,
     than an approximation of one: a frozen tower fed these pixels computes the
     features already in the bank, so D0 and the cached rung it is the baseline
     for are the same model twice, not two similar ones.
+
+    `window_view` re-keys the crop window to ANOTHER view's index:
+    `window_view=0` builds this view on the clean view's window, so a
+    (clean, degraded) pair differs in degradation and nothing else. `None`,
+    the default, is each view's own window -- what every bank was extracted
+    with, and what the trainers do unless a control opts in. The recipe and
+    the orientation stay keyed on the view's own index. A view holding a
+    pre-canonical op shares the KEY, not the window: its image was resized
+    first, so the same draw lands somewhere else.
     """
     r = (recipe_for_view(view_idx, row_id, seed, exclude_families,
                          pool=pool, max_ops=max_ops)
@@ -228,16 +238,17 @@ def build_view(decoded: np.ndarray, view_idx: int, row_id: int, seed: int, *,
     # Pre-canonical ops (NTIRE's permanent downscale) act on the decoded
     # image, before the window is taken -- so a view holding one cannot share
     # the caller's `base` either, and canonicalises its own resized copy.
+    wv = view_idx if window_view is None else int(window_view)
     pre, post = r.split()
     if pre.ops:
         std = canonicalise(pre.apply_pre(decoded), policy=policy,
-                           rng=canonical_rng(seed, row_id, view_idx)
+                           rng=canonical_rng(seed, row_id, wv)
                            if policy.mode == MODE_CROP else None)
     elif base is not None and policy.mode != MODE_CROP:
         std = base
     else:
         std = canonicalise(decoded, policy=policy,
-                           rng=canonical_rng(seed, row_id, view_idx)
+                           rng=canonical_rng(seed, row_id, wv)
                            if policy.mode == MODE_CROP else None)
     if geometric:
         std = dihedral(std, sample_dihedral(geometric_rng(seed, row_id, view_idx)))
