@@ -186,3 +186,58 @@ def test_load_models_can_score_the_ema_teacher(monkeypatch):
                          use_swa=False, use_ema=True)
     with pytest.raises(SystemExit, match="two different models"):
         sps._load_models(ck, "cpu", use_swa=True, use_ema=True)
+
+
+# --------------------------------------------------------------------------
+# degrade_native: the _deg external splits
+# --------------------------------------------------------------------------
+
+def _img(h=96, w=128, seed=0):
+    return np.random.default_rng(seed).integers(0, 256, (h, w, 3), dtype=np.uint8)
+
+
+def test_the_degradation_key_is_stable_and_ignores_the_directory():
+    """Python's hash() is salted per process; the key must not be, or two
+    scorers of one file would draw different chains and unpair the models."""
+    assert sps.degrade_key("/a/b/img1.png") == sps.degrade_key("/c/img1.png")
+    assert sps.degrade_key("img1.png") != sps.degrade_key("img2.png")
+    import zlib
+    assert sps.degrade_key("x.jpg") == zlib.crc32(b"x.jpg")
+
+
+def test_degrade_native_is_a_pure_function_of_file_name_and_seed():
+    img = _img()
+    a, ra = sps.degrade_native(img, "/x/one.png", 7, "ntire", 5)
+    b, rb = sps.degrade_native(img, "/y/one.png", 7, "ntire", 5)
+    assert np.array_equal(a, b) and ra == rb
+    assert a.shape == img.shape and a.dtype == np.uint8
+    assert 1 <= len(ra.ops) <= 5
+    # different files draw different chains somewhere among a few of them
+    chains = {tuple(op.name for op in sps.degrade_native(img, f"f{i}.png", 7,
+                                                         "ntire", 5)[1].ops)
+              for i in range(20)}
+    assert len(chains) > 1
+
+
+def test_a_deg_split_without_a_seed_is_refused_before_any_weights_load(
+        tmp_path, monkeypatch):
+    monkeypatch.setattr(sps.torch, "load", lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError("loaded a checkpoint before refusing")))
+    monkeypatch.setattr(sys, "argv", [
+        "x", "--ckpt", "c.pt", "--manifest", str(tmp_path / "m.parquet"),
+        "--splits", "ntire_val,ext_x_deg", "--out-prefix", str(tmp_path / "o")])
+    with pytest.raises(SystemExit, match="degrade-seed"):
+        sps.main()
+
+
+def test_reencode_jpeg_keeps_shape_and_changes_a_png_s_pixels():
+    yy, xx = np.mgrid[0:64, 0:80]                     # smooth, like a photo;
+    img = np.stack([xx * 3, yy * 3, (xx + yy) * 2], -1).astype(np.uint8)
+    out = sps.reencode_jpeg(img, 95)                  # noise would not survive 4:2:0
+    assert out.shape == img.shape and out.dtype == np.uint8
+    assert not np.array_equal(out, img)               # lossy, even at q95
+    assert np.abs(out.astype(int) - img.astype(int)).mean() < 3
+    flat = np.full((32, 32, 3), 128, np.uint8)        # colour order survives
+    flat[..., 0] = 200
+    back = sps.reencode_jpeg(flat, 95)
+    assert back[..., 0].mean() > back[..., 2].mean() + 50

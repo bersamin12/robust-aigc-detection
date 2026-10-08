@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import os
 
+from aigcdet.augment.canonical import MODES
 from aigcdet.models.losses import LossWeights
 from aigcdet.models.pooling import TOKEN_POOLS
 from aigcdet.train.finetune import DISTIL_MODES, FinetuneConfig
@@ -47,7 +48,10 @@ def main() -> int:
     ap.add_argument("--workers", type=int, default=16)
     ap.add_argument("--seed", type=int, default=20260827)
     ap.add_argument("--device", default="cuda")
-    ap.add_argument("--canon-mode", default="crop")
+    ap.add_argument("--canon-mode", default="crop", choices=MODES,
+                    help="crop: 200px native window (the round-one/two policy); "
+                         "squish: whole frame at --nominal-side square, "
+                         "which ignores --crop-side and --crop-clamp")
     ap.add_argument("--crop-side", type=int, default=200)
     ap.add_argument("--train-subsample-frac", type=float, default=1.0)
     ap.add_argument("--no-checkpointing", action="store_true")

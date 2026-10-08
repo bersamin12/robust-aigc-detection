@@ -286,6 +286,13 @@ class LiveViewSampler(PairedSampler):
         self.root, self.seed = root, seed
         self.policy, self.geometric = policy, geometric
         self.share_window = bool(share_window)
+        if self.share_window and policy.mode != MODE_CROP:
+            # share_window only re-keys the crop rng; under any other policy
+            # it changes nothing, and a "control" arm that is silently
+            # identical to its baseline is worse than a refusal.
+            raise ValueError(
+                f"share_window is a crop-window control and does nothing under "
+                f"mode={policy.mode!r}; drop --share-window")
         self.exclude_families = tuple(exclude_families)
         # The op pool and chain depth come from the BANK, never from the
         # trainer's config: the bank's presence/severity targets were computed
@@ -1027,7 +1034,11 @@ _RESUME_INVARIANT = ("name", "bank_dir", "backbone", "depth", "seed", "lr",
                      "tower_lr", "n_src", "m_deg", "head_hidden", "use_film",
                      "film_shuffle",
                      "family_weighting", "token_pool",
-                     "distil", "distil_weight", "distil_ema_decay")
+                     "distil", "distil_weight", "distil_ema_decay",
+                     # The canon policy decides every pixel the tower sees;
+                     # resuming a crop run under squish would splice two
+                     # different input distributions into one checkpoint.
+                     "policy_mode", "nominal_side", "crop_side", "crop_clamp")
 
 
 def _resume_diff(stored: dict, cfg, keys=_RESUME_INVARIANT) -> dict:

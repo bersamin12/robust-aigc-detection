@@ -134,8 +134,11 @@ def test_both_halves_of_the_demo_benchmark_are_excluded_from_training():
     # The NTIRE organisers' labelled sets join for the same reason: they are
     # the NTIRE stream's selection and test populations, and a row that
     # claimed to be training data must still be refused by source.
+    # The external benchmarks of the squish paper likewise: eval only.
     assert excluded == {"coco_val2017", "dalle_advanced",
-                        "ntire_val", "ntire_val_hard", "ntire_test_public"}
+                        "ntire_val", "ntire_val_hard", "ntire_test_public",
+                        "aigibench_socialrf", "aigibench_community",
+                        "synthbuster"}
     for name in ("ntire_val", "ntire_val_hard", "ntire_test_public"):
         assert is_excluded_from_training(name)
         assert not SOURCES[name].pseudo_bucket

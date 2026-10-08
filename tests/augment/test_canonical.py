@@ -486,7 +486,8 @@ def test_the_nominal_stays_above_the_backbone_input():
 # ===========================================================================
 
 from aigcdet.augment.canonical import (  # noqa: E402
-    CANON_CROP_SIDE, MODE_BAND, MODE_CROP, MODES, CanonPolicy, DEFAULT_POLICY,
+    CANON_CROP_SIDE, MODE_BAND, MODE_CROP, MODE_SQUISH, MODES, CanonPolicy,
+    DEFAULT_POLICY,
 )
 
 
@@ -531,6 +532,8 @@ def test_the_record_carries_only_the_fields_its_mode_reads():
         "mode", "nominal_side", "band_side", "jitter"}
     assert set(CanonPolicy(mode=MODE_CROP).as_record()) == {
         "mode", "nominal_side", "crop_side"}
+    assert CanonPolicy(mode=MODE_SQUISH, nominal_side=224).as_record() == {
+        "mode": "squish", "nominal_side": 224}
 
 
 def test_two_crop_policies_differing_only_in_an_unused_field_record_the_same():
@@ -547,9 +550,10 @@ def test_a_record_round_trips_back_to_an_equal_policy(mode):
     assert CanonPolicy.from_record(p.as_record()).as_record() == p.as_record()
 
 
-def test_only_crop_mode_promises_a_square():
+def test_crop_and_squish_promise_a_square_and_band_does_not():
     """`augment.geometric.dihedral` is legal only under a square policy."""
     assert CanonPolicy(mode=MODE_CROP).is_square
+    assert CanonPolicy(mode=MODE_SQUISH).is_square
     assert not CanonPolicy(mode=MODE_BAND).is_square
 
 
@@ -687,3 +691,78 @@ def test_crop_mode_rejects_the_inputs_band_mode_rejects():
         canonicalise(np.zeros((400, 400), dtype=np.uint8), policy=policy)
     with pytest.raises(ValueError, match="uint8"):
         canonicalise(np.zeros((400, 400, 3), dtype=np.float32), policy=policy)
+
+
+# ===========================================================================
+# Squish mode: the whole frame at nominal_side square (docs/ntire/crop_probe.md)
+# ===========================================================================
+
+def _probe_squish(img, n):
+    """The test-time probe's original implementation, frozen here so the
+    trained policy is pinned to the pixels the probe measured."""
+    out = img
+    if min(out.shape[:2]) > n:
+        h, w = out.shape[:2]
+        if h <= w:
+            nh, nw = n, max(1, int(round(w * n / h)))
+        else:
+            nw, nh = n, max(1, int(round(h * n / w)))
+        out = cv2.resize(out, (nw, nh), interpolation=cv2.INTER_AREA)
+    if out.shape[:2] != (n, n):
+        out = cv2.resize(out, (n, n), interpolation=cv2.INTER_AREA)
+    return out
+
+
+@pytest.mark.parametrize("shape", [(400, 600), (2000, 900), (150, 400),
+                                   (224, 224), (90, 90), (513, 512)])
+@pytest.mark.parametrize("n", [224, 512])
+def test_squish_is_pixel_identical_to_the_probe_it_carries_into_training(shape, n):
+    img = _big(*shape, seed=sum(shape))
+    out = canonicalise(img, policy=CanonPolicy(mode=MODE_SQUISH, nominal_side=n))
+    assert out.shape == (n, n, 3) and out.dtype == np.uint8
+    assert np.array_equal(out, _probe_squish(img, n))
+
+
+def test_squish_ignores_the_crop_fields_every_checkpoint_config_carries():
+    """Scorers rebuild the policy as CanonPolicy(mode, crop_side, crop_clamp,
+    nominal_side) from any checkpoint; squish must not choke on them."""
+    p = CanonPolicy(mode=MODE_SQUISH, crop_side=600, crop_clamp=True,
+                    nominal_side=224, band_side=999)
+    assert p.as_record() == {"mode": "squish", "nominal_side": 224}
+    with pytest.raises(ValueError, match="nominal_side"):
+        CanonPolicy(mode=MODE_SQUISH, nominal_side=0)
+
+
+def test_squish_returns_a_fresh_array_even_when_nothing_is_resized():
+    img = _big(224, 224)
+    out = canonicalise(img, policy=CanonPolicy(mode=MODE_SQUISH, nominal_side=224))
+    assert np.array_equal(out, img)
+    assert not np.shares_memory(out, img)
+
+
+def test_squish_accepts_and_ignores_an_rng():
+    img = _big(400, 600)
+    pol = CanonPolicy(mode=MODE_SQUISH, nominal_side=224)
+    assert np.array_equal(canonicalise(img, policy=pol),
+                          canonicalise(img, policy=pol, rng=canonical_rng(1, 2, 3)))
+
+
+def test_squish_shows_the_whole_frame():
+    """The point of the mode: content from every corner survives. A crop of
+    the same image loses the corners entirely."""
+    img = np.zeros((1000, 1500, 3), dtype=np.uint8)
+    img[:100, :100] = 255                       # top-left corner marker
+    img[-100:, -100:] = 255                     # bottom-right corner marker
+    sq = canonicalise(img, policy=CanonPolicy(mode=MODE_SQUISH, nominal_side=224))
+    assert sq[:5, :5].mean() > 200 and sq[-5:, -5:].mean() > 200
+    cr = canonicalise(img, policy=CanonPolicy(mode=MODE_CROP, crop_side=200,
+                                              nominal_side=224))
+    assert cr.max() == 0
+
+
+def test_squish_upscales_an_image_smaller_than_nominal():
+    """Documented residue: a sub-nominal image is enlarged, so its softness
+    depends on its native size. Pinned so the behaviour cannot drift."""
+    out = canonicalise(_big(90, 120), policy=CanonPolicy(mode=MODE_SQUISH,
+                                                         nominal_side=224))
+    assert out.shape == (224, 224, 3)

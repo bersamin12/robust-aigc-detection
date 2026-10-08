@@ -23,7 +23,7 @@ import pandas as pd
 import pytest
 import torch
 
-from aigcdet.augment.canonical import MODE_BAND, MODE_CROP, CanonPolicy
+from aigcdet.augment.canonical import MODE_BAND, MODE_CROP, MODE_SQUISH, CanonPolicy
 from aigcdet.data.manifest import make_dummy_manifest
 from aigcdet.features.bank import FeatureBank
 from aigcdet.train.finetune import (
@@ -170,7 +170,8 @@ def _fingerprint(img, dim):
     return np.array([a[s::dim].mean() for s in range(dim)], dtype=np.float32)
 
 
-@pytest.mark.parametrize("mode, kw", [(MODE_BAND, {}), (MODE_CROP, {"crop_side": 64})])
+@pytest.mark.parametrize("mode, kw", [(MODE_BAND, {}), (MODE_CROP, {"crop_side": 64}),
+                                      (MODE_SQUISH, {"nominal_side": 64})])
 def test_build_view_reproduces_every_cached_view(tmp_path, monkeypatch, mode, kw):
     """The foundation of the D0 control, on both canonicalisation policies.
 
@@ -332,6 +333,45 @@ def test_the_live_sampler_carries_share_window_into_every_task_and_batch(
         out = _prepare_batch(tasks[0])
         assert len(out["clean"]) == 4 and len(out["deg"]) == 8
         assert all(v.shape == (64, 64, 3) for v in out["clean"] + out["deg"])
+
+
+def test_share_window_is_refused_outside_crop_mode(tmp_path, monkeypatch):
+    """It only re-keys the crop rng; under squish a share_window arm would be
+    silently identical to its baseline."""
+    bank, _ = _bank_for_sampler(tmp_path, monkeypatch)
+    idx = np.arange(len(bank.meta))
+    with pytest.raises(ValueError, match="share_window"):
+        LiveViewSampler(bank, idx, root=str(tmp_path), seed=7, n_src=4, m_deg=2,
+                        rng=np.random.default_rng(3), device="cpu",
+                        policy=CanonPolicy(mode=MODE_SQUISH, nominal_side=64),
+                        share_window=True)
+
+
+def test_the_squish_sampler_builds_whole_frame_square_views(tmp_path, monkeypatch):
+    from aigcdet.train.finetune import _prepare_batch
+
+    bank, _ = _bank_for_sampler(tmp_path, monkeypatch)
+    live = LiveViewSampler(bank, np.arange(len(bank.meta)), root=str(tmp_path),
+                           seed=7, n_src=4, m_deg=2, rng=np.random.default_rng(3),
+                           device="cpu",
+                           policy=CanonPolicy(mode=MODE_SQUISH, nominal_side=64))
+    out = _prepare_batch(live.batch_tasks()[0])
+    assert all(v.shape == (64, 64, 3) for v in out["clean"] + out["deg"])
+
+
+def test_resuming_under_a_different_canon_policy_is_refused():
+    """A crop checkpoint resumed under squish would splice two input
+    distributions into one model."""
+    from aigcdet.train.finetune import _resume_diff
+
+    crop = FinetuneConfig(name="x", bank_dir="b", root="r", policy_mode="crop")
+    from dataclasses import asdict
+    stored = asdict(crop)
+    assert _resume_diff(stored, crop) == {}
+    sq = FinetuneConfig(name="x", bank_dir="b", root="r", policy_mode="squish",
+                        nominal_side=224)
+    diff = _resume_diff(stored, sq)
+    assert set(diff) >= {"policy_mode", "nominal_side"}
 
 
 # ===========================================================================

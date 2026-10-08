@@ -112,7 +112,9 @@ def _load_models(ck: dict, device: str, use_swa: bool, use_ema: bool = False):
 def _score_split(df: pd.DataFrame, towers, specs, head, policy: CanonPolicy,
                  device: str, batch: int, workers: int, chunk: int,
                  desc: str, tta: bool = False,
-                 grid: dict | None = None) -> np.ndarray:
+                 grid: dict | None = None,
+                 degrade: tuple | None = None,
+                 jpeg_q: int | None = None) -> np.ndarray:
     from PIL import Image
     from tqdm import tqdm
 
@@ -135,6 +137,10 @@ def _score_split(df: pd.DataFrame, towers, specs, head, policy: CanonPolicy,
         for p in paths:
             with Image.open(p) as im:
                 decoded = np.asarray(im.convert("RGB"), dtype=np.uint8)
+            if degrade is not None:
+                decoded = degrade_native(decoded, p, *degrade)[0]
+            if jpeg_q is not None:
+                decoded = reencode_jpeg(decoded, jpeg_q)
             # Eval convention: ONE deterministic canonicalisation, the centre
             # window (`rng is None gives the CENTRE window`). A random crop
             # here would score a different picture per invocation.
@@ -223,6 +229,48 @@ def _distortion_tokens(s) -> list[str]:
         return [str(x) for x in (v if isinstance(v, (list, tuple)) else [v])]
     except (ValueError, SyntaxError):
         return [txt]
+
+
+def degrade_key(path: str) -> int:
+    """A per-file key that is stable across processes and boxes. Python's
+    `hash` is salted per process, so it would hand two scorers of the same
+    file different recipes and break the pairing between models."""
+    import zlib
+    return zlib.crc32(os.path.basename(str(path)).encode())
+
+
+def degrade_native(decoded: np.ndarray, path: str, seed: int, pool: str,
+                   max_ops: int):
+    """`(pixels, recipe)`: one seeded degradation chain on the NATIVE image.
+
+    For the `_deg` external splits. The chain is drawn exactly as a training
+    view is (`recipe_for_view`, view 1) but keyed on the file name, and it is
+    applied to the decoded file BEFORE canonicalisation -- the organisers'
+    order, and the only order under which a crop model and a squish model are
+    handed the same degraded file and differ only in how they present it.
+    This is our synthesis of the NTIRE families, not the organisers' code.
+    """
+    from aigcdet.features.extract import recipe_for_view
+
+    k = degrade_key(path)
+    r = recipe_for_view(1, k, seed, pool=pool, max_ops=max_ops)
+    pre, post = r.split()
+    out = pre.apply_pre(decoded) if pre.ops else decoded
+    out = post.apply_post(out, np.random.default_rng([seed, k, 1]))
+    return out, r
+
+
+def reencode_jpeg(decoded: np.ndarray, quality: int) -> np.ndarray:
+    """The `_jpeg95` external splits: every file, real or fake, through one
+    JPEG encode at `quality` before canonicalisation, so container format no
+    longer separates the classes (AIGIBench CommunityAI ships every real as
+    JPEG and every fake as PNG)."""
+    import cv2
+    ok, buf = cv2.imencode(".jpg", decoded[:, :, ::-1],
+                           [cv2.IMWRITE_JPEG_QUALITY, int(quality)])
+    if not ok:
+        raise RuntimeError("JPEG encode failed")
+    return np.ascontiguousarray(cv2.imdecode(buf, cv2.IMREAD_COLOR)[:, :, ::-1])
 
 
 def merge_metrics(path, metrics):
@@ -329,6 +377,12 @@ def main() -> int:
     ap.add_argument("--shard", default=None, metavar="I/N",
                     help="score only contiguous shard I of N per split (for "
                          "one process per GPU); the merge step reassembles")
+    ap.add_argument("--degrade-seed", type=int, default=None,
+                    help="required for, and only applied to, splits whose name "
+                         "ends in _deg: one seeded chain per file on the "
+                         "native image (degrade_native)")
+    ap.add_argument("--degrade-pool", default="ntire")
+    ap.add_argument("--degrade-max-ops", type=int, default=5)
     ap.add_argument("--crop-clamp", action="store_true",
                     help="force CanonPolicy.crop_clamp on, so rows with a "
                          "side below the crop window (NTIRE's downscale "
@@ -336,6 +390,9 @@ def main() -> int:
                          "count of such rows is printed beside n")
     a = ap.parse_args()
 
+    deg_splits = [sp for sp in a.splits.split(",") if sp.endswith("_deg")]
+    if deg_splits and a.degrade_seed is None:
+        sys.exit(f"REFUSING {deg_splits}: a _deg split needs --degrade-seed")
     if a.grid and a.tta:
         sys.exit("REFUSING: --grid and --tta are separate measurements")
     grid = None
@@ -403,7 +460,8 @@ def main() -> int:
         if miss:
             sys.exit(f"REFUSING {sp}: {len(miss)} sampled paths missing, "
                      f"e.g. {miss[:2]}")
-        if policy.crop_side and {"width", "height"} <= set(d.columns):
+        if (policy.mode == "crop" and policy.crop_side
+                and {"width", "height"} <= set(d.columns)):
             small = int((d[["width", "height"]].min(axis=1) < policy.crop_side).sum())
             if small:
                 print(f"{sp}: {small} of {len(d)} rows have a side below the "
@@ -411,9 +469,24 @@ def main() -> int:
                       + (" (scored under crop_clamp)" if policy.crop_clamp
                          else " -- canonicalise will REFUSE them; pass "
                               "--crop-clamp or --min-short-side"))
+        degrade = None
+        if sp.endswith("_deg"):
+            if a.degrade_seed is None:
+                sys.exit(f"REFUSING {sp}: a _deg split needs --degrade-seed")
+            degrade = (a.degrade_seed, a.degrade_pool, a.degrade_max_ops)
+            from aigcdet.features.extract import recipe_for_view
+            d = d.assign(is_distorted=1, distortions=[
+                str([op.name for op in recipe_for_view(
+                    1, degrade_key(p_), a.degrade_seed, pool=a.degrade_pool,
+                    max_ops=a.degrade_max_ops).ops]) for p_ in d["path"]])
+        jpeg_q = None
+        if sp.endswith("_jpeg95"):
+            jpeg_q = 95
+            d = d.assign(distortions="['jpeg_q95_all_rows']")
         scored = _score_split(d, towers, specs, head, policy, a.device,
                               a.batch, a.workers, a.chunk, desc=sp,
-                              tta=a.tta, grid=grid)
+                              tta=a.tta, grid=grid, degrade=degrade,
+                              jpeg_q=jpeg_q)
         cols = [c for c in OUT_COLUMNS if c in d.columns or c in ("logit", "prob")]
         if grid is not None:
             names = list(grid)

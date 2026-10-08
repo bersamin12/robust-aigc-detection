@@ -48,7 +48,8 @@ import pandas as pd
 from PIL import Image
 
 from aigcdet.augment.canonical import (
-    CANON_CROP_SIDE, MODES, MODE_BAND, MODE_CROP, CanonPolicy, canonical_rng,
+    CANON_CROP_SIDE, MODES, MODE_BAND, MODE_CROP, MODE_SQUISH, CanonPolicy,
+    canonical_rng,
     canonicalise)
 from aigcdet.data.manifest import read_manifest
 from aigcdet.eval.controls import NO_QUALITY_COLUMN, content_blind_auc
@@ -138,9 +139,15 @@ def run(manifest_path: str, mode: str, seed: int, limit: int | None,
     if limit:
         df = df.iloc[:limit]
     kw = {} if nominal_side is None else {"nominal_side": int(nominal_side)}
-    policy = (CanonPolicy(mode=MODE_CROP, crop_side=crop_side,
-                          crop_clamp=crop_clamp, **kw)
-              if mode == MODE_CROP else CanonPolicy(mode=MODE_BAND, **kw))
+    if mode == MODE_CROP:
+        policy = CanonPolicy(mode=MODE_CROP, crop_side=crop_side,
+                             crop_clamp=crop_clamp, **kw)
+    elif mode == MODE_SQUISH:
+        policy = CanonPolicy(mode=MODE_SQUISH, **kw)
+    else:
+        # An explicit branch per mode: this used to be a two-way ternary, so
+        # any mode that was not crop silently ran band.
+        policy = CanonPolicy(mode=MODE_BAND, **kw)
     print(f"{mode}: {len(df):,} rows through {policy.as_record()}")
     feats = features_for(df, policy, seed, workers=workers)
     labels = df["label"].to_numpy()
@@ -172,7 +179,8 @@ def main(argv=None) -> dict:
                          "defaults to $AIGCDET_DATA_ROOT, then to the "
                          "manifest's own absolute paths")
     a = ap.parse_args(argv)
-    modes = a.mode or list(MODES)
+    # The default stays the original pair: squish is a third arm you ask for.
+    modes = a.mode or [MODE_BAND, MODE_CROP]
 
     results = {m: run(a.manifest, m, a.seed, a.limit, a.crop_side, a.workers,
                       root=a.root, nominal_side=a.nominal_side,
@@ -185,7 +193,7 @@ def main(argv=None) -> dict:
         auc = p.get("auc", p.get("auc_unverified_branch_provenance"))
         lo, hi = p.get("auc_ci", (float("nan"),) * 2)
         print(f"  {m:5s} pooled AUC {auc:.4f} [{lo:.4f}, {hi:.4f}]  {p['verdict']}")
-    if len(results) == 2:
+    if MODE_CROP in results and MODE_BAND in results:
         a_crop = results[MODE_CROP]["pooled"]["auc"]
         a_band = results[MODE_BAND]["pooled"]["auc"]
         print(f"\n  crop - band = {a_crop - a_band:+.4f}")

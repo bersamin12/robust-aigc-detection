@@ -84,7 +84,6 @@ import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
 
-import cv2
 import numpy as np
 import pandas as pd
 import torch
@@ -96,7 +95,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # a second copy of the presentation resize is exactly how that stops being
 # true.
 from aigcdet.augment.canonical import (  # noqa: E402
-    _DOWNSCALE_INTERP, _UPSCALE_INTERP, MODE_BAND, CanonPolicy,
+    _DOWNSCALE_INTERP, _UPSCALE_INTERP, MODE_BAND, MODE_SQUISH,
+    CanonPolicy,
     _resize_short_side, canonicalise,
 )
 from aigcdet.models.pooling import tower_poolers  # noqa: E402
@@ -144,13 +144,10 @@ def views_fov3(img, policy):
 
 
 def views_squish(img, policy):
-    n = policy.nominal_side
-    out = img
-    if min(out.shape[:2]) > n:
-        out = _resize_short_side(out, n, _DOWNSCALE_INTERP)
-    if out.shape[:2] != (n, n):
-        out = cv2.resize(out, (n, n), interpolation=_DOWNSCALE_INTERP)
-    return [out]
+    # The trainer's own implementation, so a squish number from this probe
+    # and one from a squish-TRAINED checkpoint are the same pixels.
+    return [canonicalise(img, policy=CanonPolicy(
+        mode=MODE_SQUISH, nominal_side=policy.nominal_side))]
 
 
 def views_band_squish(img, policy, band: int):
@@ -273,9 +270,11 @@ def main() -> int:
         sys.exit("REFUSING: this head wants recon features; the probe passes "
                  "None for them")
     policy = _policy_from_config(ck["config"], True)
-    if policy.mode != "crop":
-        sys.exit(f"REFUSING: probe is about the crop window, policy is "
-                 f"{policy.mode!r}")
+    if policy.mode not in ("crop", "squish"):
+        sys.exit(f"REFUSING: probe compares crop and squish presentations, "
+                 f"policy is {policy.mode!r}")
+    # Under a squish checkpoint `center` is that checkpoint's own convention
+    # (the whole frame); grid9/fov3 still read crop_side from the policy.
     print(f"model: {'+'.join(ck.get('backbones', [ck.get('backbone')]))} "
           f"({tag}, epoch {ck.get('epoch')}), policy {policy.as_record()}",
           flush=True)
@@ -301,9 +300,11 @@ def main() -> int:
         res["arms"][arm]["views_mean"] = float(nviews.mean())
         res["arms"][arm]["views_max"] = int(nviews.max())
         mt = res["arms"][arm]
-        print(f"{arm:7s} views~{nviews.mean():.2f}  AUC={mt['auc']:.4f}  "
-              f"robust={mt['robust_auc']:.4f}  clean={mt['clean_auc']:.4f}  "
-              + "  ".join(f"[{k}] {v['robust_auc']:.4f}"
+        def f4(v):
+            return "  n/a " if v is None else f"{v:.4f}"
+        print(f"{arm:7s} views~{nviews.mean():.2f}  AUC={f4(mt['auc'])}  "
+              f"robust={f4(mt['robust_auc'])}  clean={f4(mt['clean_auc'])}  "
+              + "  ".join(f"[{k}] {f4(v['robust_auc'])}"
                           for k, v in mt["by_bucket"].items()), flush=True)
         if a.parquet_prefix:
             cols = {"path": d["path"], "label": d["label"],

@@ -325,6 +325,35 @@ SOURCES: dict[str, SourceSpec] = {
         generator_buckets=True,
         exclude_from_training=True,
     ),
+    # External held-out benchmarks for the squish paper (2026-10-08). Never
+    # used for training or selection: they exist to test a policy chosen on
+    # the NTIRE splits against data nothing was ever fitted to. All three are
+    # non-commercial; evaluation in a research paper only.
+    "aigibench_socialrf": SourceSpec(
+        name="aigibench_socialrf",
+        licence="AIGIBench (Li et al., NeurIPS 2025 D&B), CC BY-NC-SA 4.0 -- "
+                "eval only, never trained on",
+        real_buckets=frozenset(),
+        generator_buckets=True,
+        exclude_from_training=True,
+    ),
+    "aigibench_community": SourceSpec(
+        name="aigibench_community",
+        licence="AIGIBench (Li et al., NeurIPS 2025 D&B), CC BY-NC-SA 4.0 -- "
+                "eval only, never trained on",
+        real_buckets=frozenset(),
+        generator_buckets=True,
+        exclude_from_training=True,
+    ),
+    "synthbuster": SourceSpec(
+        name="synthbuster",
+        licence="Synthbuster (Bammey, IEEE OJSP 2023) + RAISE-1k reals "
+                "(Dang-Nguyen et al., MMSys 2015), CC BY-NC-SA 4.0 -- eval "
+                "only, never trained on",
+        real_buckets=frozenset(),
+        generator_buckets=True,
+        exclude_from_training=True,
+    ),
 }
 
 #: Dataset-level stand-ins for a real generator family. Holding one out would
