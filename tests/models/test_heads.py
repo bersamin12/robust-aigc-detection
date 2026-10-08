@@ -152,3 +152,36 @@ def test_trainable_parameter_count_is_small():
     d = Detector(dim_feat=1024, use_recon=True)
     n = sum(p.numel() for p in d.parameters() if p.requires_grad)
     assert n < 3_000_000, f"heads should stay ~2M parameters, got {n}"
+
+def test_film_shuffle_conditions_each_row_on_its_neighbour(monkeypatch):
+    """The information control: same parameters, cond belongs to another row."""
+    torch.manual_seed(0)
+    f = torch.randn(4, 32)
+    plain = Detector(dim_feat=32, use_film=True)
+    rolled = Detector(dim_feat=32, use_film=True, film_shuffle=True)
+    rolled.load_state_dict(plain.state_dict())
+    # Zero-init FiLM is an exact identity, so make gamma/beta do something
+    # before asking whether the row assignment matters.
+    with torch.no_grad():
+        plain.classifier.film.weight.normal_(0, 0.5)
+        plain.classifier.film.bias.normal_(0, 0.5)
+    rolled.load_state_dict(plain.state_dict())
+    assert rolled.film_shuffle and not plain.film_shuffle
+    a, b = plain(f)["hidden"], rolled(f)["hidden"]
+    assert not torch.allclose(a, b), "the roll changed nothing: cond is unused"
+    # The degradation readout itself is untouched by the control.
+    assert torch.allclose(plain(f)["presence"], rolled(f)["presence"])
+    # Row i of the rolled head equals the plain head's row i conditioned on
+    # row i-1's embedding: it is a reassignment, not a corruption.
+    cond = plain.degradation(f)["embedding"].detach()
+    want = plain.classifier(f, torch.roll(cond, 1, dims=0))["hidden"]
+    assert torch.allclose(b, want, atol=1e-6)
+
+
+def test_film_shuffle_is_inert_without_film():
+    torch.manual_seed(0)
+    f = torch.randn(4, 32)
+    off = Detector(dim_feat=32, use_film=False)
+    ctl = Detector(dim_feat=32, use_film=False, film_shuffle=True)
+    ctl.load_state_dict(off.state_dict())
+    assert torch.allclose(off(f)["logit"], ctl(f)["logit"])

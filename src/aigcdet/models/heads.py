@@ -89,10 +89,15 @@ class Detector(nn.Module):
 
     def __init__(self, dim_feat: int, use_recon: bool = False,
                  recon_dim: int = 12, use_film: bool = False,
-                 hidden: int = 512, pooler: nn.Module | None = None):
+                 hidden: int = 512, pooler: nn.Module | None = None,
+                 film_shuffle: bool = False):
         super().__init__()
         self.use_recon = use_recon
         self.use_film = use_film
+        # The information control for `use_film`, not a recipe option. See
+        # `forward`. Meaningless without use_film, and recorded in the
+        # checkpoint config so the scorer rebuilds the same model.
+        self.film_shuffle = film_shuffle
         self.hidden = hidden
         # The token pooler, when the readout owns it (`models.pooling`). It is
         # NOT applied in `forward`, which takes an already pooled `f`: the
@@ -124,6 +129,18 @@ class Detector(nn.Module):
         # Stop-gradient: the classifier must not reshape `d` into a general
         # purpose feature, or the degradation readout stops being meaningful.
         cond = deg["embedding"].detach() if self.use_film else None
+        if cond is not None and self.film_shuffle:
+            # Every FiLM parameter and the film_norm stay; only the ROW
+            # ASSIGNMENT changes, so each image is modulated by its
+            # neighbour's degradation embedding instead of its own. This
+            # separates "conditioning on the degradation helps" from "a wider
+            # head with one more LayerNorm helps": a gain that survives the
+            # roll was never about knowing the degradation. A roll rather than
+            # a random permutation keeps it deterministic in train and eval
+            # alike, which is what lets the flag ride in the checkpoint config
+            # and be rebuilt by the scorer. A batch of one row is its own
+            # neighbour; no split here ends in a batch of one.
+            cond = torch.roll(cond, 1, dims=0)
         cls = self.classifier(f, cond)
         return {"logit": cls["logit"], "hidden": cls["hidden"],
                 "presence": deg["presence"], "severity": deg["severity"],

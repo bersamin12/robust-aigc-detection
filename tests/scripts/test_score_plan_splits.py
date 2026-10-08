@@ -3,6 +3,7 @@
 Pure functions only: no tower, no GPU. The scoring loop itself is exercised
 through `tests/scripts/test_predict.py`'s stubs.
 """
+import json
 import os
 import sys
 
@@ -76,6 +77,43 @@ def test_distortion_tokens_parse_the_csv_list_strings():
     assert sps._distortion_tokens(None) == []
     assert sps._distortion_tokens(float("nan")) == []
     assert sps._distortion_tokens("plain") == ["plain"]
+
+
+def _metrics(split, ckpt="/c.pt", weights="final", policy={"mode": "crop"}):
+    return {"ckpt": ckpt, "weights": weights, "policy": policy,
+            "splits": {split: {"auc": 0.9}}}
+
+
+def test_metrics_from_one_prefix_accumulate_across_per_split_invocations(tmp_path):
+    f = tmp_path / "B2_metrics.json"
+    with open(f, "w") as fh:
+        json.dump(_metrics("val"), fh)
+    out = sps.merge_metrics(str(f), _metrics("ntire_val_hard"))
+    assert sorted(out["splits"]) == ["ntire_val_hard", "val"]
+    # A rescore of a split already there replaces that split, not the file.
+    again = _metrics("val")
+    again["splits"]["val"]["auc"] = 0.8
+    with open(f, "w") as fh:
+        json.dump(out, fh)
+    out2 = sps.merge_metrics(str(f), again)
+    assert out2["splits"]["val"]["auc"] == 0.8
+    assert out2["splits"]["ntire_val_hard"]["auc"] == 0.9
+
+
+def test_metrics_for_a_different_checkpoint_or_policy_replace_the_file(tmp_path):
+    f = tmp_path / "B2_metrics.json"
+    with open(f, "w") as fh:
+        json.dump(_metrics("val"), fh)
+    assert list(sps.merge_metrics(str(f), _metrics("ntire_val", ckpt="/other.pt"))["splits"]) \
+        == ["ntire_val"]
+    assert list(sps.merge_metrics(str(f), _metrics("ntire_val", weights="swa"))["splits"]) \
+        == ["ntire_val"]
+    assert list(sps.merge_metrics(str(f), _metrics("ntire_val", policy={"mode": "pad"}))["splits"]) \
+        == ["ntire_val"]
+    # No file yet, and an unreadable one, both mean "write what we have".
+    assert list(sps.merge_metrics(str(tmp_path / "nope.json"), _metrics("val"))["splits"]) == ["val"]
+    f.write_text("{not json")
+    assert list(sps.merge_metrics(str(f), _metrics("val"))["splits"]) == ["val"]
 
 
 def test_crop_clamp_override_forces_the_flag_without_touching_the_rest():

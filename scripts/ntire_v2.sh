@@ -7,6 +7,11 @@
 #
 #   bash scripts/ntire_v2.sh                 # waits for the ablation + the bank
 #   WAIT_FOR=none bash scripts/ntire_v2.sh   # right now
+#   OUT_DIR=/scratch/$USER/aigcdet/outputs bash scripts/ntire_v2.sh   # checkpoints elsewhere
+#
+# Checkpoints go under $OUT_DIR/{dual,unfreeze}/<name> (default outputs/, the
+# repo disk); scores, logs and the fusion stay in the repo. The free-space
+# check measures $OUT_DIR, which is where the ~22 GB of fat checkpoints land.
 #
 # Standalone on purpose: ntire_one_gpu.sh / ntire_pipeline.sh are still being
 # read by the round-one run, and bash reads a script incrementally, so they
@@ -31,12 +36,14 @@ TOKEN_POOL="${TOKEN_POOL:-mean}"
 WORKERS="${WORKERS:-14}"
 SEED="${SEED:-20260827}"
 SCORES="${SCORES:-outputs/scores}"
+OUT_DIR="${OUT_DIR:-outputs}"
 FIT_SPLITS="${FIT_SPLITS:-ntire_val,ntire_val_hard}"
 MIN_FREE_GB="${MIN_FREE_GB:-22}"
+SCORE_MIB="${SCORE_MIB:-8000}"
 export PYTHONPATH="$PWD/src" OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 export PYTORCH_ALLOC_CONF=expandable_segments:True TOKENIZERS_PARALLELISM=false
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
-mkdir -p logs "$SCORES" outputs/dual/"$NAME_B" outputs/unfreeze/"$NAME_A"
+mkdir -p logs "$SCORES" "$OUT_DIR/dual/$NAME_B" "$OUT_DIR/unfreeze/$NAME_A"
 
 if [ "$WAIT_FOR" != none ]; then
   log "waiting for POOL_ABLATION_DONE in $WAIT_FOR and BANK2_DONE in $BANK_LOG"
@@ -49,13 +56,15 @@ fi
 grep -q '"recipe_pool": "ntire2"' "$BANK/config.json" || { log "$BANK is not an ntire2 bank"; exit 1; }
 "$PY" -c "import aigcdet.augment.ops as o, sys; sys.exit(0 if o.jpeg_ai_available() else 1)" \
   || { log "compressai missing: uv pip install compressai"; exit 1; }
-free_gb=$(df --output=avail -BG "$PWD" | tail -1 | tr -dc 0-9)
+free_gb=$(df --output=avail -BG "$OUT_DIR" | tail -1 | tr -dc 0-9)
 [ "$free_gb" -ge "$MIN_FREE_GB" ] || { log "only ${free_gb} GB free, need $MIN_FREE_GB"; exit 1; }
-log "prerequisites met (${free_gb} GB free)"
+log "prerequisites met (${free_gb} GB free on $OUT_DIR)"
 
-nohup bash scripts/slim_watch.sh outputs/dual/"$NAME_B" outputs/unfreeze/"$NAME_A" > logs/slim_watch_v2.log 2>&1 &
+nohup bash scripts/slim_watch.sh "$OUT_DIR/dual/$NAME_B" "$OUT_DIR/unfreeze/$NAME_A" > logs/slim_watch_v2.log 2>&1 &
 SLIM_PID=$!
-nohup bash scripts/epoch_watch.sh outputs/dual/"$NAME_B":16 outputs/unfreeze/"$NAME_A":4 > logs/epoch_watch_v2.log 2>&1 &
+# PIPELINE_LOG=/dev/null: the watcher would otherwise exit on round one's
+# PIPELINE_DONE before the first snapshot lands; it is killed below instead.
+PIPELINE_LOG=/dev/null nohup bash scripts/epoch_watch.sh "$OUT_DIR/dual/$NAME_B:16" "$OUT_DIR/unfreeze/$NAME_A:4" > logs/epoch_watch_v2.log 2>&1 &
 WATCH_PID=$!
 log "slim watcher $SLIM_PID, epoch watcher $WATCH_PID"
 
@@ -80,21 +89,24 @@ common=(--bank "$BANK" --root "$EXP" --depth 24 --n-src 64 --m-deg 2
         --lr-schedule cosine --warmup-frac 0.03 --min-lr-frac 0.01
         --swa --swa-start-frac 0.75 --family-weighting proportional
         --token-pool "$TOKEN_POOL" --resume)
+done_B() { complete "$OUT_DIR/dual/$NAME_B/checkpoint.pt" "$B_EPOCHS"; }
+done_A() { complete "$OUT_DIR/unfreeze/$NAME_A/checkpoint.pt" "$A_EPOCHS"; }
 train_B() {
-  complete "outputs/dual/$NAME_B/checkpoint.pt" "$B_EPOCHS" && { log "B ($NAME_B) complete"; return 0; }
   log "B: dual dinov2regl224 on $BANK, $B_EPOCHS epochs -> logs/$NAME_B.log"
   "$PY" -u scripts/train_dual.py "${common[@]}" --backbone dinov2regl224 --name "$NAME_B" \
-    --out-dir outputs/dual --perturb-tower2 0.0 --epochs "$B_EPOCHS" --src-chunk "$DUAL_CHUNK" \
+    --out-dir "$OUT_DIR/dual" --perturb-tower2 0.0 --epochs "$B_EPOCHS" --src-chunk "$DUAL_CHUNK" \
     --nominal-side 224 2>&1 | tee -a "logs/$NAME_B.log"
 }
 train_A() {
-  complete "outputs/unfreeze/$NAME_A/checkpoint.pt" "$A_EPOCHS" && { log "A ($NAME_A) complete"; return 0; }
   log "A: dinov2regl @518 on $BANK, $A_EPOCHS epochs -> logs/$NAME_A.log"
   "$PY" -u scripts/train_unfreeze.py "${common[@]}" --backbone dinov2regl --name "$NAME_A" \
-    --out-dir outputs/unfreeze --epochs "$A_EPOCHS" --src-chunk "$A_CHUNK" 2>&1 | tee -a "logs/$NAME_A.log"
+    --out-dir "$OUT_DIR/unfreeze" --epochs "$A_EPOCHS" --src-chunk "$A_CHUNK" 2>&1 | tee -a "logs/$NAME_A.log"
 }
-run_stage() {   # <fn> <need_mib>
+run_stage() {   # <fn> <need_mib> <done-fn>
   local attempt
+  # Ask first, wait second: a resumed run whose training is already finished
+  # would otherwise sit in wait_gpu behind another user for a card it never uses.
+  "$3" && { log "$1: already complete"; return 0; }
   for attempt in 1 2 3 4 5 6; do
     wait_gpu "$2"
     if "$1"; then return 0; fi
@@ -106,6 +118,7 @@ score() {   # <ckpt> <prefix> <splits> <chunk> [extra...]
   local ckpt="$1" prefix="$2" splits="$3" chunk="$4"; shift 4
   for sp in ${splits//,/ }; do
     [ -f "${prefix}_${sp}.parquet" ] && { log "score: ${prefix}_${sp}.parquet exists"; continue; }
+    wait_gpu "$SCORE_MIB"
     "$PY" scripts/score_plan_splits.py --ckpt "$ckpt" --manifest "$MANIFEST" --splits "$sp" \
       --crop-clamp --batch 32 --chunk "$chunk" --workers 12 --out-prefix "$prefix" "$@" \
       2>&1 | tee -a "logs/score_$(basename "$prefix").log"
@@ -124,10 +137,9 @@ print(f"  {a}: {oa:.4f}  {b}: {ob:.4f}", file=sys.stderr)
 PYEOF
 }
 
-run_stage train_B 17000
-run_stage train_A 13000
-wait_gpu 8000
-CB=outputs/dual/$NAME_B/checkpoint.pt; CA=outputs/unfreeze/$NAME_A/checkpoint.pt
+run_stage train_B 17000 done_B
+run_stage train_A 13000 done_A
+CB=$OUT_DIR/dual/$NAME_B/checkpoint.pt; CA=$OUT_DIR/unfreeze/$NAME_A/checkpoint.pt
 score "$CB" "$SCORES/B2" "val,$FIT_SPLITS" 16
 score "$CB" "$SCORES/B2swa" "$FIT_SPLITS" 16 --swa
 score "$CA" "$SCORES/A2" "val,$FIT_SPLITS" 8

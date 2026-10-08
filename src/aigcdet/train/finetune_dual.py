@@ -151,6 +151,7 @@ def train_dual(cfg: DualFinetuneConfig) -> dict:
         # One pooler per tower, in tower order (the head's input order).
         head = Detector(dim_feat=dim_feat, use_recon=b.use_recon,
                         use_film=b.use_film, hidden=b.head_hidden,
+                        film_shuffle=b.film_shuffle,
                         pooler=build_pooler(b.token_pool, specs)).to(b.device)
     poolers = tower_poolers(head, len(towers))
     teacher_poolers = []

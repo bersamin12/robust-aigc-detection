@@ -387,6 +387,10 @@ class FinetuneConfig:
     use_consistency: bool = True
     use_degradation: bool = True
     use_film: bool = False
+    #: Condition each row on its NEIGHBOUR's degradation embedding: the
+    #: information control for `use_film` (identical parameters, no
+    #: per-image signal). A control, not a recipe option.
+    film_shuffle: bool = False
     head_hidden: int = 512
     epochs: int = 5
     lr: float = 1e-3                 # the HEAD's learning rate
@@ -1021,6 +1025,7 @@ class _Progress:
 
 _RESUME_INVARIANT = ("name", "bank_dir", "backbone", "depth", "seed", "lr",
                      "tower_lr", "n_src", "m_deg", "head_hidden", "use_film",
+                     "film_shuffle",
                      "family_weighting", "token_pool",
                      "distil", "distil_weight", "distil_ema_decay")
 
@@ -1165,6 +1170,7 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
         dim_feat = pooled_dim(cfg.token_pool, [spec])
         head = Detector(dim_feat=dim_feat, use_recon=cfg.use_recon,
                         use_film=cfg.use_film, hidden=cfg.head_hidden,
+                        film_shuffle=cfg.film_shuffle,
                         pooler=build_pooler(cfg.token_pool, [spec])).to(cfg.device)
     pooler = tower_poolers(head, 1)[0]
     teacher_pooler = None

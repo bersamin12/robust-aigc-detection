@@ -91,6 +91,15 @@ def main() -> int:
                     help="progress line every this many optimiser steps")
 
     ap.add_argument("--distil-ema-decay", type=float, default=0.999)
+    ap.add_argument("--film", action="store_true",
+                    help="FiLM-modulate the classifier's hidden state by the "
+                         "degradation head's (detached) embedding, so the "
+                         "classifier is told what degradation it is looking "
+                         "at (default: off, as the headline recipe)")
+    ap.add_argument("--film-shuffle", action="store_true",
+                    help="with --film, condition each row on its neighbour's "
+                         "degradation embedding: the information control, "
+                         "identical parameters with no per-image signal")
     ap.add_argument("--share-window", action="store_true",
                     help="degraded views take the clean view's crop window, "
                          "so each pair differs in degradation only (the "
@@ -119,7 +128,8 @@ def main() -> int:
         weights=LossWeights(lambda_deg=a.lambda_deg, alpha=a.alpha, beta=a.beta),
         distil=a.distil, distil_weight=a.distil_weight,
         distil_ema_decay=a.distil_ema_decay, log_every=a.log_every,
-        share_window=a.share_window)
+        share_window=a.share_window,
+        use_film=a.film, film_shuffle=a.film_shuffle)
     cfg = DualFinetuneConfig(base=base, backbone2=a.backbone2,
                              perturb_tower2=a.perturb_tower2)
 

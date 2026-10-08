@@ -101,6 +101,7 @@ def _load_models(ck: dict, device: str, use_swa: bool, use_ema: bool = False):
     head = Detector(dim_feat=ck["dim_feat"],
                     use_recon=bool(cfg.get("use_recon")),
                     use_film=bool(cfg.get("use_film")),
+                    film_shuffle=bool(cfg.get("film_shuffle")),
                     hidden=int(cfg.get("head_hidden", 512)),
                     pooler=build_pooler(mode, specs)).to(device)
     head.load_state_dict(head_sd)
@@ -222,6 +223,31 @@ def _distortion_tokens(s) -> list[str]:
         return [str(x) for x in (v if isinstance(v, (list, tuple)) else [v])]
     except (ValueError, SyntaxError):
         return [txt]
+
+
+def merge_metrics(path, metrics):
+    """Keep the splits an earlier invocation wrote to the same prefix.
+
+    The pipelines score one split per call so an interrupted run resumes at
+    the split it stopped on, and every call writes the whole file; without
+    this the prefix ends up describing only the split that happened to go
+    last. Splits are merged only when the file describes the same checkpoint
+    scored the same way -- a different policy (say `--crop-clamp` toggled) is
+    a different number for the same split name, so that file is replaced.
+    """
+    if not os.path.exists(path):
+        return metrics
+    try:
+        with open(path) as f:
+            old = json.load(f)
+    except (OSError, ValueError):
+        return metrics
+    if any(old.get(k) != metrics[k] for k in ("ckpt", "weights", "policy")):
+        return metrics
+    merged = dict(old.get("splits", {}))
+    merged.update(metrics["splits"])
+    metrics["splits"] = merged
+    return metrics
 
 
 def split_metrics(d: pd.DataFrame) -> dict:
@@ -430,9 +456,11 @@ def main() -> int:
               f"TPR@1%FPR={ms['tpr_at_1pct_fpr']:.4f} acc={ms['acc_at_0.5']:.4f}"
               f"{extra} -> {out}")
 
-    with open(f"{a.out_prefix}_metrics.json", "w") as f:
+    out_path = f"{a.out_prefix}_metrics.json"
+    metrics = merge_metrics(out_path, metrics)
+    with open(out_path, "w") as f:
         json.dump(metrics, f, indent=2)
-    print(f"wrote {a.out_prefix}_metrics.json")
+    print(f"wrote {out_path} ({', '.join(metrics['splits'])})")
     return 0
 
 

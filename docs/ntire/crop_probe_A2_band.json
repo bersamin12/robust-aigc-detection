@@ -1,0 +1,45 @@
+{
+  "ckpt": "/scratch/justin_r13/aigcdet/outputs/unfreeze/ntire2_d24_518/checkpoint.pt",
+  "weights": "final",
+  "split": "ntire_val_hard",
+  "policy": {
+    "mode": "crop",
+    "nominal_side": 512,
+    "crop_side": 200,
+    "crop_clamp": true
+  },
+  "band_side": 160,
+  "arms": {
+    "band_squish": {
+      "n": 2500,
+      "auc": 0.9551283199999999,
+      "tpr_at_1pct_fpr": 0.532,
+      "robust_auc": 0.9128601599999999,
+      "clean_auc": 0.9847808,
+      "by_bucket": {
+        "80-336": {
+          "n": 314,
+          "robust_auc": 0.9220963747817968,
+          "clean_auc": null
+        },
+        "352-512": {
+          "n": 416,
+          "robust_auc": 0.9293184145092876,
+          "clean_auc": 1.0
+        },
+        "528-736": {
+          "n": 741,
+          "robust_auc": 0.9052444776537618,
+          "clean_auc": 0.9979640236262752
+        },
+        "752-4016": {
+          "n": 1029,
+          "robust_auc": 0.9088171323406391,
+          "clean_auc": 0.9773621034807447
+        }
+      },
+      "views_mean": 1.0,
+      "views_max": 1
+    }
+  }
+}
