@@ -126,3 +126,30 @@ runs.
   pooled `ntire_val` + `ntire_val_hard`, which favours crop, so this
   comparison is conservative.
 - No change to the recipe pool, loss or schedule.
+
+## Amendment 1 (2026-10-08, before any model scored an external set)
+
+The external manifest was built from the AIGIBench files on arrival, without
+any model scoring them. Its leak diagnostics are:
+
+| set | n | short side p50 | >512px | short-side-vs-label AUC | format-vs-label AUC |
+|---|---|---|---|---|---|
+| `ext_aigi_socialrf` | 5,994 | 1366 | 96% | 0.694 | 0.500 |
+| `ext_aigi_community` | 12,000 | 500 | 42% | **0.916** | **1.000** |
+
+In CommunityAI, both native resolution and container format nearly separate
+the classes. Squish does not band-limit, so a squish win on that set's pooled
+AUC could come from reading resolution. Two changes follow.
+
+1. **Every external split except `_deg` also gets a resolution-matched
+   reading.** This is the n-weighted AUC within equal-count deciles of native
+   short side, with a paired bootstrap that resamples within
+   (decile × label) cells. It is the same control the crop probe used on
+   `ntire_val_hard`.
+2. **The G3 verdict for `ext_aigi_community` is reported with an explicit
+   caveat.** A pooled-AUC pass there counts as evidence for squish only if the
+   resolution-matched difference on its `_jpeg95` split also has a CI above
+   zero. If it doesn't, the CommunityAI result is reported as confounded and
+   not as support.
+
+The G3 rule for the other sets, and every other gate, is unchanged.

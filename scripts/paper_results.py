@@ -120,6 +120,70 @@ def g1_markdown(r: dict) -> str:
 # full: G2, G3 and the secondary tables
 # ---------------------------------------------------------------------------
 
+def within_decile_boot(models: dict[str, str], manifest: str, n_boot: int,
+                       seed: int = 20260827, n_bins: int = 10) -> dict:
+    """Resolution-matched AUC: the n-weighted mean of AUCs computed WITHIN
+    equal-count deciles of native short side, with a paired bootstrap that
+    resamples inside each (decile x label) cell.
+
+    The control the crop probe used on hard-val, applied to the external
+    sets. Inside one decile the resample factor of squish is near-constant,
+    so a model that only read native resolution gains nothing there. On a set
+    whose real and fake classes differ in size (CommunityAI: short-side-vs-
+    label AUC 0.92), this, not the pooled AUC, is the number that says
+    whether squish detects better. Deciles holding a single class have no AUC
+    and are dropped; how many rows survive is reported.
+    """
+    m = pd.read_parquet(manifest, columns=["path", "width", "height"]).drop_duplicates("path")
+    df = pb.join([pb.load(n, p, None) for n, p in models.items()]).merge(
+        m, on="path", how="left")
+    if df["width"].isna().any():
+        raise SystemExit(f"{int(df['width'].isna().sum())} rows not in {manifest}")
+    short = df[["width", "height"]].min(axis=1).to_numpy()
+    edges = np.unique(np.quantile(short, np.linspace(0, 1, n_bins + 1)))
+    dec = np.clip(np.searchsorted(edges, short, side="right") - 1, 0, len(edges) - 2)
+    y = df["label"].to_numpy().astype(int)
+    usable = [b for b in np.unique(dec) if len(set(y[dec == b].tolist())) == 2]
+    keep = np.isin(dec, usable)
+    df, dec, y = df[keep].reset_index(drop=True), dec[keep], y[keep]
+    names = list(models)
+    sc = {n: df[n].to_numpy().astype(float) for n in names}
+
+    def stat(idx):
+        out = {}
+        for n in names:
+            tot, acc = 0, 0.0
+            for b in usable:
+                k = idx[dec[idx] == b]
+                if len(set(y[k].tolist())) < 2:
+                    continue
+                acc += len(k) * pb.auc(y[k], sc[n][k])
+                tot += len(k)
+            out[n] = acc / tot
+        return out
+
+    point = stat(np.arange(len(df)))
+    cells = [np.flatnonzero((dec == b) & (y == c)) for b in usable for c in (0, 1)]
+    rng = np.random.default_rng(seed)
+    draws = {n: np.empty(n_boot) for n in names}
+    for i in range(n_boot):
+        idx = np.concatenate([c[rng.integers(0, len(c), len(c))] for c in cells])
+        for n, v in stat(idx).items():
+            draws[n][i] = v
+    base = names[0]
+    res = {"n_used": int(len(df)), "n_deciles_used": len(usable),
+           "models": {n: {"value": point[n],
+                          "ci": [float(np.quantile(draws[n], .025)),
+                                 float(np.quantile(draws[n], .975))]} for n in names},
+           "vs_baseline": {}}
+    for n in names[1:]:
+        d = draws[n] - draws[base]
+        ci = [float(np.quantile(d, .025)), float(np.quantile(d, .975))]
+        res["vs_baseline"][n] = {"diff": point[n] - point[base], "ci": ci,
+                                 "excludes_zero": bool(ci[0] > 0 or ci[1] < 0)}
+    return res
+
+
 def _fused(fusion_dir: str, tag: str, split: str) -> str:
     return f"{fusion_dir}/fusion_{tag}_{split}_fused.parquet"
 
@@ -144,7 +208,7 @@ def fov_table(parquets: dict[str, str], manifest: str) -> str:
 
 
 def full(scores: str, fusion_dir: str, picks: dict, n_boot: int,
-         manifest: str, ext_prov: str) -> dict:
+         manifest: str, ext_prov: str, ext_manifest: str | None = None) -> dict:
     out = {"commit": commit(), "picks": picks, "gates": {}, "tables": {}}
 
     # G2: fused, hard-val, z and w fitted on ntire_val alone for BOTH policies
@@ -167,6 +231,9 @@ def full(scores: str, fusion_dir: str, picks: dict, n_boot: int,
                                                  if not os.path.exists(p)]}
                 continue
             r = boot({"crop": pc, "squish": ps}, "crop", n_boot, f"fused, {sp}")
+            if var != "_deg" and ext_manifest and os.path.exists(ext_manifest):
+                r["within_decile"] = within_decile_boot(
+                    {"crop": pc, "squish": ps}, ext_manifest, min(n_boot, 1000))
             out["tables"][sp] = r
             if var == "":
                 d = r["vs_baseline"]["squish"]["auc"]
@@ -234,6 +301,16 @@ def full_markdown(r: dict) -> str:
                 continue
             L.append(t["markdown"] if "markdown" in t
                      else f"`{base + var}`: missing {t['missing']}")
+            w = t.get("within_decile")
+            if w:
+                d = w["vs_baseline"]["squish"]
+                L.append(f"Resolution-matched (n-weighted AUC within "
+                         f"{w['n_deciles_used']} deciles of native short side, "
+                         f"{w['n_used']} rows): crop "
+                         f"{w['models']['crop']['value']:.4f}, squish "
+                         f"{w['models']['squish']['value']:.4f}, diff "
+                         f"{d['diff']:+.4f} [{d['ci'][0]:+.4f}, {d['ci'][1]:+.4f}]"
+                         + (" *" if d["excludes_zero"] else ""))
             L.append("")
     L += ["## Per branch, ntire_val_hard: crop, crop presented whole at test time, "
           "trained under squish", ""]
@@ -260,6 +337,7 @@ def main(argv=None) -> int:
     ap.add_argument("--picks", default="docs/ntire/paper/picks.json")
     ap.add_argument("--manifest", default="data/manifest_ntire.parquet")
     ap.add_argument("--ext-provenance", default="docs/ntire/external_sets.json")
+    ap.add_argument("--ext-manifest", default="data/manifest_external.parquet")
     ap.add_argument("--n-boot", type=int, default=2000)
     ap.add_argument("--out", default=None, help="stem; .json and .md are written")
     a = ap.parse_args(argv)
@@ -271,7 +349,7 @@ def main(argv=None) -> int:
     else:
         picks = json.load(open(a.picks))
         r = full(a.scores, a.fusion_dir, picks, a.n_boot, a.manifest,
-                 a.ext_provenance)
+                 a.ext_provenance, a.ext_manifest)
         ok = True
         stem = a.out or "docs/ntire/paper/paper_results"
         md = full_markdown(r)

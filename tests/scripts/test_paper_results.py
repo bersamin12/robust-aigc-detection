@@ -56,3 +56,25 @@ def test_the_cli_exit_code_is_the_gate(tmp_path):
     assert rc == 3
     assert json.loads((tmp_path / "gate.json").read_text())["passed"] is False
     assert (tmp_path / "gate.md").read_text().count("FAILED") >= 1
+
+
+def test_within_decile_auc_removes_a_pure_resolution_reader(tmp_path):
+    """A 'model' whose score IS native size separates a size-confounded set
+    pooled, and does nothing within deciles; a real detector keeps its edge."""
+    rng = np.random.default_rng(0)
+    n = 4000
+    y = rng.integers(0, 2, n)
+    short = np.where(y == 1, rng.integers(300, 900, n), rng.integers(500, 1500, n))
+    paths = [f"/e{k}.png" for k in range(n)]
+    pd.DataFrame({"path": paths, "width": short, "height": short + 10}).to_parquet(
+        tmp_path / "m.parquet")
+    base = dict(path=paths, label=y)
+    pd.DataFrame({**base, "logit": -short.astype(float)}).to_parquet(tmp_path / "size.parquet")
+    pd.DataFrame({**base, "logit": y * 1.5 + rng.normal(0, 1, n)}).to_parquet(
+        tmp_path / "det.parquet")
+    r = pr.within_decile_boot({"size": str(tmp_path / "size.parquet"),
+                               "det": str(tmp_path / "det.parquet")},
+                              str(tmp_path / "m.parquet"), n_boot=100)
+    assert r["models"]["size"]["value"] < 0.75          # pooled it is ~0.8+
+    assert r["models"]["det"]["value"] > 0.8
+    assert r["vs_baseline"]["det"]["excludes_zero"]
