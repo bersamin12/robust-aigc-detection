@@ -159,7 +159,11 @@ def paired_bootstrap(df: pd.DataFrame, models: list[str], baseline: str | None,
 def to_markdown(res: dict, baseline: str | None, title: str = "") -> str:
     def f(v):
         return "--" if v is None or (isinstance(v, float) and np.isnan(v)) else f"{v:.4f}"
-    keys = [k for k in METRICS if k in next(iter(res["models"].values()))]
+    first = next(iter(res["models"].values()))
+    # A metric with no value for any model (robust AUC on a clean-only split)
+    # is a column of dashes and NaN differences; leave it out of the table.
+    keys = [k for k in METRICS if k in first and any(
+        not np.isnan(m[k]["value"]) for m in res["models"].values())]
     lines = [f"### {title}" if title else "",
              f"n={res['n']:,}"
              + (f" (robust {res['n_robust']:,}, clean {res['n_clean']:,})"

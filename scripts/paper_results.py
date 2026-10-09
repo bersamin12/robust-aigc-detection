@@ -144,6 +144,12 @@ def within_decile_boot(models: dict[str, str], manifest: str, n_boot: int,
     dec = np.clip(np.searchsorted(edges, short, side="right") - 1, 0, len(edges) - 2)
     y = df["label"].to_numpy().astype(int)
     usable = [b for b in np.unique(dec) if len(set(y[dec == b].tolist())) == 2]
+    if not usable:
+        # Every decile holds one class: native size alone separates this set,
+        # and there is no resolution-matched comparison to be had. Said, not
+        # crashed on -- that is itself the finding for such a set.
+        return {"n_used": 0, "n_deciles_used": 0, "models": {}, "vs_baseline": {},
+                "note": "no decile of native short side holds both classes"}
     keep = np.isin(dec, usable)
     df, dec, y = df[keep].reset_index(drop=True), dec[keep], y[keep]
     names = list(models)
@@ -302,7 +308,9 @@ def full_markdown(r: dict) -> str:
             L.append(t["markdown"] if "markdown" in t
                      else f"`{base + var}`: missing {t['missing']}")
             w = t.get("within_decile")
-            if w:
+            if w and not w.get("n_used"):
+                L.append(f"Resolution-matched: not computable -- {w.get('note')}.")
+            elif w:
                 d = w["vs_baseline"]["squish"]
                 L.append(f"Resolution-matched (n-weighted AUC within "
                          f"{w['n_deciles_used']} deciles of native short side, "

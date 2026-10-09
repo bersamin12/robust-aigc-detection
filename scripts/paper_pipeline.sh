@@ -96,11 +96,11 @@ wait_disk() {
   done
 }
 
-retry() {   # <label> <cmd...> : up to 6 attempts, 10 min apart
-  local label="$1"; shift
-  for attempt in 1 2 3 4 5 6; do
+retry() {   # <label> <cmd...> : up to $TRIES attempts (default 6), 10 min apart
+  local label="$1" n="${TRIES:-6}" attempt; shift
+  for attempt in $(seq 1 "$n"); do
     "$@" && return 0
-    log "$label: attempt $attempt failed"; [ "$attempt" -lt 6 ] && sleep 600
+    log "$label: attempt $attempt of $n failed"; [ "$attempt" -lt "$n" ] && sleep 600
   done
   log "PAPER_PIPELINE_FAILED at $label"; exit 1
 }
@@ -352,8 +352,12 @@ if grep -q '"passed": false' "$DOCS/squish_proxy_gate.json" 2>/dev/null && [ "$S
 fi
 
 start_watchers
-done_stage B || { retry "train B" train_B; mark B; }
-done_stage A || { retry "train A" train_A; mark A; }
+# Training gets 20 attempts, not 6: the card is shared with an inference
+# server (root's ninfer-serve) that reloads without warning, the trainer
+# checkpoints only at epoch ends, and each attempt waits for a clean GPU
+# first. Twenty crashes is a real problem worth stopping for; six is not.
+done_stage B || { TRIES=20 retry "train B" train_B; mark B; }
+done_stage A || { TRIES=20 retry "train A" train_A; mark A; }
 stop_watchers
 
 done_stage X || { retry X stage_X; mark X; }
@@ -362,6 +366,7 @@ done_stage S || { retry S stage_S; mark S; }
 if ! done_stage G; then
   "$PY" scripts/paper_results.py full --scores "$SC" --fusion-dir "$DOCS" \
     --picks "$DOCS/picks.json" --ext-provenance "$DOCS/external_sets.json" \
+    --ext-manifest "$EXT_MANIFEST" \
     --out "$DOCS/paper_results" $( [ "$SMOKE" = 1 ] && echo --n-boot 200 ) | tail -40
   [ "${PIPESTATUS[0]}" -eq 0 ] || { log "PAPER_PIPELINE_FAILED at G"; exit 1; }
   mark G

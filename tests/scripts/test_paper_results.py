@@ -78,3 +78,20 @@ def test_within_decile_auc_removes_a_pure_resolution_reader(tmp_path):
     assert r["models"]["size"]["value"] < 0.75          # pooled it is ~0.8+
     assert r["models"]["det"]["value"] > 0.8
     assert r["vs_baseline"]["det"]["excludes_zero"]
+
+
+def test_within_decile_says_so_when_size_alone_separates_the_set(tmp_path):
+    n = 400
+    y = np.repeat([0, 1], n // 2)
+    short = np.where(y == 1, 300, 2000)                 # no decile mixes classes
+    paths = [f"/s{k}.png" for k in range(n)]
+    pd.DataFrame({"path": paths, "width": short, "height": short}).to_parquet(
+        tmp_path / "m.parquet")
+    for name in ("a", "b"):
+        pd.DataFrame({"path": paths, "label": y,
+                      "logit": np.random.default_rng(1).normal(size=n)}
+                     ).to_parquet(tmp_path / f"{name}.parquet")
+    r = pr.within_decile_boot({"a": str(tmp_path / "a.parquet"),
+                               "b": str(tmp_path / "b.parquet")},
+                              str(tmp_path / "m.parquet"), n_boot=20)
+    assert r["n_used"] == 0 and "both classes" in r["note"]
