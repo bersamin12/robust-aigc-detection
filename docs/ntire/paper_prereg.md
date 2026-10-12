@@ -183,3 +183,56 @@ short, the paper says which share of the gain needs the stretch or the full
 long axis, and narrows the claim to match. This amendment gates nothing
 already reported: G1, G2, G3 and read 2 stand as written, and `ntire_test`
 is not read again.
+
+## Amendment 3 (2026-10-12, before any public detector has scored any image here)
+
+The squish result covers only our own two DINOv2 branches. Two published
+detectors have a train/test field-of-view mismatch in their own released
+code. Both are scored here with their released weights, unchanged, by
+`scripts/public_detector_probe.py`:
+
+- UnivFD (Ojha et al., CVPR 2023): trained on short side 256 then a 224 crop
+  (FOV 0.875); tested with a native 224 centre crop.
+- B-Free (Guillaro et al., CVPR 2025, `BFREE_dino2reg4`): trained on reals
+  resized to 512 with 504 crops; tested by averaging five native 504 crops.
+  Our re-implementation of its five-crop inference reproduces the authors'
+  demo logits to 3e-5.
+
+Neither was trained on NTIRE data. For these detectors `ntire_val_hard` has
+never been used to choose anything.
+
+There are three presentations per detector, and nothing else changes:
+
+- `native`: the authors' test pipeline.
+- `train_fov`: short side to the authors' training size, then the authors'
+  crop.
+- `squish`: the whole image at the crop size.
+
+**Primary, per detector.** On `ntire_val_hard`, the robust AUC of `squish`
+minus `native` is > 0 with a paired 95% CI entirely above zero (2000
+resamples stratified by label × is_distorted).
+
+**Secondary, per detector.** The same comparison for `train_fov` minus
+`native`. This is the most direct test of the field-of-view account, because
+it gives each detector back the field of view it was trained at.
+
+**Mechanism, per detector and resized arm.** The robust gain over `native` in
+the largest native-size bucket (752-4016px) exceeds the gain in the smallest
+(80-336px).
+
+**Floor.** If a detector's best arm has robust AUC below 0.60 on
+`ntire_val_hard`, that detector is reported but not interpreted: near
+chance, a difference between presentations says nothing about field of view.
+
+**Reported regardless:** clean AUC for every arm, `ntire_val`, and the three
+external sets as distributed, re-encoded at JPEG q95, and degraded (seed
+20261008, as in the main pipeline), with size-matched AUC on the non-degraded
+external splits.
+
+**Stated expectation.** B-Free was designed to read low-level traces at
+native resolution and to avoid resizing. The field-of-view account still
+predicts a gain on degraded inputs. If B-Free loses under both resized arms,
+the paper's claim is narrowed to detectors that rely on content cues, and the
+paper says so.
+
+`ntire_test` is not read.
