@@ -1,0 +1,1483 @@
+{
+  "commit": "ec8978e33ec4b0ca096138071f6f71b2e22ce8d9",
+  "picks": {
+    "A": "outputs/scores/paper/A3sqswa",
+    "B": "outputs/scores/paper/B3sqswa",
+    "rule": "mean(robust,clean) on ntire_val; tie -> final"
+  },
+  "gates": {
+    "G2": {
+      "passed": true,
+      "robust_diff": 0.07399679999999997,
+      "ci": [
+        0.05799654399999996,
+        0.090706048
+      ]
+    },
+    "G3": {
+      "ext_aigi_socialrf": {
+        "passed": true,
+        "auc_diff": 0.014228679581384962,
+        "ci": [
+          0.009979408817635224,
+          0.01832204130483184
+        ]
+      },
+      "ext_aigi_community": {
+        "passed": true,
+        "auc_diff": 0.011110249999999988,
+        "ci": [
+          0.009146359722222311,
+          0.013221149999999947
+        ]
+      },
+      "ext_synthbuster": {
+        "passed": false,
+        "auc_diff": -0.0010488676836474253,
+        "ci": [
+          -0.0016436575209371196,
+          -0.0005397911032223292
+        ]
+      }
+    }
+  },
+  "tables": {
+    "G2": {
+      "n": 2500,
+      "n_boot": 2000,
+      "seed": 20260827,
+      "alpha": 0.05,
+      "n_robust": 1250,
+      "n_clean": 1250,
+      "models": {
+        "crop": {
+          "auc": {
+            "value": 0.95051328,
+            "ci": [
+              0.942927728,
+              0.95746896
+            ]
+          },
+          "robust_auc": {
+            "value": 0.88560896,
+            "ci": [
+              0.867648576,
+              0.902512832
+            ]
+          },
+          "clean_auc": {
+            "value": 0.99038976,
+            "ci": [
+              0.9860574719999999,
+              0.993792128
+            ]
+          }
+        },
+        "squish": {
+          "auc": {
+            "value": 0.98060864,
+            "ci": [
+              0.976458304,
+              0.984485264
+            ]
+          },
+          "robust_auc": {
+            "value": 0.95960576,
+            "ci": [
+              0.94974112,
+              0.9686644480000001
+            ]
+          },
+          "clean_auc": {
+            "value": 0.99472128,
+            "ci": [
+              0.991987136,
+              0.997056
+            ]
+          }
+        }
+      },
+      "vs_baseline": {
+        "squish": {
+          "auc": {
+            "diff": 0.030095360000000015,
+            "ci": [
+              0.02349888,
+              0.036963487999999975
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "robust_auc": {
+            "diff": 0.07399679999999997,
+            "ci": [
+              0.05799654399999996,
+              0.090706048
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "clean_auc": {
+            "diff": 0.004331520000000033,
+            "ci": [
+              0.0008138880000000487,
+              0.008289664000000065
+            ],
+            "p": 0.016,
+            "excludes_zero": true
+          }
+        }
+      },
+      "inputs": {
+        "crop": "docs/ntire/paper/fusion_crop_ntire_val_hard_fused.parquet",
+        "squish": "docs/ntire/paper/fusion_squish_ntire_val_hard_fused.parquet"
+      }
+    },
+    "ext_aigi_socialrf": {
+      "n": 5994,
+      "n_boot": 2000,
+      "seed": 20260827,
+      "alpha": 0.05,
+      "n_robust": 0,
+      "n_clean": 5994,
+      "models": {
+        "crop": {
+          "auc": {
+            "value": 0.9633442440436428,
+            "ci": [
+              0.9590502393676241,
+              0.9673985999777333
+            ]
+          },
+          "robust_auc": {
+            "value": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ]
+          },
+          "clean_auc": {
+            "value": 0.9633442440436428,
+            "ci": [
+              0.9590502393676241,
+              0.9673985999777333
+            ]
+          }
+        },
+        "squish": {
+          "auc": {
+            "value": 0.9775729236250278,
+            "ci": [
+              0.973719018592741,
+              0.9812529308617235
+            ]
+          },
+          "robust_auc": {
+            "value": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ]
+          },
+          "clean_auc": {
+            "value": 0.9775729236250278,
+            "ci": [
+              0.973719018592741,
+              0.9812529308617235
+            ]
+          }
+        }
+      },
+      "vs_baseline": {
+        "squish": {
+          "auc": {
+            "diff": 0.014228679581384962,
+            "ci": [
+              0.009979408817635224,
+              0.01832204130483184
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "robust_auc": {
+            "diff": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ],
+            "p": 0.0,
+            "excludes_zero": false
+          },
+          "clean_auc": {
+            "diff": 0.014228679581384962,
+            "ci": [
+              0.009979408817635224,
+              0.01832204130483184
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          }
+        }
+      },
+      "inputs": {
+        "crop": "docs/ntire/paper/fusion_crop_ext_aigi_socialrf_fused.parquet",
+        "squish": "docs/ntire/paper/fusion_squish_ext_aigi_socialrf_fused.parquet"
+      },
+      "within_decile": {
+        "n_used": 5994,
+        "n_deciles_used": 10,
+        "models": {
+          "crop": {
+            "value": 0.9587500541266223,
+            "ci": [
+              0.9507536102761007,
+              0.9655240871788207
+            ]
+          },
+          "squish": {
+            "value": 0.9759048414736651,
+            "ci": [
+              0.9706959123299008,
+              0.9809105134963318
+            ]
+          }
+        },
+        "vs_baseline": {
+          "squish": {
+            "diff": 0.017154787347042788,
+            "ci": [
+              0.009884813592795269,
+              0.025012785083065144
+            ],
+            "excludes_zero": true
+          }
+        }
+      }
+    },
+    "ext_aigi_socialrf_jpeg95": {
+      "n": 5994,
+      "n_boot": 2000,
+      "seed": 20260827,
+      "alpha": 0.05,
+      "n_robust": 0,
+      "n_clean": 5994,
+      "models": {
+        "crop": {
+          "auc": {
+            "value": 0.9652606323758628,
+            "ci": [
+              0.9610734719438878,
+              0.9692013805388555
+            ]
+          },
+          "robust_auc": {
+            "value": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ]
+          },
+          "clean_auc": {
+            "value": 0.9652606323758628,
+            "ci": [
+              0.9610734719438878,
+              0.9692013805388555
+            ]
+          }
+        },
+        "squish": {
+          "auc": {
+            "value": 0.9778401246938321,
+            "ci": [
+              0.9740135715876196,
+              0.9815074315297261
+            ]
+          },
+          "robust_auc": {
+            "value": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ]
+          },
+          "clean_auc": {
+            "value": 0.9778401246938321,
+            "ci": [
+              0.9740135715876196,
+              0.9815074315297261
+            ]
+          }
+        }
+      },
+      "vs_baseline": {
+        "squish": {
+          "auc": {
+            "diff": 0.012579492317969287,
+            "ci": [
+              0.008358016032064156,
+              0.016555054553551565
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "robust_auc": {
+            "diff": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ],
+            "p": 0.0,
+            "excludes_zero": false
+          },
+          "clean_auc": {
+            "diff": 0.012579492317969287,
+            "ci": [
+              0.008358016032064156,
+              0.016555054553551565
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          }
+        }
+      },
+      "inputs": {
+        "crop": "docs/ntire/paper/fusion_crop_ext_aigi_socialrf_jpeg95_fused.parquet",
+        "squish": "docs/ntire/paper/fusion_squish_ext_aigi_socialrf_jpeg95_fused.parquet"
+      },
+      "within_decile": {
+        "n_used": 5994,
+        "n_deciles_used": 10,
+        "models": {
+          "crop": {
+            "value": 0.9601872681870821,
+            "ci": [
+              0.9523718517651916,
+              0.9665804371512321
+            ]
+          },
+          "squish": {
+            "value": 0.9761512744462792,
+            "ci": [
+              0.9711378312096278,
+              0.9810690896535451
+            ]
+          }
+        },
+        "vs_baseline": {
+          "squish": {
+            "diff": 0.01596400625919714,
+            "ci": [
+              0.00888239832351865,
+              0.02383926033384539
+            ],
+            "excludes_zero": true
+          }
+        }
+      }
+    },
+    "ext_aigi_socialrf_deg": {
+      "n": 5994,
+      "n_boot": 2000,
+      "seed": 20260827,
+      "alpha": 0.05,
+      "n_robust": 5994,
+      "n_clean": 0,
+      "models": {
+        "crop": {
+          "auc": {
+            "value": 0.8846549766199064,
+            "ci": [
+              0.8762977788911156,
+              0.8926666778000445
+            ]
+          },
+          "robust_auc": {
+            "value": 0.8846549766199064,
+            "ci": [
+              0.8762977788911156,
+              0.8926666778000445
+            ]
+          },
+          "clean_auc": {
+            "value": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ]
+          }
+        },
+        "squish": {
+          "auc": {
+            "value": 0.9695441995101314,
+            "ci": [
+              0.9652829965486529,
+              0.9736715570028946
+            ]
+          },
+          "robust_auc": {
+            "value": 0.9695441995101314,
+            "ci": [
+              0.9652829965486529,
+              0.9736715570028946
+            ]
+          },
+          "clean_auc": {
+            "value": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ]
+          }
+        }
+      },
+      "vs_baseline": {
+        "squish": {
+          "auc": {
+            "diff": 0.08488922289022494,
+            "ci": [
+              0.07716660543308834,
+              0.09245379648185259
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "robust_auc": {
+            "diff": 0.08488922289022494,
+            "ci": [
+              0.07716660543308834,
+              0.09245379648185259
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "clean_auc": {
+            "diff": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ],
+            "p": 0.0,
+            "excludes_zero": false
+          }
+        }
+      },
+      "inputs": {
+        "crop": "docs/ntire/paper/fusion_crop_ext_aigi_socialrf_deg_fused.parquet",
+        "squish": "docs/ntire/paper/fusion_squish_ext_aigi_socialrf_deg_fused.parquet"
+      }
+    },
+    "ext_aigi_community": {
+      "n": 12000,
+      "n_boot": 2000,
+      "seed": 20260827,
+      "alpha": 0.05,
+      "n_robust": 0,
+      "n_clean": 12000,
+      "models": {
+        "crop": {
+          "auc": {
+            "value": 0.9809115277777778,
+            "ci": [
+              0.9787033215277778,
+              0.9829983916666667
+            ]
+          },
+          "robust_auc": {
+            "value": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ]
+          },
+          "clean_auc": {
+            "value": 0.9809115277777778,
+            "ci": [
+              0.9787033215277778,
+              0.9829983916666667
+            ]
+          }
+        },
+        "squish": {
+          "auc": {
+            "value": 0.9920217777777778,
+            "ci": [
+              0.9905474993055555,
+              0.9933518319444444
+            ]
+          },
+          "robust_auc": {
+            "value": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ]
+          },
+          "clean_auc": {
+            "value": 0.9920217777777778,
+            "ci": [
+              0.9905474993055555,
+              0.9933518319444444
+            ]
+          }
+        }
+      },
+      "vs_baseline": {
+        "squish": {
+          "auc": {
+            "diff": 0.011110249999999988,
+            "ci": [
+              0.009146359722222311,
+              0.013221149999999947
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "robust_auc": {
+            "diff": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ],
+            "p": 0.0,
+            "excludes_zero": false
+          },
+          "clean_auc": {
+            "diff": 0.011110249999999988,
+            "ci": [
+              0.009146359722222311,
+              0.013221149999999947
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          }
+        }
+      },
+      "inputs": {
+        "crop": "docs/ntire/paper/fusion_crop_ext_aigi_community_fused.parquet",
+        "squish": "docs/ntire/paper/fusion_squish_ext_aigi_community_fused.parquet"
+      },
+      "within_decile": {
+        "n_used": 5920,
+        "n_deciles_used": 2,
+        "models": {
+          "crop": {
+            "value": 0.9789782573403083,
+            "ci": [
+              0.9699101723147144,
+              0.9874078722414249
+            ]
+          },
+          "squish": {
+            "value": 0.983856125806923,
+            "ci": [
+              0.9771816754849797,
+              0.9899178424162292
+            ]
+          }
+        },
+        "vs_baseline": {
+          "squish": {
+            "diff": 0.004877868466614754,
+            "ci": [
+              -0.0017594408558820856,
+              0.01191178807061345
+            ],
+            "excludes_zero": false
+          }
+        }
+      }
+    },
+    "ext_aigi_community_jpeg95": {
+      "n": 12000,
+      "n_boot": 2000,
+      "seed": 20260827,
+      "alpha": 0.05,
+      "n_robust": 0,
+      "n_clean": 12000,
+      "models": {
+        "crop": {
+          "auc": {
+            "value": 0.9802155277777778,
+            "ci": [
+              0.9779670083333333,
+              0.9823196833333334
+            ]
+          },
+          "robust_auc": {
+            "value": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ]
+          },
+          "clean_auc": {
+            "value": 0.9802155277777778,
+            "ci": [
+              0.9779670083333333,
+              0.9823196833333334
+            ]
+          }
+        },
+        "squish": {
+          "auc": {
+            "value": 0.9919809444444444,
+            "ci": [
+              0.9904962270833333,
+              0.9933056194444444
+            ]
+          },
+          "robust_auc": {
+            "value": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ]
+          },
+          "clean_auc": {
+            "value": 0.9919809444444444,
+            "ci": [
+              0.9904962270833333,
+              0.9933056194444444
+            ]
+          }
+        }
+      },
+      "vs_baseline": {
+        "squish": {
+          "auc": {
+            "diff": 0.01176541666666664,
+            "ci": [
+              0.009791654166666719,
+              0.013883972222222218
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "robust_auc": {
+            "diff": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ],
+            "p": 0.0,
+            "excludes_zero": false
+          },
+          "clean_auc": {
+            "diff": 0.01176541666666664,
+            "ci": [
+              0.009791654166666719,
+              0.013883972222222218
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          }
+        }
+      },
+      "inputs": {
+        "crop": "docs/ntire/paper/fusion_crop_ext_aigi_community_jpeg95_fused.parquet",
+        "squish": "docs/ntire/paper/fusion_squish_ext_aigi_community_jpeg95_fused.parquet"
+      },
+      "within_decile": {
+        "n_used": 5920,
+        "n_deciles_used": 2,
+        "models": {
+          "crop": {
+            "value": 0.9785604545271128,
+            "ci": [
+              0.969195905136497,
+              0.9872224397004894
+            ]
+          },
+          "squish": {
+            "value": 0.9833505782045809,
+            "ci": [
+              0.9765221084135953,
+              0.9895321422633335
+            ]
+          }
+        },
+        "vs_baseline": {
+          "squish": {
+            "diff": 0.004790123677468117,
+            "ci": [
+              -0.002226112680099973,
+              0.01203078680785121
+            ],
+            "excludes_zero": false
+          }
+        }
+      }
+    },
+    "ext_aigi_community_deg": {
+      "n": 12000,
+      "n_boot": 2000,
+      "seed": 20260827,
+      "alpha": 0.05,
+      "n_robust": 12000,
+      "n_clean": 0,
+      "models": {
+        "crop": {
+          "auc": {
+            "value": 0.9059488333333333,
+            "ci": [
+              0.900778275,
+              0.9108206583333334
+            ]
+          },
+          "robust_auc": {
+            "value": 0.9059488333333333,
+            "ci": [
+              0.900778275,
+              0.9108206583333334
+            ]
+          },
+          "clean_auc": {
+            "value": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ]
+          }
+        },
+        "squish": {
+          "auc": {
+            "value": 0.9758606944444445,
+            "ci": [
+              0.9735169222222222,
+              0.9783765361111111
+            ]
+          },
+          "robust_auc": {
+            "value": 0.9758606944444445,
+            "ci": [
+              0.9735169222222222,
+              0.9783765361111111
+            ]
+          },
+          "clean_auc": {
+            "value": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ]
+          }
+        }
+      },
+      "vs_baseline": {
+        "squish": {
+          "auc": {
+            "diff": 0.06991186111111114,
+            "ci": [
+              0.06500604930555558,
+              0.0749592923611112
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "robust_auc": {
+            "diff": 0.06991186111111114,
+            "ci": [
+              0.06500604930555558,
+              0.0749592923611112
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "clean_auc": {
+            "diff": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ],
+            "p": 0.0,
+            "excludes_zero": false
+          }
+        }
+      },
+      "inputs": {
+        "crop": "docs/ntire/paper/fusion_crop_ext_aigi_community_deg_fused.parquet",
+        "squish": "docs/ntire/paper/fusion_squish_ext_aigi_community_deg_fused.parquet"
+      }
+    },
+    "ext_synthbuster": {
+      "n": 9990,
+      "n_boot": 2000,
+      "seed": 20260827,
+      "alpha": 0.05,
+      "n_robust": 0,
+      "n_clean": 9990,
+      "models": {
+        "crop": {
+          "auc": {
+            "value": 0.9994701423301928,
+            "ci": [
+              0.9992378151747301,
+              0.9996635073893785
+            ]
+          },
+          "robust_auc": {
+            "value": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ]
+          },
+          "clean_auc": {
+            "value": 0.9994701423301928,
+            "ci": [
+              0.9992378151747301,
+              0.9996635073893785
+            ]
+          }
+        },
+        "squish": {
+          "auc": {
+            "value": 0.9984212746465454,
+            "ci": [
+              0.997844333117424,
+              0.9989159165754867
+            ]
+          },
+          "robust_auc": {
+            "value": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ]
+          },
+          "clean_auc": {
+            "value": 0.9984212746465454,
+            "ci": [
+              0.997844333117424,
+              0.9989159165754867
+            ]
+          }
+        }
+      },
+      "vs_baseline": {
+        "squish": {
+          "auc": {
+            "diff": -0.0010488676836474253,
+            "ci": [
+              -0.0016436575209371196,
+              -0.0005397911032223292
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "robust_auc": {
+            "diff": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ],
+            "p": 0.0,
+            "excludes_zero": false
+          },
+          "clean_auc": {
+            "diff": -0.0010488676836474253,
+            "ci": [
+              -0.0016436575209371196,
+              -0.0005397911032223292
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          }
+        }
+      },
+      "inputs": {
+        "crop": "docs/ntire/paper/fusion_crop_ext_synthbuster_fused.parquet",
+        "squish": "docs/ntire/paper/fusion_squish_ext_synthbuster_fused.parquet"
+      },
+      "within_decile": {
+        "n_used": 0,
+        "n_deciles_used": 0,
+        "models": {},
+        "vs_baseline": {},
+        "note": "no decile of native short side holds both classes"
+      }
+    },
+    "ext_synthbuster_jpeg95": {
+      "n": 9990,
+      "n_boot": 2000,
+      "seed": 20260827,
+      "alpha": 0.05,
+      "n_robust": 0,
+      "n_clean": 9990,
+      "models": {
+        "crop": {
+          "auc": {
+            "value": 0.9993389639750464,
+            "ci": [
+              0.9990530974866539,
+              0.9995835394760739
+            ]
+          },
+          "robust_auc": {
+            "value": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ]
+          },
+          "clean_auc": {
+            "value": 0.9993389639750464,
+            "ci": [
+              0.9990530974866539,
+              0.9995835394760739
+            ]
+          }
+        },
+        "squish": {
+          "auc": {
+            "value": 0.9985629651631442,
+            "ci": [
+              0.9979811086393863,
+              0.9990544869931013
+            ]
+          },
+          "robust_auc": {
+            "value": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ]
+          },
+          "clean_auc": {
+            "value": 0.9985629651631442,
+            "ci": [
+              0.9979811086393863,
+              0.9990544869931013
+            ]
+          }
+        }
+      },
+      "vs_baseline": {
+        "squish": {
+          "auc": {
+            "diff": -0.0007759988119021566,
+            "ci": [
+              -0.0013855336331013684,
+              -0.00022236855995906338
+            ],
+            "p": 0.005,
+            "excludes_zero": true
+          },
+          "robust_auc": {
+            "diff": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ],
+            "p": 0.0,
+            "excludes_zero": false
+          },
+          "clean_auc": {
+            "diff": -0.0007759988119021566,
+            "ci": [
+              -0.0013855336331013684,
+              -0.00022236855995906338
+            ],
+            "p": 0.005,
+            "excludes_zero": true
+          }
+        }
+      },
+      "inputs": {
+        "crop": "docs/ntire/paper/fusion_crop_ext_synthbuster_jpeg95_fused.parquet",
+        "squish": "docs/ntire/paper/fusion_squish_ext_synthbuster_jpeg95_fused.parquet"
+      },
+      "within_decile": {
+        "n_used": 0,
+        "n_deciles_used": 0,
+        "models": {},
+        "vs_baseline": {},
+        "note": "no decile of native short side holds both classes"
+      }
+    },
+    "ext_synthbuster_deg": {
+      "n": 9990,
+      "n_boot": 2000,
+      "seed": 20260827,
+      "alpha": 0.05,
+      "n_robust": 9990,
+      "n_clean": 0,
+      "models": {
+        "crop": {
+          "auc": {
+            "value": 0.9683342384229789,
+            "ci": [
+              0.9640502558481168,
+              0.9722095579255882
+            ]
+          },
+          "robust_auc": {
+            "value": 0.9683342384229789,
+            "ci": [
+              0.9640502558481168,
+              0.9722095579255882
+            ]
+          },
+          "clean_auc": {
+            "value": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ]
+          }
+        },
+        "squish": {
+          "auc": {
+            "value": 0.9920816584701629,
+            "ci": [
+              0.9905150975886443,
+              0.9935569117237887
+            ]
+          },
+          "robust_auc": {
+            "value": 0.9920816584701629,
+            "ci": [
+              0.9905150975886443,
+              0.9935569117237887
+            ]
+          },
+          "clean_auc": {
+            "value": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ]
+          }
+        }
+      },
+      "vs_baseline": {
+        "squish": {
+          "auc": {
+            "diff": 0.023747420047183998,
+            "ci": [
+              0.019741196176615045,
+              0.027882169070447656
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "robust_auc": {
+            "diff": 0.023747420047183998,
+            "ci": [
+              0.019741196176615045,
+              0.027882169070447656
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "clean_auc": {
+            "diff": NaN,
+            "ci": [
+              NaN,
+              NaN
+            ],
+            "p": 0.0,
+            "excludes_zero": false
+          }
+        }
+      },
+      "inputs": {
+        "crop": "docs/ntire/paper/fusion_crop_ext_synthbuster_deg_fused.parquet",
+        "squish": "docs/ntire/paper/fusion_squish_ext_synthbuster_deg_fused.parquet"
+      }
+    },
+    "branch_A": {
+      "n": 2500,
+      "n_boot": 2000,
+      "seed": 20260827,
+      "alpha": 0.05,
+      "n_robust": 1250,
+      "n_clean": 1250,
+      "models": {
+        "crop": {
+          "auc": {
+            "value": 0.94084352,
+            "ci": [
+              0.932361392,
+              0.948899232
+            ]
+          },
+          "robust_auc": {
+            "value": 0.856128,
+            "ci": [
+              0.834986432,
+              0.87546944
+            ]
+          },
+          "clean_auc": {
+            "value": 0.99134208,
+            "ci": [
+              0.987256128,
+              0.994468032
+            ]
+          }
+        },
+        "crop_testtime_squish": {
+          "auc": {
+            "value": 0.97300864,
+            "ci": [
+              0.967970176,
+              0.9777127680000001
+            ]
+          },
+          "robust_auc": {
+            "value": 0.94817792,
+            "ci": [
+              0.936555264,
+              0.959088896
+            ]
+          },
+          "clean_auc": {
+            "value": 0.99061504,
+            "ci": [
+              0.987010496,
+              0.993659264
+            ]
+          }
+        },
+        "trained_squish": {
+          "auc": {
+            "value": 0.97293568,
+            "ci": [
+              0.967452032,
+              0.977829408
+            ]
+          },
+          "robust_auc": {
+            "value": 0.9424896,
+            "ci": [
+              0.930192512,
+              0.953893312
+            ]
+          },
+          "clean_auc": {
+            "value": 0.99337984,
+            "ci": [
+              0.98994912,
+              0.996042368
+            ]
+          }
+        }
+      },
+      "vs_baseline": {
+        "crop_testtime_squish": {
+          "auc": {
+            "diff": 0.032165119999999936,
+            "ci": [
+              0.024259168000000032,
+              0.040243568000000035
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "robust_auc": {
+            "diff": 0.09204992000000001,
+            "ci": [
+              0.07267167999999995,
+              0.11226937599999995
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "clean_auc": {
+            "diff": -0.0007270400000000121,
+            "ci": [
+              -0.005007359999999908,
+              0.003829952000000013
+            ],
+            "p": 0.728,
+            "excludes_zero": false
+          }
+        },
+        "trained_squish": {
+          "auc": {
+            "diff": 0.032092159999999925,
+            "ci": [
+              0.024262943999999904,
+              0.03983118400000004
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "robust_auc": {
+            "diff": 0.08636160000000004,
+            "ci": [
+              0.06786528000000008,
+              0.10541305600000003
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "clean_auc": {
+            "diff": 0.0020377599999999996,
+            "ci": [
+              -0.0019380480000000366,
+              0.0062413439999999066
+            ],
+            "p": 0.349,
+            "excludes_zero": false
+          }
+        }
+      },
+      "inputs": {
+        "crop": "outputs/scores/A2_ntire_val_hard.parquet",
+        "crop_testtime_squish": "outputs/scores/probe_A2_squish_ntire_val_hard.parquet",
+        "trained_squish": "outputs/scores/paper/A3sqswa_ntire_val_hard.parquet"
+      }
+    },
+    "branch_B": {
+      "n": 2500,
+      "n_boot": 2000,
+      "seed": 20260827,
+      "alpha": 0.05,
+      "n_robust": 1250,
+      "n_clean": 1250,
+      "models": {
+        "crop": {
+          "auc": {
+            "value": 0.94195904,
+            "ci": [
+              0.933238976,
+              0.94987488
+            ]
+          },
+          "robust_auc": {
+            "value": 0.8873088,
+            "ci": [
+              0.8694478720000001,
+              0.9036221440000001
+            ]
+          },
+          "clean_auc": {
+            "value": 0.98012416,
+            "ci": [
+              0.9738610560000001,
+              0.985487424
+            ]
+          }
+        },
+        "crop_testtime_squish": {
+          "auc": {
+            "value": 0.97649344,
+            "ci": [
+              0.971661888,
+              0.981216784
+            ]
+          },
+          "robust_auc": {
+            "value": 0.95994624,
+            "ci": [
+              0.949741312,
+              0.96916064
+            ]
+          },
+          "clean_auc": {
+            "value": 0.9886464,
+            "ci": [
+              0.98447616,
+              0.992399744
+            ]
+          }
+        },
+        "trained_squish": {
+          "auc": {
+            "value": 0.97675328,
+            "ci": [
+              0.9720492000000001,
+              0.981440992
+            ]
+          },
+          "robust_auc": {
+            "value": 0.95891456,
+            "ci": [
+              0.9488844160000001,
+              0.968518336
+            ]
+          },
+          "clean_auc": {
+            "value": 0.98981376,
+            "ci": [
+              0.9853208960000001,
+              0.993679424
+            ]
+          }
+        }
+      },
+      "vs_baseline": {
+        "crop_testtime_squish": {
+          "auc": {
+            "diff": 0.034534400000000076,
+            "ci": [
+              0.026938192,
+              0.04279564799999998
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "robust_auc": {
+            "diff": 0.07263743999999994,
+            "ci": [
+              0.056568064,
+              0.09001107200000001
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "clean_auc": {
+            "diff": 0.008522240000000014,
+            "ci": [
+              0.0027820800000000145,
+              0.015130048000000071
+            ],
+            "p": 0.005,
+            "excludes_zero": true
+          }
+        },
+        "trained_squish": {
+          "auc": {
+            "diff": 0.034794239999999976,
+            "ci": [
+              0.027183775999999986,
+              0.043336447999999986
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "robust_auc": {
+            "diff": 0.07160575999999996,
+            "ci": [
+              0.05493331200000005,
+              0.08869113599999998
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "clean_auc": {
+            "diff": 0.009689599999999965,
+            "ci": [
+              0.003793151999999897,
+              0.016381439999999973
+            ],
+            "p": 0.002,
+            "excludes_zero": true
+          }
+        }
+      },
+      "inputs": {
+        "crop": "outputs/scores/B2swa_ntire_val_hard.parquet",
+        "crop_testtime_squish": "outputs/scores/probe_B2swa_squish_ntire_val_hard.parquet",
+        "trained_squish": "outputs/scores/paper/B3sqswa_ntire_val_hard.parquet"
+      }
+    },
+    "fov_buckets_md": "| model | 80-336px | 352-512px | 528-736px | 752-4016px |\n|---|---|---|---|---|\n| `crop` | 0.9113 (n=314) | 0.9031 (n=331) | 0.8597 (n=294) | 0.8651 (n=311) |\n| `squish` | 0.9510 (n=314) | 0.9712 (n=331) | 0.9653 (n=294) | 0.9672 (n=311) |"
+  },
+  "external_sets": {
+    "sets": {
+      "ext_aigi_socialrf": {
+        "n": 5994,
+        "n_real": 2994,
+        "n_fake": 3000,
+        "short_side": {
+          "p5": 592.0,
+          "p50": 1366.0,
+          "p95": 3024.0
+        },
+        "short_side_max": 8000,
+        "frac_above_512": 0.9601267934601267,
+        "shortside_vs_label_auc": 0.694307949231797,
+        "format_vs_label_auc": 0.5,
+        "format_by_label": {
+          "png": {
+            "0": 2994,
+            "1": 3000
+          }
+        },
+        "generators": [
+          "SocialRF"
+        ],
+        "dropped_duplicate_within": 6,
+        "dropped_overlap_with_ntire_manifest": 0,
+        "root": "/scratch/justin_r13/ext/aigibench/SocialRF"
+      },
+      "ext_aigi_community": {
+        "n": 12000,
+        "n_real": 6000,
+        "n_fake": 6000,
+        "short_side": {
+          "p5": 333.0,
+          "p50": 500.0,
+          "p95": 1024.0
+        },
+        "short_side_max": 4992,
+        "frac_above_512": 0.4216666666666667,
+        "shortside_vs_label_auc": 0.9158925,
+        "format_vs_label_auc": 1.0,
+        "format_by_label": {
+          "jpeg": {
+            "0": 6000,
+            "1": 0
+          },
+          "png": {
+            "0": 0,
+            "1": 6000
+          }
+        },
+        "generators": [
+          "CommunityAI"
+        ],
+        "dropped_duplicate_within": 0,
+        "dropped_overlap_with_ntire_manifest": 0,
+        "root": "/scratch/justin_r13/ext/aigibench/CommunityAI"
+      },
+      "ext_synthbuster": {
+        "n": 9990,
+        "n_real": 994,
+        "n_fake": 8996,
+        "short_side": {
+          "p5": 256.0,
+          "p50": 833.0,
+          "p95": 1792.0
+        },
+        "short_side_max": 2048,
+        "frac_above_512": 0.6996996996996997,
+        "shortside_vs_label_auc": 0.5188972876834148,
+        "format_vs_label_auc": 0.5554135171187194,
+        "format_by_label": {
+          "jpeg": {
+            "0": 0,
+            "1": 997
+          },
+          "png": {
+            "0": 994,
+            "1": 7999
+          }
+        },
+        "generators": [
+          "dalle2",
+          "dalle3",
+          "firefly",
+          "glide",
+          "midjourney-v5",
+          "stable-diffusion-1-3",
+          "stable-diffusion-1-4",
+          "stable-diffusion-2",
+          "stable-diffusion-xl"
+        ],
+        "dropped_duplicate_within": 10,
+        "dropped_overlap_with_ntire_manifest": 0,
+        "root": "/scratch/justin_r13/ext/synthbuster/synthbuster"
+      }
+    },
+    "missing": [],
+    "variants": [
+      "",
+      "_deg",
+      "_jpeg95"
+    ]
+  }
+}

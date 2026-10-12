@@ -128,3 +128,14 @@ The consistent result across all three: the degradation head's prediction is a
 real supervised signal, and spending it on the features -- to remove the
 degradation or to condition on it -- does not improve robustness. What does is
 matching the training distortions to the deployed ones.
+
+## Read 2 (declared 2026-10-08, run 2026-10-11 16:45 UTC)
+
+The squish-policy fusion, frozen on ntire_val before this read; see `scripts/ntire_test_read2.sh` for why a second read exists and the conditions it ran under. Read 1 (crop policy) is above, unchanged.
+
+| model | robust | clean | AUC | TPR@1%FPR |
+|---|---|---|---|---|
+| a | 0.8246 | 0.9578 | 0.9026 | 0.2923 |
+| b | 0.8589 | 0.9639 | 0.9159 | 0.3854 |
+| fused_equal | 0.8562 | 0.9716 | 0.9216 | 0.2985 |
+| fused | 0.8547 | 0.9715 | 0.9211 | 0.3000 |
