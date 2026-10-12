@@ -153,3 +153,33 @@ AUC could come from reading resolution. Two changes follow.
    not as support.
 
 The G3 rule for the other sets, and every other gate, is unchanged.
+
+## Amendment 2 (2026-10-12, after G and read 2, before any number for these arms)
+
+A literature check after the pipeline finished found that whole-image resize
+is already in use: the NTIRE 2026 winner resizes to 512, the 5th-placed team
+squishes, and AI-GenBench (IJCNN 2025) prefers resize to multi-crop. The
+paper therefore claims the field-of-view diagnosis, not the resize. Grommelt
+et al. (2024) warn that non-square resizing distorts one axis. Squish
+discards aspect, so its gain could come partly from that distortion or from
+the extra edge context, not from field of view as such. Two
+aspect-preserving test-time arms are added to `scripts/ntire_crop_probe.py`,
+on the same frozen round-two checkpoints (A2 final, B2swa) and the same
+`ntire_val_hard` and `ntire_val` rows:
+
+- `short_center`: short side to `nominal_side`, then the centre square
+  (resize then centre-crop). The whole short axis, the middle of the long one.
+- `letterbox`: long side to `nominal_side`, padded black to a square. The
+  whole frame, no stretch.
+
+**Prediction, written before the numbers.** If field of view is the lever,
+each arm recovers at least 75% of squish's robust-AUC gain over `center` on
+`ntire_val_hard`, on both branches. A paired bootstrap against `center` and
+against `squish` is reported for every arm.
+
+**Reading.** If both arms clear 75% on both branches, the paper says "the
+whole field of view", and squish is one way to deliver it. If either falls
+short, the paper says which share of the gain needs the stretch or the full
+long axis, and narrows the claim to match. This amendment gates nothing
+already reported: G1, G2, G3 and read 2 stand as written, and `ntire_test`
+is not read again.

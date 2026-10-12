@@ -48,6 +48,10 @@ ARMS (all on top of the checkpoint's own policy, crop_clamp forced on)
             image is routed through a different kernel for its size. A severe
             scale mismatch for a crop-trained tower; included to bound the
             question, not as a candidate.
+    short_center, letterbox (added 2026-10-12, paper_prereg.md amendment 2)
+            aspect-preserving whole-image controls for squish: short side to
+            nominal then the centre square, and long side to nominal padded
+            black to a square.
 
 GATE (registered 2026-10-07, before any number for any arm exists)
     PRIMARY    Some multi-view arm beats `center` robust AUC on
@@ -84,6 +88,7 @@ import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
 
+import cv2
 import numpy as np
 import pandas as pd
 import torch
@@ -175,9 +180,42 @@ def views_band_squish(img, policy, band: int):
         jitter=0.0))]
 
 
+def views_short_center(img, policy):
+    """Aspect-preserving control for `squish` (paper_prereg.md amendment 2).
+
+    Short side to nominal_side, then the centre nominal_side^2 square: the
+    usual resize-then-centre-crop. Field of view is the whole short axis and
+    the middle of the long one, and nothing is stretched. Uses squish's one
+    kernel in both directions, so the two arms differ only in geometry.
+    """
+    n = policy.nominal_side
+    out = img if min(img.shape[:2]) == n else _resize_short_side(img, n, _DOWNSCALE_INTERP)
+    h, w = out.shape[:2]
+    t, l = (h - n) // 2, (w - n) // 2
+    return [np.ascontiguousarray(out[t:t + n, l:l + n])]
+
+
+def views_letterbox(img, policy):
+    """The other aspect-preserving control: the WHOLE frame, long side to
+    nominal_side, centred on a black nominal_side^2 square. Full field of
+    view, no stretch; the cost is the padded area, identical for both
+    classes."""
+    n = policy.nominal_side
+    h, w = img.shape[:2]
+    s = n / max(h, w)
+    nh, nw = max(1, round(h * s)), max(1, round(w * s))
+    out = img if (nh, nw) == (h, w) else cv2.resize(
+        img, (nw, nh), interpolation=_DOWNSCALE_INTERP)
+    canvas = np.zeros((n, n, 3), dtype=img.dtype)
+    t, l = (n - nh) // 2, (n - nw) // 2
+    canvas[t:t + nh, l:l + nw] = out
+    return [canvas]
+
+
 ARMS = {"center": views_center, "grid9": views_grid9,
         "fov3": views_fov3, "squish": views_squish,
-        "band_squish": views_band_squish}
+        "band_squish": views_band_squish,
+        "short_center": views_short_center, "letterbox": views_letterbox}
 
 
 def score_arm(df, towers, specs, head, policy, arm, device, batch, workers,
