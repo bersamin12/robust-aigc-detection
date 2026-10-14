@@ -1,0 +1,569 @@
+{
+  "gate": "G1",
+  "commit": "9b8b08ebea1988f64f9ae50f5421ab3c602a8e7d",
+  "passed": true,
+  "prefix": "clip",
+  "backbone": "clipl",
+  "checks": {
+    "mean_robust_gain_gt_0.01": true,
+    "ci_above_zero_in_at_least_2_of_3": true,
+    "mean_clean_loss_at_most_0.005": true
+  },
+  "mean_robust_diff": 0.14415189333333336,
+  "mean_clean_diff": -0.0010073599999999756,
+  "n_seed_ci_above_zero": 3,
+  "per_seed": {
+    "s1": {
+      "ntire_val_hard": {
+        "n": 2500,
+        "n_boot": 2000,
+        "seed": 20260827,
+        "alpha": 0.05,
+        "n_robust": 1250,
+        "n_clean": 1250,
+        "models": {
+          "crop": {
+            "auc": {
+              "value": 0.87295808,
+              "ci": [
+                0.860354304,
+                0.884879824
+              ]
+            },
+            "robust_auc": {
+              "value": 0.74914816,
+              "ci": [
+                0.722242368,
+                0.7746629119999999
+              ]
+            },
+            "clean_auc": {
+              "value": 0.96506112,
+              "ci": [
+                0.9561162240000001,
+                0.973385408
+              ]
+            }
+          },
+          "squish": {
+            "auc": {
+              "value": 0.93130752,
+              "ci": [
+                0.921728128,
+                0.9408538399999999
+              ]
+            },
+            "robust_auc": {
+              "value": 0.89269248,
+              "ci": [
+                0.874232256,
+                0.90954848
+              ]
+            },
+            "clean_auc": {
+              "value": 0.96506368,
+              "ci": [
+                0.95492608,
+                0.974293056
+              ]
+            }
+          }
+        },
+        "vs_baseline": {
+          "squish": {
+            "auc": {
+              "diff": 0.058349440000000086,
+              "ci": [
+                0.04663721599999999,
+                0.07119779199999994
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "robust_auc": {
+              "diff": 0.14354432000000006,
+              "ci": [
+                0.11982937599999999,
+                0.16910675200000003
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "clean_auc": {
+              "diff": 2.5599999999847967e-06,
+              "ci": [
+                -0.011436416000000046,
+                0.010991744000000005
+              ],
+              "p": 0.961,
+              "excludes_zero": false
+            }
+          }
+        },
+        "inputs": {
+          "crop": "outputs/scores/paper/clip_crop_s1_ntire_val_hard.parquet",
+          "squish": "outputs/scores/paper/clip_squish_s1_ntire_val_hard.parquet"
+        }
+      },
+      "ntire_val": {
+        "n": 10000,
+        "n_boot": 2000,
+        "seed": 20260827,
+        "alpha": 0.05,
+        "n_robust": 5000,
+        "n_clean": 5000,
+        "models": {
+          "crop": {
+            "auc": {
+              "value": 0.94993744,
+              "ci": [
+                0.946091133,
+                0.9537304405
+              ]
+            },
+            "robust_auc": {
+              "value": 0.90398816,
+              "ci": [
+                0.895449504,
+                0.912080424
+              ]
+            },
+            "clean_auc": {
+              "value": 0.98623952,
+              "ci": [
+                0.983578956,
+                0.988684624
+              ]
+            }
+          },
+          "squish": {
+            "auc": {
+              "value": 0.970675,
+              "ci": [
+                0.967709769,
+                0.9733616239999999
+              ]
+            },
+            "robust_auc": {
+              "value": 0.9562128,
+              "ci": [
+                0.950832856,
+                0.9610112879999999
+              ]
+            },
+            "clean_auc": {
+              "value": 0.98234912,
+              "ci": [
+                0.979037484,
+                0.985545448
+              ]
+            }
+          }
+        },
+        "vs_baseline": {
+          "squish": {
+            "auc": {
+              "diff": 0.020737559999999933,
+              "ci": [
+                0.01667609149999995,
+                0.024944818
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "robust_auc": {
+              "diff": 0.05222463999999993,
+              "ci": [
+                0.044668734000000015,
+                0.060090640000000015
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "clean_auc": {
+              "diff": -0.0038904000000000716,
+              "ci": [
+                -0.007697424000000006,
+                -4.4452000000040265e-05
+              ],
+              "p": 0.047,
+              "excludes_zero": true
+            }
+          }
+        },
+        "inputs": {
+          "crop": "outputs/scores/paper/clip_crop_s1_ntire_val.parquet",
+          "squish": "outputs/scores/paper/clip_squish_s1_ntire_val.parquet"
+        }
+      }
+    },
+    "s2": {
+      "ntire_val_hard": {
+        "n": 2500,
+        "n_boot": 2000,
+        "seed": 20260827,
+        "alpha": 0.05,
+        "n_robust": 1250,
+        "n_clean": 1250,
+        "models": {
+          "crop": {
+            "auc": {
+              "value": 0.87239008,
+              "ci": [
+                0.859544104,
+                0.8848596320000001
+              ]
+            },
+            "robust_auc": {
+              "value": 0.75218944,
+              "ci": [
+                0.7257758719999999,
+                0.779088192
+              ]
+            },
+            "clean_auc": {
+              "value": 0.96225536,
+              "ci": [
+                0.952707968,
+                0.970951808
+              ]
+            }
+          },
+          "squish": {
+            "auc": {
+              "value": 0.93435008,
+              "ci": [
+                0.925056992,
+                0.943481216
+              ]
+            },
+            "robust_auc": {
+              "value": 0.9017216,
+              "ci": [
+                0.8843864960000001,
+                0.917596032
+              ]
+            },
+            "clean_auc": {
+              "value": 0.96496128,
+              "ci": [
+                0.955240768,
+                0.974020416
+              ]
+            }
+          }
+        },
+        "vs_baseline": {
+          "squish": {
+            "auc": {
+              "diff": 0.061960000000000015,
+              "ci": [
+                0.048989912000000045,
+                0.07562737600000007
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "robust_auc": {
+              "diff": 0.14953216000000003,
+              "ci": [
+                0.12615148799999998,
+                0.17379328000000005
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "clean_auc": {
+              "diff": 0.0027059200000000283,
+              "ci": [
+                -0.008871039999999945,
+                0.014305471999999977
+              ],
+              "p": 0.608,
+              "excludes_zero": false
+            }
+          }
+        },
+        "inputs": {
+          "crop": "outputs/scores/paper/clip_crop_s2_ntire_val_hard.parquet",
+          "squish": "outputs/scores/paper/clip_squish_s2_ntire_val_hard.parquet"
+        }
+      },
+      "ntire_val": {
+        "n": 10000,
+        "n_boot": 2000,
+        "seed": 20260827,
+        "alpha": 0.05,
+        "n_robust": 5000,
+        "n_clean": 5000,
+        "models": {
+          "crop": {
+            "auc": {
+              "value": 0.95193268,
+              "ci": [
+                0.948278124,
+                0.955541412
+              ]
+            },
+            "robust_auc": {
+              "value": 0.90735808,
+              "ci": [
+                0.8989513339999999,
+                0.9152779019999999
+              ]
+            },
+            "clean_auc": {
+              "value": 0.98584784,
+              "ci": [
+                0.983271828,
+                0.988245284
+              ]
+            }
+          },
+          "squish": {
+            "auc": {
+              "value": 0.97166992,
+              "ci": [
+                0.968789889,
+                0.974466694
+              ]
+            },
+            "robust_auc": {
+              "value": 0.95920192,
+              "ci": [
+                0.9540170200000001,
+                0.9637967040000001
+              ]
+            },
+            "clean_auc": {
+              "value": 0.98215648,
+              "ci": [
+                0.9790627399999999,
+                0.985213648
+              ]
+            }
+          }
+        },
+        "vs_baseline": {
+          "squish": {
+            "auc": {
+              "diff": 0.01973723999999999,
+              "ci": [
+                0.015615731999999941,
+                0.023880282000000023
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "robust_auc": {
+              "diff": 0.051843840000000085,
+              "ci": [
+                0.04446054799999997,
+                0.05933042000000006
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "clean_auc": {
+              "diff": -0.0036913600000000324,
+              "ci": [
+                -0.007319688000000052,
+                -0.0001588359999999994
+              ],
+              "p": 0.036,
+              "excludes_zero": true
+            }
+          }
+        },
+        "inputs": {
+          "crop": "outputs/scores/paper/clip_crop_s2_ntire_val.parquet",
+          "squish": "outputs/scores/paper/clip_squish_s2_ntire_val.parquet"
+        }
+      }
+    },
+    "s3": {
+      "ntire_val_hard": {
+        "n": 2500,
+        "n_boot": 2000,
+        "seed": 20260827,
+        "alpha": 0.05,
+        "n_robust": 1250,
+        "n_clean": 1250,
+        "models": {
+          "crop": {
+            "auc": {
+              "value": 0.87629344,
+              "ci": [
+                0.863732224,
+                0.888246104
+              ]
+            },
+            "robust_auc": {
+              "value": 0.74341888,
+              "ci": [
+                0.716686336,
+                0.7701498239999999
+              ]
+            },
+            "clean_auc": {
+              "value": 0.96919424,
+              "ci": [
+                0.960880384,
+                0.976697888
+              ]
+            }
+          },
+          "squish": {
+            "auc": {
+              "value": 0.92828416,
+              "ci": [
+                0.91869664,
+                0.937784192
+              ]
+            },
+            "robust_auc": {
+              "value": 0.88279808,
+              "ci": [
+                0.863870528,
+                0.900599552
+              ]
+            },
+            "clean_auc": {
+              "value": 0.96346368,
+              "ci": [
+                0.953110208,
+                0.972703104
+              ]
+            }
+          }
+        },
+        "vs_baseline": {
+          "squish": {
+            "auc": {
+              "diff": 0.051990720000000046,
+              "ci": [
+                0.039862255999999964,
+                0.06520582400000001
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "robust_auc": {
+              "diff": 0.13937920000000004,
+              "ci": [
+                0.11482527999999996,
+                0.164602304
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "clean_auc": {
+              "diff": -0.00573055999999994,
+              "ci": [
+                -0.017705279999999993,
+                0.006011583999999938
+              ],
+              "p": 0.33,
+              "excludes_zero": false
+            }
+          }
+        },
+        "inputs": {
+          "crop": "outputs/scores/paper/clip_crop_s3_ntire_val_hard.parquet",
+          "squish": "outputs/scores/paper/clip_squish_s3_ntire_val_hard.parquet"
+        }
+      },
+      "ntire_val": {
+        "n": 10000,
+        "n_boot": 2000,
+        "seed": 20260827,
+        "alpha": 0.05,
+        "n_robust": 5000,
+        "n_clean": 5000,
+        "models": {
+          "crop": {
+            "auc": {
+              "value": 0.95396388,
+              "ci": [
+                0.950332272,
+                0.9575684005
+              ]
+            },
+            "robust_auc": {
+              "value": 0.90492064,
+              "ci": [
+                0.896577952,
+                0.9130157940000001
+              ]
+            },
+            "clean_auc": {
+              "value": 0.98821504,
+              "ci": [
+                0.985941104,
+                0.990399528
+              ]
+            }
+          },
+          "squish": {
+            "auc": {
+              "value": 0.97388136,
+              "ci": [
+                0.971285825,
+                0.9765394079999999
+              ]
+            },
+            "robust_auc": {
+              "value": 0.96062032,
+              "ci": [
+                0.955694204,
+                0.965141396
+              ]
+            },
+            "clean_auc": {
+              "value": 0.9841944,
+              "ci": [
+                0.981322524,
+                0.98707342
+              ]
+            }
+          }
+        },
+        "vs_baseline": {
+          "squish": {
+            "auc": {
+              "diff": 0.019917480000000043,
+              "ci": [
+                0.01620838149999995,
+                0.023738986999999996
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "robust_auc": {
+              "diff": 0.05569967999999992,
+              "ci": [
+                0.04810525199999997,
+                0.06352923600000007
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "clean_auc": {
+              "diff": -0.00402064000000002,
+              "ci": [
+                -0.007381087999999994,
+                -0.0007221640000000132
+              ],
+              "p": 0.013,
+              "excludes_zero": true
+            }
+          }
+        },
+        "inputs": {
+          "crop": "outputs/scores/paper/clip_crop_s3_ntire_val.parquet",
+          "squish": "outputs/scores/paper/clip_squish_s3_ntire_val.parquet"
+        }
+      }
+    }
+  }
+}
