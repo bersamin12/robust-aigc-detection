@@ -1,0 +1,209 @@
+{
+  "n": 2500,
+  "n_boot": 2000,
+  "seed": 20260827,
+  "alpha": 0.05,
+  "n_robust": 1250,
+  "n_clean": 1250,
+  "models": {
+    "center": {
+      "auc": {
+        "value": 0.94193024,
+        "ci": [
+          0.933236864,
+          0.949844768
+        ]
+      },
+      "robust_auc": {
+        "value": 0.88722176,
+        "ci": [
+          0.8693915520000001,
+          0.90359552
+        ]
+      },
+      "clean_auc": {
+        "value": 0.98011136,
+        "ci": [
+          0.973743872,
+          0.9855034880000001
+        ]
+      }
+    },
+    "squish": {
+      "auc": {
+        "value": 0.97649344,
+        "ci": [
+          0.971661888,
+          0.981216784
+        ]
+      },
+      "robust_auc": {
+        "value": 0.95994624,
+        "ci": [
+          0.949741312,
+          0.96916064
+        ]
+      },
+      "clean_auc": {
+        "value": 0.9886464,
+        "ci": [
+          0.98447616,
+          0.992399744
+        ]
+      }
+    },
+    "short_center": {
+      "auc": {
+        "value": 0.9756512,
+        "ci": [
+          0.970701744,
+          0.9804984800000001
+        ]
+      },
+      "robust_auc": {
+        "value": 0.95752704,
+        "ci": [
+          0.946889984,
+          0.967434432
+        ]
+      },
+      "clean_auc": {
+        "value": 0.98910976,
+        "ci": [
+          0.9850030080000001,
+          0.9927758080000001
+        ]
+      }
+    },
+    "letterbox": {
+      "auc": {
+        "value": 0.9720192,
+        "ci": [
+          0.96649448,
+          0.9772329439999999
+        ]
+      },
+      "robust_auc": {
+        "value": 0.95576576,
+        "ci": [
+          0.9441072,
+          0.965885376
+        ]
+      },
+      "clean_auc": {
+        "value": 0.98508032,
+        "ci": [
+          0.97984448,
+          0.9898573439999999
+        ]
+      }
+    }
+  },
+  "vs_baseline": {
+    "center": {
+      "auc": {
+        "diff": -0.034563200000000016,
+        "ci": [
+          -0.042899344000000034,
+          -0.02694124800000009
+        ],
+        "p": 0.0,
+        "excludes_zero": true
+      },
+      "robust_auc": {
+        "diff": -0.07272447999999998,
+        "ci": [
+          -0.09011724799999994,
+          -0.05665683200000003
+        ],
+        "p": 0.0,
+        "excludes_zero": true
+      },
+      "clean_auc": {
+        "diff": -0.00853504000000005,
+        "ci": [
+          -0.015132992000000059,
+          -0.002761984000000027
+        ],
+        "p": 0.005,
+        "excludes_zero": true
+      }
+    },
+    "short_center": {
+      "auc": {
+        "diff": -0.0008422399999999941,
+        "ci": [
+          -0.003543759999999943,
+          0.0018358080000000871
+        ],
+        "p": 0.53,
+        "excludes_zero": false
+      },
+      "robust_auc": {
+        "diff": -0.0024191999999999547,
+        "ci": [
+          -0.007521727999999964,
+          0.0025434879999999944
+        ],
+        "p": 0.322,
+        "excludes_zero": false
+      },
+      "clean_auc": {
+        "diff": 0.00046335999999991273,
+        "ci": [
+          -0.0020176000000000083,
+          0.0029619839999999505
+        ],
+        "p": 0.707,
+        "excludes_zero": false
+      }
+    },
+    "letterbox": {
+      "auc": {
+        "diff": -0.004474240000000074,
+        "ci": [
+          -0.007258319999999971,
+          -0.0015928959999999773
+        ],
+        "p": 0.003,
+        "excludes_zero": true
+      },
+      "robust_auc": {
+        "diff": -0.004180479999999931,
+        "ci": [
+          -0.009508032000000045,
+          0.0013056640000000171
+        ],
+        "p": 0.118,
+        "excludes_zero": false
+      },
+      "clean_auc": {
+        "diff": -0.003566080000000027,
+        "ci": [
+          -0.006313152000000033,
+          -0.0007039359999999305
+        ],
+        "p": 0.016,
+        "excludes_zero": true
+      }
+    }
+  },
+  "inputs": {
+    "center": {
+      "parquet": "outputs/scores/probe_B2swa_center_ntire_val_hard.parquet",
+      "column": null
+    },
+    "squish": {
+      "parquet": "outputs/scores/probe_B2swa_squish_ntire_val_hard.parquet",
+      "column": null
+    },
+    "short_center": {
+      "parquet": "outputs/scores/paper/aspect_B2swa_short_center_ntire_val_hard.parquet",
+      "column": null
+    },
+    "letterbox": {
+      "parquet": "outputs/scores/paper/aspect_B2swa_letterbox_ntire_val_hard.parquet",
+      "column": null
+    }
+  }
+}
