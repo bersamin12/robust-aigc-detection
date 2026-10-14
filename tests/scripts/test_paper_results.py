@@ -95,3 +95,60 @@ def test_within_decile_says_so_when_size_alone_separates_the_set(tmp_path):
                                "b": str(tmp_path / "b.parquet")},
                               str(tmp_path / "m.parquet"), n_boot=20)
     assert r["n_used"] == 0 and "both classes" in r["note"]
+
+
+def test_g1_reads_arms_under_another_prefix(tmp_path):
+    for i in pr.SEEDS:
+        for sp in ("ntire_val_hard", "ntire_val"):
+            _arm(tmp_path / f"clip_crop_s{i}_{sp}.parquet", 1500, i, base_seed=i)
+            _arm(tmp_path / f"clip_squish_s{i}_{sp}.parquet", 1500, i, 1.5, base_seed=i)
+    r, ok = pr.g1(str(tmp_path), n_boot=100, prefix="clip", backbone="clipl")
+    assert ok and r["prefix"] == "clip"
+    assert "clipl tower" in pr.g1_markdown(r)
+
+
+def _sized_arm(path, short, seed, gain_large=0.0):
+    """Hard-val-like rows whose robust signal grows with native size by
+    `gain_large` (in logit units, distorted fakes above 752px only)."""
+    rng = np.random.default_rng(seed)
+    n = len(short)
+    y = rng.integers(0, 2, n)
+    dist = (np.arange(n) % 2).astype(int)
+    z = 1.0 * y + rng.normal(0, 1, n) + y * dist * (short >= 752) * gain_large
+    pd.DataFrame({"path": [f"/h{k}.png" for k in range(n)], "label": y,
+                  "is_distorted": dist, "logit": z}).to_parquet(path)
+
+
+def test_testtime_reads_a_size_dependent_gain(tmp_path):
+    short = np.random.default_rng(99).choice([200, 400, 600, 1500], 3000)
+    pd.DataFrame({"path": [f"/h{k}.png" for k in range(3000)], "width": short,
+                  "height": short + 7}).to_parquet(tmp_path / "m.parquet")
+    for i in pr.SEEDS:
+        hv = "ntire_val_hard"
+        _sized_arm(tmp_path / f"clip_probe_s{i}_center_{hv}.parquet", short, i)
+        _sized_arm(tmp_path / f"clip_probe_s{i}_squish_{hv}.parquet", short, i, 2.0)
+        _sized_arm(tmp_path / f"clip_crop_s{i}_{hv}.parquet", short, i)
+        _sized_arm(tmp_path / f"clip_squish_s{i}_{hv}.parquet", short, i, 2.0)
+    r = pr.testtime(str(tmp_path), 100, "clip", str(tmp_path / "m.parquet"))
+    assert r["passed"] and r["interpretable"], {k: r[k] for k in (
+        "passed", "interpretable", "mean_robust_diff", "n_seed_ci_above_zero",
+        "mean_crop_robust")}
+    assert r["mechanism_testtime"]["passed"] and r["mechanism_trained"]["passed"]
+    assert "T PASSED" in pr.testtime_markdown(r)
+
+
+def test_testtime_applies_the_floor(tmp_path):
+    short = np.random.default_rng(98).choice([200, 1500], 2000)
+    pd.DataFrame({"path": [f"/h{k}.png" for k in range(2000)], "width": short,
+                  "height": short}).to_parquet(tmp_path / "m.parquet")
+    for i in pr.SEEDS:
+        for name in ("probe_s{}_center", "probe_s{}_squish", "crop_s{}", "squish_s{}"):
+            rng = np.random.default_rng(10 + i)
+            p = tmp_path / f"clip_{name.format(i)}_ntire_val_hard.parquet"
+            n = len(short)
+            pd.DataFrame({"path": [f"/h{k}.png" for k in range(n)],
+                          "label": rng.integers(0, 2, n),
+                          "is_distorted": (np.arange(n) % 2).astype(int),
+                          "logit": rng.normal(0, 1, n)}).to_parquet(p)
+    r = pr.testtime(str(tmp_path), 100, "clip", str(tmp_path / "m.parquet"))
+    assert not r["interpretable"] and "FLOOR" in pr.testtime_markdown(r)

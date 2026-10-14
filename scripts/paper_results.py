@@ -3,6 +3,8 @@
 
     python scripts/paper_results.py g1    # after the proxy arms; exit 3 = gate failed
     python scripts/paper_results.py full  # after full training + scoring
+    python scripts/paper_results.py g1 --prefix clip --backbone clipl   # amendment 4
+    python scripts/paper_results.py testtime --prefix clip              # amendment 4
 
 Every number written here comes out of a per-row parquet through
 `paired_bootstrap.py`; nothing is typed by hand. The gates are the ones
@@ -54,14 +56,17 @@ def boot(models: dict[str, str], baseline: str, n_boot: int, title: str) -> dict
 # G1: the proxy gate
 # ---------------------------------------------------------------------------
 
-def g1(scores: str, n_boot: int) -> tuple[dict, bool]:
+def g1(scores: str, n_boot: int, prefix: str = "abl",
+       backbone: str = "dinov2regl224") -> tuple[dict, bool]:
+    """G1 as registered. `prefix` names the arms (`abl` for the DINOv2 proxy,
+    `clip` for amendment 4); the criteria do not change with it."""
     per_seed = {}
     for i in SEEDS:
         per_seed[f"s{i}"] = {}
         for split in ("ntire_val_hard", "ntire_val"):
             per_seed[f"s{i}"][split] = boot(
-                {"crop": f"{scores}/abl_crop_s{i}_{split}.parquet",
-                 "squish": f"{scores}/abl_squish_s{i}_{split}.parquet"},
+                {"crop": f"{scores}/{prefix}_crop_s{i}_{split}.parquet",
+                 "squish": f"{scores}/{prefix}_squish_s{i}_{split}.parquet"},
                 "crop", n_boot, f"seed {i}, {split}")
     hard = [per_seed[f"s{i}"]["ntire_val_hard"]["vs_baseline"]["squish"]
             for i in SEEDS]
@@ -77,7 +82,7 @@ def g1(scores: str, n_boot: int) -> tuple[dict, bool]:
     }
     passed = all(checks.values())
     return {"gate": "G1", "commit": commit(), "passed": passed,
-            "checks": checks, "mean_robust_diff": mean_rob,
+            "prefix": prefix, "backbone": backbone, "checks": checks, "mean_robust_diff": mean_rob,
             "mean_clean_diff": mean_cln, "n_seed_ci_above_zero": n_pos_ci,
             "per_seed": per_seed}, passed
 
@@ -85,7 +90,7 @@ def g1(scores: str, n_boot: int) -> tuple[dict, bool]:
 def g1_markdown(r: dict) -> str:
     lines = ["# G1 -- squish vs crop, proxy protocol, three seeds", "",
              "Pre-registered in `docs/ntire/paper_prereg.md`. Proxy: one "
-             "dinov2regl224 tower, depth 24, 1 epoch over 25% of train, bank "
+             f"{r.get('backbone', 'dinov2regl224')} tower, depth 24, 1 epoch over 25% of train, bank "
              "`ntire_meta`, mean pool, cosine + SWA, final weights. Each seed "
              "pair shares its training subset, head init and batch order; only "
              "`--canon-mode` differs.", "",
@@ -114,6 +119,92 @@ def g1_markdown(r: dict) -> str:
     for s, d in r["per_seed"].items():
         lines.append(d["ntire_val"]["markdown"])
     return "\n".join(lines) + "\n"
+
+
+def _bucket_robust(path: str, manifest: str) -> dict[str, float]:
+    """Robust AUC per native-short-side bucket of one per-row parquet."""
+    m = pd.read_parquet(manifest, columns=["path", "width", "height"]).drop_duplicates("path")
+    d = pb.load("s", path, None)
+    d = d.drop(columns=[c for c in ("width", "height") if c in d.columns]).merge(
+        m, on="path", how="left")
+    if d["width"].isna().any():
+        raise SystemExit(f"{path}: {int(d['width'].isna().sum())} rows not in {manifest}")
+    short = d[["width", "height"]].min(axis=1).to_numpy()
+    y, dist, z = d["label"].to_numpy(), d["is_distorted"].to_numpy(), d["s"].to_numpy()
+    out = {}
+    for lo, hi in BUCKETS:
+        k = (short >= lo) & (short <= hi) & (dist == 1)
+        out[f"{lo}-{hi}"] = float(pb.auc(y[k], z[k]))
+    return out
+
+
+def _mechanism(pairs: list[tuple[str, str]], manifest: str) -> dict:
+    """Mean over seeds of the robust gain in the largest and smallest buckets."""
+    small, large = f"{BUCKETS[0][0]}-{BUCKETS[0][1]}", f"{BUCKETS[-1][0]}-{BUCKETS[-1][1]}"
+    gs, gl = [], []
+    for base, new in pairs:
+        b, n = _bucket_robust(base, manifest), _bucket_robust(new, manifest)
+        gs.append(n[small] - b[small])
+        gl.append(n[large] - b[large])
+    return {"gain_small": float(np.mean(gs)), "gain_large": float(np.mean(gl)),
+            "per_seed_small": gs, "per_seed_large": gl,
+            "passed": bool(np.mean(gl) > np.mean(gs))}
+
+
+def testtime(scores: str, n_boot: int, prefix: str, manifest: str) -> dict:
+    """Amendment 4's secondary tests, from parquets only.
+
+    T: the crop-trained checkpoints presented whole at test time (the probe's
+    `squish` arm) against their own `center` arm, per seed on hard-val.
+    Mechanism: for both the trained and the test-time comparison, the robust
+    gain in the largest native-size bucket against the smallest. Floor: a
+    crop arm whose mean robust AUC is below 0.60 is reported, not read.
+    """
+    per_seed, crop_robust = {}, []
+    for i in SEEDS:
+        r = boot({"center": f"{scores}/{prefix}_probe_s{i}_center_ntire_val_hard.parquet",
+                  "squish": f"{scores}/{prefix}_probe_s{i}_squish_ntire_val_hard.parquet"},
+                 "center", n_boot, f"seed {i}, crop-trained, test-time squish vs center")
+        per_seed[f"s{i}"] = r
+        crop_robust.append(r["models"]["center"]["robust_auc"]["value"])
+    rob = [per_seed[f"s{i}"]["vs_baseline"]["squish"]["robust_auc"] for i in SEEDS]
+    mean_rob = float(np.mean([v["diff"] for v in rob]))
+    n_pos = int(sum(v["ci"][0] > 0 for v in rob))
+    hv = "ntire_val_hard"
+    mech_tt = _mechanism(
+        [(f"{scores}/{prefix}_probe_s{i}_center_{hv}.parquet",
+          f"{scores}/{prefix}_probe_s{i}_squish_{hv}.parquet") for i in SEEDS], manifest)
+    mech_tr = _mechanism(
+        [(f"{scores}/{prefix}_crop_s{i}_{hv}.parquet",
+          f"{scores}/{prefix}_squish_s{i}_{hv}.parquet") for i in SEEDS], manifest)
+    return {"test": "T", "commit": commit(), "prefix": prefix,
+            "interpretable": bool(np.mean(crop_robust) >= 0.60),
+            "mean_crop_robust": float(np.mean(crop_robust)),
+            "passed": bool(mean_rob > 0.01 and n_pos >= 2),
+            "mean_robust_diff": mean_rob, "n_seed_ci_above_zero": n_pos,
+            "mechanism_testtime": mech_tt, "mechanism_trained": mech_tr,
+            "per_seed": per_seed}
+
+
+def testtime_markdown(r: dict) -> str:
+    def mech(m):
+        return (f"gain {m['gain_large']:+.4f} in 752-4016px against "
+                f"{m['gain_small']:+.4f} in 80-336px -> "
+                f"{'PASSED' if m['passed'] else 'FAILED'}")
+    L = [f"# Amendment 4 secondary -- `{r['prefix']}` crop-trained checkpoints "
+         "presented whole at test time", "",
+         f"Mean crop-arm robust AUC {r['mean_crop_robust']:.4f}"
+         + ("" if r["interpretable"] else " -- BELOW THE 0.60 FLOOR: reported, not interpreted")
+         + ".", "",
+         f"- **T {'PASSED' if r['passed'] else 'FAILED'}**: mean robust diff "
+         f"{r['mean_robust_diff']:+.4f} (> +0.0100), seeds with CI above zero "
+         f"{r['n_seed_ci_above_zero']}/3 (>= 2)",
+         f"- Mechanism, test-time: {mech(r['mechanism_testtime'])}",
+         f"- Mechanism, trained: {mech(r['mechanism_trained'])}", "",
+         f"Commit `{r['commit']}`.", ""]
+    for s, d in r["per_seed"].items():
+        L += [d["markdown"], ""]
+    return "\n".join(L) + "\n"
 
 
 # ---------------------------------------------------------------------------
@@ -339,7 +430,9 @@ def _strip_md(r):
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("what", choices=("g1", "full"))
+    ap.add_argument("what", choices=("g1", "full", "testtime"))
+    ap.add_argument("--prefix", default="abl", help="arm name prefix (g1, testtime)")
+    ap.add_argument("--backbone", default="dinov2regl224", help="recorded by g1")
     ap.add_argument("--scores", default="outputs/scores/paper")
     ap.add_argument("--fusion-dir", default="docs/ntire/paper")
     ap.add_argument("--picks", default="docs/ntire/paper/picks.json")
@@ -351,9 +444,14 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
 
     if a.what == "g1":
-        r, ok = g1(a.scores, a.n_boot)
+        r, ok = g1(a.scores, a.n_boot, a.prefix, a.backbone)
         stem = a.out or "docs/ntire/paper/squish_proxy_gate"
         md = g1_markdown(r)
+    elif a.what == "testtime":
+        r = testtime(a.scores, a.n_boot, a.prefix, a.manifest)
+        ok = True
+        stem = a.out or f"docs/ntire/paper/{a.prefix}_testtime"
+        md = testtime_markdown(r)
     else:
         picks = json.load(open(a.picks))
         r = full(a.scores, a.fusion_dir, picks, a.n_boot, a.manifest,

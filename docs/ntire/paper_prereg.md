@@ -236,3 +236,52 @@ the paper's claim is narrowed to detectors that rely on content cues, and the
 paper says so.
 
 `ntire_test` is not read.
+
+## Amendment 4 (2026-10-14, before any CLIP model has been trained or scored here)
+
+Amendment 3 left the field-of-view account resting on one detector family.
+UnivFD was at chance on this data, and B-Free, built to read native-resolution
+traces, failed its primary test. Both were also trained on other data. This
+amendment asks the narrower question the paper can answer: does a second
+pretraining family, trained by our own recipe on the same data, show the same
+effect?
+
+**Model.** `clipl` (`openai/clip-vit-large-patch14`, vision tower, 224 px,
+24 blocks), as registered in `src/aigcdet/features/backbones.py`, including
+its ImageNet normalisation (the same in every arm). CLIP's contrastive
+image-text pretraining differs from DINOv2's self-distillation, and its input
+size and token count match `dinov2regl224`.
+
+**Protocol.** `scripts/clip_proxy.sh` reruns stage P of `paper_pipeline.sh`
+with every flag unchanged except `--backbone clipl`: bank `ntire_meta`, depth
+24, one epoch over 25% of train, mean pool, cosine schedule with SWA, final
+weights, seeds 20260827-29. Arms `clip_crop_s{1,2,3}` (`--canon-mode crop
+--crop-side 200 --nominal-side 224`) and `clip_squish_s{1,2,3}`
+(`--canon-mode squish --nominal-side 224`). Each is scored on
+`ntire_val_hard` and `ntire_val`.
+
+**Primary (G1-C).** G1's criteria, unchanged, on the CLIP arms
+(`paper_results.py g1 --prefix clip`): mean robust gain of squish over crop
+on `ntire_val_hard` above +0.010; a paired 95% CI above zero in at least two
+of three seeds; mean clean change at least -0.005.
+
+**Secondary (T-C).** Each crop-trained CLIP checkpoint is presented whole at
+test time by `scripts/ntire_crop_probe.py --arms center,squish`. Mean robust
+gain of `squish` over `center` above +0.010, with a CI above zero in at least
+two of three seeds (`paper_results.py testtime --prefix clip`).
+
+**Mechanism.** For both the trained and the test-time comparison, the mean
+robust gain in the 752-4016 px bucket exceeds the gain in the 80-336 px
+bucket.
+
+**Floor.** If the crop-trained CLIP checkpoints' mean robust AUC on
+`ntire_val_hard` is below 0.60, the results are reported but not
+interpreted.
+
+**Reading.** If G1-C passes, the paper says the effect holds for two
+pretraining families trained by the same recipe on the same data. If it
+fails, the paper keeps its claim to the DINOv2 detector and reports the CLIP
+result. This amendment gates nothing already reported, and the DINOv2 proxy
+seeds are not rerun.
+
+`ntire_test` is not read.
