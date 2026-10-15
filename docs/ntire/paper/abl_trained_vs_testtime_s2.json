@@ -1,0 +1,97 @@
+{
+  "n": 2500,
+  "n_boot": 2000,
+  "seed": 20260827,
+  "alpha": 0.05,
+  "n_robust": 1250,
+  "n_clean": 1250,
+  "models": {
+    "testtime": {
+      "auc": {
+        "value": 0.87501888,
+        "ci": [
+          0.8616357760000001,
+          0.8878849280000001
+        ]
+      },
+      "robust_auc": {
+        "value": 0.83369728,
+        "ci": [
+          0.8120154239999999,
+          0.8561152639999999
+        ]
+      },
+      "clean_auc": {
+        "value": 0.91179776,
+        "ci": [
+          0.8965930240000001,
+          0.92733376
+        ]
+      }
+    },
+    "trained": {
+      "auc": {
+        "value": 0.91391808,
+        "ci": [
+          0.90282712,
+          0.9249266079999999
+        ]
+      },
+      "robust_auc": {
+        "value": 0.88810496,
+        "ci": [
+          0.870161792,
+          0.90521504
+        ]
+      },
+      "clean_auc": {
+        "value": 0.93844992,
+        "ci": [
+          0.924849728,
+          0.951246528
+        ]
+      }
+    }
+  },
+  "vs_baseline": {
+    "trained": {
+      "auc": {
+        "diff": 0.03889919999999991,
+        "ci": [
+          0.029486672000000075,
+          0.04795993600000006
+        ],
+        "p": 0.0,
+        "excludes_zero": true
+      },
+      "robust_auc": {
+        "diff": 0.05440768000000007,
+        "ci": [
+          0.03956012800000008,
+          0.06960697599999996
+        ],
+        "p": 0.0,
+        "excludes_zero": true
+      },
+      "clean_auc": {
+        "diff": 0.026652160000000036,
+        "ci": [
+          0.01599206399999995,
+          0.037650496
+        ],
+        "p": 0.0,
+        "excludes_zero": true
+      }
+    }
+  },
+  "inputs": {
+    "testtime": {
+      "parquet": "outputs/scores/paper/abl_probe_s2_squish_ntire_val_hard.parquet",
+      "column": null
+    },
+    "trained": {
+      "parquet": "outputs/scores/paper/abl_squish_s2_ntire_val_hard.parquet",
+      "column": null
+    }
+  }
+}

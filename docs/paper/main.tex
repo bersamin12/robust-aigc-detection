@@ -14,7 +14,6 @@
 \usepackage{booktabs}
 \usepackage{amsmath}
 \usepackage{amssymb}
-\usepackage{xcolor} % only for \pending; remove with it before submission
 
 \pdfinfo{
 /TemplateVersion (2027.1)
@@ -22,7 +21,6 @@
 
 \setcounter{secnumdepth}{1} % the template allows 1 or 2
 
-\newcommand{\pending}[1]{\textcolor{red}{[#1]}}
 \newcommand{\fov}{\mathrm{FOV}}
 
 \title{Equal Pixels, Unequal Views:\\Field of View Limits Robust AI-Generated Image Detection}
@@ -40,9 +38,10 @@ short side of a 512-pixel image and 5\% of a 4000-pixel one. On the NTIRE 2026
 Robust AI-Generated Image Detection data, the robust ROC AUC of a crop-trained
 DINOv2 detector falls as native image size grows. Showing the frozen detector
 the whole image raises fused robust AUC on the hard validation split from
-0.886 to 0.963, while nine native windows at the same field of view do not
+0.886 to 0.963, while nine native windows at the same field of view barely
 help. The gain appears where the window matches the training field of view,
-and retraining under whole-image input adds nothing (0.960), so it follows
+and retraining the full models under whole-image input adds nothing (0.960),
+so it follows
 coverage rather than a train-test mismatch. Three controls argue against a
 resolution shortcut. A pre-registered repeat with a CLIP ViT-L/14 backbone
 gains 14 robust points from whole-image training, 10 of them at test time
@@ -100,8 +99,9 @@ the degradations, all failed their gates.
   pre-registered repeat on a CLIP backbone shows the same effect, larger
   (Sec.~\ref{sec:training}).
 \item A test-time fix with controls. Presenting the whole image to the frozen,
-  crop-trained checkpoints recovers the gain with no retraining. With DINOv2,
-  a model trained under whole-image input gains no more. We test and rule out a
+  crop-trained checkpoints recovers the gain with no retraining. Our full
+  DINOv2 models gain no more from training under whole-image input; short
+  proxy runs gain 4 to 6 points more from it. We test and rule out a
   resolution shortcut three ways, and show the gain on images that received
   no geometric transform (Sec.~\ref{sec:controls}).
 \item Pre-registered held-out evidence, including where it fails. Three
@@ -190,8 +190,8 @@ clean view and ten degraded views drawn from a pool of 26 operations in six
 families, chained up to five deep, including a neural codec \cite{balle2018hyperprior}
 and a downscale applied before the window is taken. The loss is
 class-balanced cross-entropy plus a degradation-prediction term (weight 0.3)
-and clean-degraded consistency terms on the outputs (KL, 0.5) and hidden
-features (MSE, 0.25). The schedule is cosine with 3\% warm-up, with weight
+and clean-degraded consistency terms on the outputs (KL) and hidden
+features (MSE), each at unit weight. The schedule is cosine with 3\% warm-up, with weight
 averaging \cite{izmailov2018swa} over the last quarter. On one RTX 4090 the
 squish-trained branches took about 19 hours (B) and 29 hours (A).
 
@@ -205,10 +205,12 @@ policies give every image the same number of input pixels. Under squish the
 field of view is 1 for every image.
 
 \paragraph{Fusion and selection.} The two branches' logits are z-scored and
-combined as $w z_A + (1-w) z_B$. The z-score parameters, the weight $w$ and the
-choice between final and averaged weights are all fitted on
-\texttt{ntire\_val} alone, by the mean of robust and clean AUC. The fitted
-weights were $w = 0.50$ for crop and $w = 0.55$ for squish.
+combined as $w z_A + (1-w) z_B$. The z-score parameters and the weight $w$ are
+fitted on \texttt{ntire\_val} alone, by the mean of robust and clean AUC. For
+the squish models the choice between final and averaged weights is made the
+same way; for the crop models we kept the choice made earlier on both
+validation splits. The fitted weights were $w = 0.50$ for crop and $w = 0.55$
+for squish.
 
 \paragraph{Statistics.} All intervals are 95\% percentile intervals from 2,000
 paired bootstrap resamples, stratified by label and distortion status, with
@@ -226,7 +228,8 @@ aspect-ratio control (Sec.~\ref{sec:controls}), to score two public detectors
 backbone (Sec.~\ref{sec:training}). We chose the squish
 policy after seeing its effect on \texttt{ntire\_val\_hard}, so that split is
 not an unbiased readout of it. The external benchmarks and the test read
-carry the held-out evidence.
+carry the held-out evidence. Code, the pre-registration and per-image scores
+will be released with the paper.
 
 \section{The diagnosis}
 \label{sec:diagnosis}
@@ -317,11 +320,11 @@ crop fusion scores 0.877 against 0.973 for squish. Many of these images were
 downscaled from larger originals, so their content scale may still differ
 from training. Two further results point the same way. Squish shows the
 crop-trained branches a field of view of 1, which they never saw in training,
-and gains 7 to 9 points. Training under squish then adds nothing to that gain
-(Sec.~\ref{sec:training}). The detector does better the more of the image it
-sees, whether or not the view matches training. With a CLIP backbone the
-view match does matter, but less than coverage: shown the whole image, CLIP's
-crop-trained proxies gain 10 points, and training under squish adds 4 more
+and gains 7 to 9 points. Training the full branches under squish then adds
+nothing to that gain (Sec.~\ref{sec:training}). The detector does better the
+more of the image it sees, whether or not the view matches training. In
+short proxy runs the view match also matters: there, training under squish
+adds 4 to 6 points beyond the test-time change, with DINOv2 and with CLIP
 (Sec.~\ref{sec:training}).
 
 \section{Is it a resolution shortcut?}
@@ -329,7 +332,9 @@ crop-trained proxies gain 10 points, and training under squish adds 4 more
 
 Squish does not hide native resolution. A small image arrives upsampled and
 soft, a large one downsampled and sharp, so a model could read size from the
-pixels. Four checks argue that the gain is not size-reading.
+pixels. Three checks argue that the gain is not size-reading, and two more
+show that it does not come from the geometric distortions or from the
+stretch.
 
 \paragraph{Size carries no label signal in training.} Native short side scores
 an AUC of 0.528 against the label on the training set, where no image exceeds
@@ -403,7 +408,7 @@ therefore not what drives the gain; showing the whole short side is.
 presentation & A & B & A & B \\
 \midrule
 squish & +0.092 & +0.073 & -- & -- \\
-short-centre & +0.085 & +0.070 & 0.000 & +0.001 \\
+short-centre & +0.085 & +0.070 & 0.000 & 0.000 \\
 letterbox & +0.092 & +0.069 & $-0.004$* & $-0.004$* \\
 \bottomrule
 \end{tabular}
@@ -457,7 +462,8 @@ B & crop-trained & 0.8873 & 0.9801 \\
 \caption{Per branch on \texttt{ntire\_val\_hard}. Training under squish adds
 nothing to robust AUC beyond presenting the whole image to the crop-trained
 model. Paired gains over crop-trained: A +0.092 and +0.086, B +0.073 and
-+0.072, all intervals clear of zero.}
++0.072, all intervals clear of zero. The crop-trained rows were rescored for
+this table and differ from Table~\ref{tab:probe} by at most 0.0001.}
 \label{tab:branches}
 \end{table}
 
@@ -470,20 +476,24 @@ below 336. Table~\ref{tab:clip} gives the means over three seeds, and every
 registered test passed. Training under squish beat crop by +0.144, +0.150 and
 +0.139 robust AUC, every interval clear of zero, with clean AUC unchanged
 (mean $-0.001$, every interval spanning zero). At test time alone the gain
-was +0.096, +0.112 and +0.094, again clear of zero. Both gains grow with
+was +0.096, +0.111 and +0.094, again clear of zero. Both gains grow with
 size: +0.206 above 752 pixels against +0.091 below 336 for training, and
-+0.168 against +0.057 at test time.
++0.168 against +0.057 at test time. CLIP's crop-trained proxies are weaker
+than DINOv2's (0.748 robust against 0.799) and gain more.
 
-Two results differ from DINOv2. CLIP's crop-trained proxies are weaker
-(0.748 robust against 0.799) and gain more. And training adds to the
-test-time change: in a comparison we did not register, squish-trained
-proxies beat the crop-trained ones shown the whole image by +0.038 to +0.048
-robust and +0.025 to +0.040 clean, every interval clear of zero. Test-time
-squish costs the CLIP crop-trained proxies 2 to 4 clean points, which
-training recovers. With CLIP, then, about two thirds of the trained gain is
-available at test time, and the rest needs the training view to match. The
-DINOv2 comparison in Table~\ref{tab:branches} uses the full branches, so the
-two are not matched in training length.
+The CLIP results led us to run the same test-time comparison on the DINOv2
+proxies, which we had not registered. Shown the whole image, the DINOv2
+crop-trained proxies gain +0.026 to +0.038 robust AUC, every interval clear
+of zero, and the gain again grows with size (+0.075 above 752 pixels, +0.023
+below 336). At proxy scale, training under squish adds to the test-time
+change for both backbones: squish-trained proxies beat the crop-trained ones
+shown the whole image by +0.048 to +0.057 robust and +0.022 to +0.032 clean
+with DINOv2, and by +0.038 to +0.048 and +0.025 to +0.040 with CLIP, every
+interval clear of zero. Test-time squish costs the crop-trained proxies 1 to
+4 clean points, which training recovers. The full DINOv2 branches show no
+such gap (Table~\ref{tab:branches}). They differ from the proxies in training
+length, number of views per image and loss terms, and we cannot say which
+of these closes the gap.
 
 \begin{table}[t]
 \centering
@@ -494,6 +504,7 @@ two are not matched in training length.
 backbone & model & robust & clean \\
 \midrule
 DINOv2 & crop-trained & 0.7994 & 0.9255 \\
+       & crop-trained, squish at test & 0.8310 & 0.9087 \\
        & squish-trained & 0.8841 & 0.9357 \\
 \midrule
 CLIP & crop-trained & 0.7482 & 0.9655 \\
@@ -502,8 +513,8 @@ CLIP & crop-trained & 0.7482 & 0.9655 \\
 \bottomrule
 \end{tabular}
 \caption{Proxy models (one tower, one epoch on a quarter of the training set)
-on \texttt{ntire\_val\_hard}, mean of three seeds. We did not score the
-DINOv2 proxies under test-time squish.}
+on \texttt{ntire\_val\_hard}, mean of three seeds. The DINOv2 test-time row
+was not registered.}
 \label{tab:clip}
 \end{table}
 
@@ -563,7 +574,7 @@ chains squish wins on all three sets, by 2.4 to 8.5 points.
 \subsection{The second test read}
 
 Table~\ref{tab:test} gives both reads of the public test split. Read 1 used the
-crop fusion as frozen on 2026-10-04. Read 2 used the squish fusion as frozen
+crop fusion as frozen on 2026-09-23 and read on 2026-10-04. Read 2 used the squish fusion as frozen
 before any squish model was scored on test, and our pre-registration allows no
 third read. Robust AUC rose by +0.062 [+0.040, +0.083] and clean AUC fell by
 0.014 [0.006, 0.024]. On robust AUC the squish fusion would sit between the
@@ -638,7 +649,8 @@ robust AUC on the hard split by $-0.018$ [$-0.041$, +0.004], and the change
 falls with image size instead of rising: $-0.098$ for short sides above 752
 pixels, +0.014 below 336. Both resized presentations lower B-Free's clean AUC
 on every split, by 1.2 to 18.8 points, which is what the advice to avoid
-resizing predicts for a detector built on native-resolution traces. Two
+resizing predicts for a detector built on native-resolution traces (the
+range covers the splits in Table~\ref{tab:public}). Two
 results go the other way: its training field of view gains 1.9 robust points
 [+0.9, +2.9] on \texttt{ntire\_val}, and squish gains 6.3 points [+5.1, +7.5]
 on SocialRF under our degradation chains. As registered, we narrow the claim.
@@ -664,7 +676,7 @@ SocialRF & 0.922 & 0.889 & 0.871 \\
 CommunityAI & 0.891 & 0.742 & 0.703 \\
 \quad degraded (ours) & 0.683 & 0.568 & 0.539 \\
 Synthbuster & 0.998 & 0.987 & 0.976 \\
-\quad degraded (ours) & 0.896 & 0.894 & 0.892 \\
+\quad degraded (ours) & 0.896 & 0.893 & 0.892 \\
 \bottomrule
 \end{tabular}
 \caption{B-Free AUC under three presentations. Native is the authors' own
@@ -731,8 +743,9 @@ of view free: the larger the image, the smaller the share the detector sees.
 For our DINOv2 detector on degraded images, that share limited robust AUC,
 not the representation and not a mismatch with the training view. Showing
 the whole image recovered 7 to 9 points per branch with no retraining, and
-training on whole images added nothing more. A CLIP backbone trained the same
-way gained 10 points at test time and 4 more from training. On the
+training the full models on whole images added nothing more. In short proxy
+runs, CLIP and DINOv2 backbones both gained at test time (10 and 3 points)
+and more from training (4 and 5). On the
 test split's clean, large images the same change cost clean AUC, possibly the
 case the advice to avoid resizing was written for. B-Free, which follows that
 advice, lost clean AUC under every resized presentation and gained no robust

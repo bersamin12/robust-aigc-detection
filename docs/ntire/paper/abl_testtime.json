@@ -1,0 +1,316 @@
+{
+  "test": "T",
+  "commit": "ed8f550282f41b5e59359f69d60e78f8ae08cfcc",
+  "prefix": "abl",
+  "label": "Exploratory, not registered",
+  "interpretable": true,
+  "mean_crop_robust": 0.7995392,
+  "passed": true,
+  "mean_robust_diff": 0.031412906666666664,
+  "n_seed_ci_above_zero": 3,
+  "mechanism_testtime": {
+    "gain_small": 0.022990838847616324,
+    "gain_large": 0.07549774134181027,
+    "per_seed_small": [
+      0.021272277026752717,
+      0.02244955953395844,
+      0.025250679982137814
+    ],
+    "per_seed_large": [
+      0.07353187217667723,
+      0.08106073280910153,
+      0.07190061903965206
+    ],
+    "passed": true
+  },
+  "mechanism_trained": {
+    "gain_small": 0.059770768210665924,
+    "gain_large": 0.11471752830293906,
+    "per_seed_small": [
+      0.059351276742581116,
+      0.05918889294848373,
+      0.06077213494093292
+    ],
+    "per_seed_large": [
+      0.11636272377446877,
+      0.1253555295298645,
+      0.1024343316044839
+    ],
+    "passed": true
+  },
+  "per_seed": {
+    "s1": {
+      "n": 2500,
+      "n_boot": 2000,
+      "seed": 20260827,
+      "alpha": 0.05,
+      "n_robust": 1250,
+      "n_clean": 1250,
+      "models": {
+        "center": {
+          "auc": {
+            "value": 0.8727488,
+            "ci": [
+              0.858858736,
+              0.8858341279999999
+            ]
+          },
+          "robust_auc": {
+            "value": 0.80361216,
+            "ci": [
+              0.779053888,
+              0.8266785919999999
+            ]
+          },
+          "clean_auc": {
+            "value": 0.92639488,
+            "ci": [
+              0.912496384,
+              0.939843328
+            ]
+          }
+        },
+        "squish": {
+          "auc": {
+            "value": 0.87190208,
+            "ci": [
+              0.8582091359999999,
+              0.884933776
+            ]
+          },
+          "robust_auc": {
+            "value": 0.82927872,
+            "ci": [
+              0.807462784,
+              0.8512570239999999
+            ]
+          },
+          "clean_auc": {
+            "value": 0.91225344,
+            "ci": [
+              0.896955776,
+              0.9274017280000001
+            ]
+          }
+        }
+      },
+      "vs_baseline": {
+        "squish": {
+          "auc": {
+            "diff": -0.0008467199999999675,
+            "ci": [
+              -0.015038895999999951,
+              0.01372012800000001
+            ],
+            "p": 0.918,
+            "excludes_zero": false
+          },
+          "robust_auc": {
+            "diff": 0.025666560000000005,
+            "ci": [
+              0.0034245119999999603,
+              0.04771692799999995
+            ],
+            "p": 0.025,
+            "excludes_zero": true
+          },
+          "clean_auc": {
+            "diff": -0.01414144000000006,
+            "ci": [
+              -0.031188544000000075,
+              0.0035229439999999506
+            ],
+            "p": 0.121,
+            "excludes_zero": false
+          }
+        }
+      },
+      "inputs": {
+        "center": "outputs/scores/paper/abl_probe_s1_center_ntire_val_hard.parquet",
+        "squish": "outputs/scores/paper/abl_probe_s1_squish_ntire_val_hard.parquet"
+      }
+    },
+    "s2": {
+      "n": 2500,
+      "n_boot": 2000,
+      "seed": 20260827,
+      "alpha": 0.05,
+      "n_robust": 1250,
+      "n_clean": 1250,
+      "models": {
+        "center": {
+          "auc": {
+            "value": 0.86941824,
+            "ci": [
+              0.855677952,
+              0.883385072
+            ]
+          },
+          "robust_auc": {
+            "value": 0.79535872,
+            "ci": [
+              0.7705827199999999,
+              0.818627968
+            ]
+          },
+          "clean_auc": {
+            "value": 0.92658432,
+            "ci": [
+              0.9120497919999999,
+              0.940609408
+            ]
+          }
+        },
+        "squish": {
+          "auc": {
+            "value": 0.87501888,
+            "ci": [
+              0.8616357760000001,
+              0.8878849280000001
+            ]
+          },
+          "robust_auc": {
+            "value": 0.83369728,
+            "ci": [
+              0.8120154239999999,
+              0.8561152639999999
+            ]
+          },
+          "clean_auc": {
+            "value": 0.91179776,
+            "ci": [
+              0.8965930240000001,
+              0.92733376
+            ]
+          }
+        }
+      },
+      "vs_baseline": {
+        "squish": {
+          "auc": {
+            "diff": 0.005600640000000046,
+            "ci": [
+              -0.008570399999999964,
+              0.02008454399999996
+            ],
+            "p": 0.434,
+            "excludes_zero": false
+          },
+          "robust_auc": {
+            "diff": 0.03833856000000002,
+            "ci": [
+              0.01666604800000004,
+              0.06157516800000003
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "clean_auc": {
+            "diff": -0.014786560000000004,
+            "ci": [
+              -0.031977152000000064,
+              0.003472896000000025
+            ],
+            "p": 0.115,
+            "excludes_zero": false
+          }
+        }
+      },
+      "inputs": {
+        "center": "outputs/scores/paper/abl_probe_s2_center_ntire_val_hard.parquet",
+        "squish": "outputs/scores/paper/abl_probe_s2_squish_ntire_val_hard.parquet"
+      }
+    },
+    "s3": {
+      "n": 2500,
+      "n_boot": 2000,
+      "seed": 20260827,
+      "alpha": 0.05,
+      "n_robust": 1250,
+      "n_clean": 1250,
+      "models": {
+        "center": {
+          "auc": {
+            "value": 0.86813248,
+            "ci": [
+              0.854032944,
+              0.8814504000000001
+            ]
+          },
+          "robust_auc": {
+            "value": 0.79964672,
+            "ci": [
+              0.775029056,
+              0.822593088
+            ]
+          },
+          "clean_auc": {
+            "value": 0.9233024,
+            "ci": [
+              0.909353216,
+              0.9375096319999999
+            ]
+          }
+        },
+        "squish": {
+          "auc": {
+            "value": 0.86711936,
+            "ci": [
+              0.8531077760000001,
+              0.8804995360000001
+            ]
+          },
+          "robust_auc": {
+            "value": 0.82988032,
+            "ci": [
+              0.807636096,
+              0.85156256
+            ]
+          },
+          "clean_auc": {
+            "value": 0.90199552,
+            "ci": [
+              0.88513504,
+              0.9180130559999999
+            ]
+          }
+        }
+      },
+      "vs_baseline": {
+        "squish": {
+          "auc": {
+            "diff": -0.0010131199999999785,
+            "ci": [
+              -0.015221248000000099,
+              0.01404649599999996
+            ],
+            "p": 0.892,
+            "excludes_zero": false
+          },
+          "robust_auc": {
+            "diff": 0.03023359999999997,
+            "ci": [
+              0.008835968000000033,
+              0.05227737599999995
+            ],
+            "p": 0.007,
+            "excludes_zero": true
+          },
+          "clean_auc": {
+            "diff": -0.021306879999999917,
+            "ci": [
+              -0.040203136000000056,
+              -0.0027644160000000135
+            ],
+            "p": 0.031,
+            "excludes_zero": true
+          }
+        }
+      },
+      "inputs": {
+        "center": "outputs/scores/paper/abl_probe_s3_center_ntire_val_hard.parquet",
+        "squish": "outputs/scores/paper/abl_probe_s3_squish_ntire_val_hard.parquet"
+      }
+    }
+  }
+}
