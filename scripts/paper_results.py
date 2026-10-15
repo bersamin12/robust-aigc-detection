@@ -151,7 +151,8 @@ def _mechanism(pairs: list[tuple[str, str]], manifest: str) -> dict:
             "passed": bool(np.mean(gl) > np.mean(gs))}
 
 
-def testtime(scores: str, n_boot: int, prefix: str, manifest: str) -> dict:
+def testtime(scores: str, n_boot: int, prefix: str, manifest: str,
+             label: str = "Amendment 4 secondary") -> dict:
     """Amendment 4's secondary tests, from parquets only.
 
     T: the crop-trained checkpoints presented whole at test time (the probe's
@@ -159,6 +160,7 @@ def testtime(scores: str, n_boot: int, prefix: str, manifest: str) -> dict:
     Mechanism: for both the trained and the test-time comparison, the robust
     gain in the largest native-size bucket against the smallest. Floor: a
     crop arm whose mean robust AUC is below 0.60 is reported, not read.
+    `label` heads the markdown, so a run outside amendment 4 can say so.
     """
     per_seed, crop_robust = {}, []
     for i in SEEDS:
@@ -177,7 +179,7 @@ def testtime(scores: str, n_boot: int, prefix: str, manifest: str) -> dict:
     mech_tr = _mechanism(
         [(f"{scores}/{prefix}_crop_s{i}_{hv}.parquet",
           f"{scores}/{prefix}_squish_s{i}_{hv}.parquet") for i in SEEDS], manifest)
-    return {"test": "T", "commit": commit(), "prefix": prefix,
+    return {"test": "T", "commit": commit(), "prefix": prefix, "label": label,
             "interpretable": bool(np.mean(crop_robust) >= 0.60),
             "mean_crop_robust": float(np.mean(crop_robust)),
             "passed": bool(mean_rob > 0.01 and n_pos >= 2),
@@ -191,7 +193,7 @@ def testtime_markdown(r: dict) -> str:
         return (f"gain {m['gain_large']:+.4f} in 752-4016px against "
                 f"{m['gain_small']:+.4f} in 80-336px -> "
                 f"{'PASSED' if m['passed'] else 'FAILED'}")
-    L = [f"# Amendment 4 secondary -- `{r['prefix']}` crop-trained checkpoints "
+    L = [f"# {r.get('label', 'Amendment 4 secondary')} -- `{r['prefix']}` crop-trained checkpoints "
          "presented whole at test time", "",
          f"Mean crop-arm robust AUC {r['mean_crop_robust']:.4f}"
          + ("" if r["interpretable"] else " -- BELOW THE 0.60 FLOOR: reported, not interpreted")
@@ -433,6 +435,8 @@ def main(argv=None) -> int:
     ap.add_argument("what", choices=("g1", "full", "testtime"))
     ap.add_argument("--prefix", default="abl", help="arm name prefix (g1, testtime)")
     ap.add_argument("--backbone", default="dinov2regl224", help="recorded by g1")
+    ap.add_argument("--label", default="Amendment 4 secondary",
+                    help="testtime: markdown heading, e.g. for an unregistered run")
     ap.add_argument("--scores", default="outputs/scores/paper")
     ap.add_argument("--fusion-dir", default="docs/ntire/paper")
     ap.add_argument("--picks", default="docs/ntire/paper/picks.json")
@@ -448,7 +452,7 @@ def main(argv=None) -> int:
         stem = a.out or "docs/ntire/paper/squish_proxy_gate"
         md = g1_markdown(r)
     elif a.what == "testtime":
-        r = testtime(a.scores, a.n_boot, a.prefix, a.manifest)
+        r = testtime(a.scores, a.n_boot, a.prefix, a.manifest, a.label)
         ok = True
         stem = a.out or f"docs/ntire/paper/{a.prefix}_testtime"
         md = testtime_markdown(r)

@@ -152,3 +152,19 @@ def test_testtime_applies_the_floor(tmp_path):
                           "logit": rng.normal(0, 1, n)}).to_parquet(p)
     r = pr.testtime(str(tmp_path), 100, "clip", str(tmp_path / "m.parquet"))
     assert not r["interpretable"] and "FLOOR" in pr.testtime_markdown(r)
+
+
+def test_testtime_label_heads_the_markdown(tmp_path):
+    short = np.random.default_rng(99).choice([200, 400, 600, 1500], 3000)
+    pd.DataFrame({"path": [f"/h{k}.png" for k in range(3000)], "width": short,
+                  "height": short + 7}).to_parquet(tmp_path / "m.parquet")
+    hv = "ntire_val_hard"
+    for i in pr.SEEDS:
+        _sized_arm(tmp_path / f"abl_probe_s{i}_center_{hv}.parquet", short, i)
+        _sized_arm(tmp_path / f"abl_probe_s{i}_squish_{hv}.parquet", short, i, 2.0)
+        _sized_arm(tmp_path / f"abl_crop_s{i}_{hv}.parquet", short, i)
+        _sized_arm(tmp_path / f"abl_squish_s{i}_{hv}.parquet", short, i, 2.0)
+    r = pr.testtime(str(tmp_path), 100, "abl", str(tmp_path / "m.parquet"),
+                    label="Exploratory")
+    assert r["label"] == "Exploratory"
+    assert pr.testtime_markdown(r).startswith("# Exploratory -- `abl`")
