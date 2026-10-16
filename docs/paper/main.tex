@@ -121,15 +121,18 @@ Whole-image input is not new. The NTIRE 2026 winner resizes the whole image at
 inference ``to preserve the global spatial context'', the fifth-placed team
 calls its preprocessing ``squish'' \cite{gushchin2026ntire}, and
 AI-GenBench \cite{pellegrini2025aigenbench} finds resize ``often preferable''
-to multi-crop for CLIP and DINOv2 backbones. None of these works names a
-mechanism or tests one. Our contribution is the mechanism and the evidence
-for it. We also show where the advice to avoid resizing still holds.
+to multi-crop for CLIP and DINOv2 backbones. Each gives a one-line rationale:
+AI-GenBench notes that multi-crop uses ``only partial content information'',
+and the NTIRE entries cite global context or full image content. None
+separates coverage from pixel count or tests the rationale. Our contribution
+is that test and the evidence around it. We also show where the advice to avoid resizing still holds.
 
 \section{Related work}
 \label{sec:related}
 
-\paragraph{Crop, don't resize.} \citet{corvi2023detection} trained
-on native patches and fused patch decisions. SAFE \cite{li2025safe} replaces
+\paragraph{Crop, don't resize.} \citet{corvi2023detection} recommend
+training on native patches cropped without resizing and deciding on the whole
+image by fusion. SAFE \cite{li2025safe} replaces
 down-sampling with a crop and reports that the resize ``indeed diminishes the
 subtle artifact features''. B-Free \cite{guillaro2025bfree} trains on
 504-pixel crops and averages native-resolution crops at test time.
@@ -149,12 +152,13 @@ reports resize at least as good as five-crop for fine-tuned DINOv2 ViT-L/14
 In AIGIBench's test-time comparison \cite{li2025aigibench}, the one CLIP-based
 detector does better with resize while all five low-level detectors do better
 with crops. \citet{cozzolino2024raising} resize the short side
-before a centre crop. WaRPAD \cite{choi2025warpad} rescales the whole image to
+before a centre crop.\footnote{In their released code,
+\url{https://github.com/grip-unina/ClipBased-SyntheticImageDetection}.} WaRPAD \cite{choi2025warpad} rescales the whole image to
 a fixed square before tiling it, which holds each tile's field of view
 constant, although the paper motivates it differently. GlobalForge \cite{cui2026globalforge}
 reports the opposite of our test-time result on clean data: a UnivFD probe
-trained with centre crops loses about 8.8 balanced-accuracy points when tested
-with resize. We return to this in Sec.~\ref{sec:cost}.
+trained with centre crops loses about 9 balanced-accuracy points (67.9 to
+58.7, their Fig.~2) when tested with resize. We return to this in Sec.~\ref{sec:cost}.
 
 \paragraph{Scale and size as confounds.} \citet{grommelt2024fakeorjpeg}
 show that JPEG quality and image size
@@ -354,8 +358,9 @@ keeps all of its gain (+7.2 of +7.3 points). Branch A keeps +5.7 of +9.2. At a
 expected cost of the filter.
 
 \paragraph{The gain is not only the geometric distortions.} The challenge's
-validation and test splits add random crops, aspect crops, downscaling and
-perspective transforms that its training split lacks \cite{gushchin2026ntire}.
+validation splits add random crops, aspect crops and downscaling, and the
+hard validation and test splits also add perspective transforms; its training
+split has none of these \cite{gushchin2026ntire}.
 These change native size and could carry the effect. Grouping the distorted
 rows of \texttt{ntire\_val\_hard} by their transforms
 (Table~\ref{tab:groups}), squish gains in every group. On rows that received
@@ -631,9 +636,12 @@ tested this hypothesis directly.
 To test whether the effect reaches beyond our detector, we registered a third
 amendment before scoring two public checkpoints. UnivFD \cite{ojha2023univfd}
 is a linear probe on CLIP ViT-L/14 features, trained on 224-pixel crops of
-256-pixel images. B-Free \cite{guillaro2025bfree} is a DINOv2-B with
-registers that averages five 504-pixel token windows taken at native
-resolution. We scored each three ways: its authors' test pipeline (native),
+256-pixel images.\footnote{Crop sizes from the released code,
+\url{https://github.com/WisconsinAIVision/UniversalFakeDetect}.} B-Free
+\cite{guillaro2025bfree} is a DINOv2-B with registers that averages five
+504-pixel token windows taken at native resolution.\footnote{Model size and
+window count from the released weights and code,
+\url{https://github.com/grip-unina/B-Free}.} We scored each three ways: its authors' test pipeline (native),
 its own training field of view (short side to its training size, then its
 crop), and squish at its input size. The primary test was squish minus native
 in robust AUC on \texttt{ntire\_val\_hard}, with an interval that excludes
@@ -694,9 +702,12 @@ mention of this in the paper or its public issue trackers. Results on this
 subset should be reported after format equalisation and within size strata.
 
 \paragraph{Synthbuster with resized RAISE reals.} Synthbuster ships only
-generated images \cite{bammey2024synthbuster}. A widely used copy of its RAISE
-reals was resized so that each image's area is about $1024^2$
-pixels \cite{guillaro2025bfree}; we used this copy. All 994 reals then have a
+generated images \cite{bammey2024synthbuster}.\footnote{The dataset record
+states that the RAISE-1k images are not included:
+\url{https://zenodo.org/records/10066460}.} A widely used copy of its RAISE
+reals, released with B-Free \cite{guillaro2025bfree}, was resized so that
+each image's area is about $1024^2$ pixels;\footnote{B-Free README,
+\url{https://github.com/grip-unina/B-Free}.} we used this copy. All 994 reals then have a
 short side of 833 to 835 pixels, while the fakes range from 256 to 2048. The
 monotone size-label AUC is 0.519 because the reals sit in the middle of the
 fakes' range, but the rule ``short side within 833 to 835'' separates the
