@@ -668,3 +668,32 @@ per-image parquets beside it.
 4. **Test 11 data.** The handover asks for checks on "large clean images in
    `ntire_val`". These are already reported in Sec 8 (871 and 295 images).
    They are recomputed here only as a check.
+
+## Amendment 6 (2026-10-19, after Test 3's rank check, before any Test 3 coefficient exists)
+
+**Test 3's registered regression is not identifiable.** With the registered
+covariates, log area_coverage = 2 log 200 - log S_short - log S_long
+- 2 log n, and n is a function of `branch` alone. The design matrix
+[1, branch, log S_short, log S_long, log area_coverage, is_distorted] is
+therefore singular by construction: rank 5 of 6 on both `ntire_val_hard` and
+`ntire_val`, with log area recovered from the other columns at R^2 = 1.000000.
+The coefficients the pass condition names have no unique values. Amendment 5
+expected aspect ratio to separate area coverage from shrink ratio, but S_long
+absorbs that variation. It expected the branch contrast to separate them, but
+`branch` absorbs the constant cross-branch offset in log S.
+
+**Decision.** Test 3 is reported as "not identifiable on this design". The
+OLS and its bootstrap are not run, and no reparametrised or substitute model
+is fitted for it. The Figure 1 re-plot (gain against FOV and against S, one
+curve per branch) is reported as registered, as a description. It judges
+nothing. Whether squish's gain comes from coverage or from cleaning is left to
+Test 1 (`freqmatch`), whose pass conditions are unchanged.
+
+**What was seen before this amendment.** These were seen: the rank check, the
+z-score parameters, and the Figure 1 re-plot (the curves line up on FOV more
+closely than on S: mean absolute gap 0.024 against 0.057 on `ntire_val_hard`).
+No regression coefficient was computed under any parametrisation. Details are
+in `docs/ntire/amend5/test3_shrink-ratio.md` on branch
+`dion/test3-shrink-ratio`.
+
+Nothing else in Amendment 5 changes.
