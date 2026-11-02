@@ -345,6 +345,17 @@ BACKBONES: dict[str, BackboneSpec] = {
                                   "facebook/dinov2-with-registers-large",
                                   224, 1024, 5, 304_372_736),
 
+    # The SAME tower at 196 = 14 x 14 patches, for amendment 11 Test 19
+    # (`stretch`). Test 19's arm takes a 196 px window and presents it at
+    # nominal side 196, so canonicalise does not resize it and neither does
+    # the tower: 196 is a multiple of the patch size 14, so `_normalised_batch`
+    # squishes 196 -> 196, which changes no pixel. `dinov2regl` would instead
+    # squish the window up to 518 (2.64x), which is the enlargement Test 19
+    # removes. A registry entry rather than a flag, for dinov2regl224's reason.
+    "dinov2regl196": BackboneSpec("dinov2regl196",
+                                  "facebook/dinov2-with-registers-large",
+                                  196, 1024, 5, 304_372_736),
+
     # EVA-02-L/14 at 448. A third pretraining PARADIGM, which is why it is here
     # rather than as a fourth ViT: masked image modelling distilled from a CLIP
     # teacher, then supervised fine-tuning on IN-22k/IN-1k -- neither DINOv2's

@@ -54,7 +54,10 @@ def test_registry_has_the_planned_backbones():
                               # flag because image_size is recorded in every
                               # bank config and is what makes a bank and a
                               # checkpoint comparable.
-                              "dinov2regl224"}
+                              "dinov2regl224",
+                              # Test 19's arm (amendment 11): the same tower at
+                              # 196, so a 196 px window is never resampled.
+                              "dinov2regl196"}
     for spec in BACKBONES.values():
         # 518 is dinov2l's and dinov2regl's: `canonicalise` emits a 512-px
         # nominal side, so 518 is the one registered size that upsamples into
@@ -72,7 +75,9 @@ def test_registry_has_the_planned_backbones():
         # tower, 448 and 384 discard, and 512 does neither. That it took until
         # 2026-08-31 to register a backbone at the resolution the pipeline
         # actually produces is itself the reason the entry exists.
-        assert spec.dim > 0 and spec.image_size in (224, 384, 448, 512, 518)
+        # 196 is dinov2regl196's (amendment 11, Test 19): a 196 px window at
+        # nominal 196, which the tower takes without resampling.
+        assert spec.dim > 0 and spec.image_size in (196, 224, 384, 448, 512, 518)
         if spec.pool == POOL_TOKENS:
             # At least a CLS token to strip, except the SigLIP towers, whose
             # architecture has no prefix token at all.
@@ -303,7 +308,7 @@ def _tiny_tower(name: str):
         from transformers import CLIPVisionConfig, CLIPVisionModel
         model = CLIPVisionModel(CLIPVisionConfig(
             patch_size=_TINY_PATCH, image_size=_TINY_IMAGE, **_TINY))
-    elif name in ("dinov2regl", "dinov2regl224"):
+    elif name in ("dinov2regl", "dinov2regl224", "dinov2regl196"):
         # `dinov2regl224` is the SAME tower and the same recipe -- only the
         # registry's `image_size` differs, and the tiny stand-in overrides that
         # with `_TINY_IMAGE` anyway, so sharing the branch is honest rather
