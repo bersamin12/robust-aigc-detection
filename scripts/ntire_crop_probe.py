@@ -212,10 +212,32 @@ def views_letterbox(img, policy):
     return [canvas]
 
 
+def views_freqmatch(img, policy):
+    """Amendment 5, Test 1: squish's frequency content at the centre window's
+    field of view.
+
+    Registered recipe (paper_prereg.md, Test 1; decision D3):
+      1. squish to n x n exactly as `views_squish` does;
+      2. resize that back to the native h x w with the crop policy's upscale
+         kernel (`_UPSCALE_INTERP`, bicubic), in both axes, whichever way
+         each axis has to go;
+      3. apply the branch's own crop policy (`canonicalise`: 200 px centre
+         window resized to n).
+    The window then shows the same part of the scene as `center`, but its
+    pixels have passed through squish's shrink, so any cleaning squish does
+    (averaging away noise and JPEG blocking) is carried into the window.
+    """
+    h, w = img.shape[:2]
+    squished = views_squish(img, policy)[0]
+    back_to_native = cv2.resize(squished, (w, h), interpolation=_UPSCALE_INTERP)
+    return [canonicalise(back_to_native, policy=policy)]
+
+
 ARMS = {"center": views_center, "grid9": views_grid9,
         "fov3": views_fov3, "squish": views_squish,
         "band_squish": views_band_squish,
-        "short_center": views_short_center, "letterbox": views_letterbox}
+        "short_center": views_short_center, "letterbox": views_letterbox,
+        "freqmatch": views_freqmatch}
 
 
 def score_arm(df, towers, specs, head, policy, arm, device, batch, workers,
