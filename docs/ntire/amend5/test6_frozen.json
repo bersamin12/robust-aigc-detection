@@ -1,0 +1,83 @@
+{
+  "test": "amendment 5, Test 6, routed fusion",
+  "commit": "bbb1306ca202a9d179318def80cead0c66d1cc27",
+  "fit_split": "ntire_val",
+  "rule": "s = w*z_squish + (1-w)*z_grid9, w = sigmoid(a + b*d), per branch; branches fused by eval.late_fusion",
+  "d_definition": "max over the degradation head's per-family severities ['jpeg', 'blur', 'resize', 'noise', 'jitter', 'crop'], on the squish view",
+  "grid": {
+    "a": [
+      -4.0,
+      4.0,
+      0.25
+    ],
+    "b": [
+      0.0,
+      8.0,
+      0.25
+    ],
+    "objective": "mean(robust AUC, clean AUC) on ntire_val",
+    "ties": "smallest b, then a closest to 0",
+    "fitted": "per branch"
+  },
+  "branches": {
+    "A": {
+      "checkpoint_tag": "A2",
+      "z_squish": {
+        "mu": -0.09314247275823727,
+        "sigma": 6.083076105479554
+      },
+      "z_grid9": {
+        "mu": -0.19326202128583359,
+        "sigma": 5.291094786135824
+      },
+      "a": -0.75,
+      "b": 1.75,
+      "fit_objective": 0.9930607199999999,
+      "n_grid_ties": 1
+    },
+    "B": {
+      "checkpoint_tag": "B2swa",
+      "z_squish": {
+        "mu": 0.12154798803627491,
+        "sigma": 6.056808559571814
+      },
+      "z_grid9": {
+        "mu": -0.039997763302435874,
+        "sigma": 5.071527256956877
+      },
+      "a": 0.25,
+      "b": 0.0,
+      "fit_objective": 0.9931455200000001,
+      "n_grid_ties": 1
+    }
+  },
+  "branch_fusion": {
+    "weight": 0.5,
+    "z_a": {
+      "mu": 0.001256672601500145,
+      "sigma": 0.9822118567876803
+    },
+    "z_b": {
+      "mu": 2.5579538487363606e-17,
+      "sigma": 0.9805626363363644
+    },
+    "fit_population": "split=ntire_val"
+  },
+  "checkpoints": {
+    "A2": "/scratch/justin_r13/aigcdet/outputs/unfreeze/ntire2_d24_518/checkpoint.pt (final)",
+    "B2swa": "/scratch/justin_r13/aigcdet/outputs/dual/ntire2_dual224/checkpoint.pt (--swa)"
+  },
+  "views": {
+    "squish": "ntire_crop_probe.views_squish",
+    "grid9": "ntire_crop_probe.views_grid9, mean of window logits"
+  },
+  "read3_condition": "clean ntire_test rows with native short side > 1100 px: routed clean AUC within 0.010 of read 1's crop fusion (docs/ntire/fusion_ntire2_final.json) on the same rows",
+  "input_md5": {
+    "docs/ntire/fusion_squish_valfit.json": "5a034080cfb4d3e38668c8fae8067ce4",
+    "docs/ntire/fusion_ntire2_final.json": "a5c65e2c87f4a4c573323313dea2d35f",
+    "/scratch/dion_r13/dion_extensions/outputs/test6/test6_squish_A2_ntire_val.parquet": "75e93aaba0e1cd4540cecf9812e2713d",
+    "/scratch/dion_r13/dion_extensions/outputs/test9/grid9_features_A2_ntire_val.npz": "4df96f40cc64ee31736c0c4e3f6f41c4",
+    "/scratch/dion_r13/dion_extensions/outputs/test6/test6_squish_B2swa_ntire_val.parquet": "183904f9ce1cc75990685e221b8d50ef",
+    "/scratch/dion_r13/dion_extensions/outputs/test9/grid9_features_B2swa_ntire_val.npz": "f0164ee4b77b82749502977dcc6da12d"
+  }
+}
