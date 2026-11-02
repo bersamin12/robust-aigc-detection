@@ -10,6 +10,11 @@
 - `related.md`: the literature and novelty check behind the related-work
   section.
 - `numbers.md`: the source file of every number in the paper.
+- `main_reframe.tex`, `supplement_reframe.tex`: the reframed draft (2026-11-02),
+  one story around field of view, with Tests 13-21 in. Not yet agreed by the
+  group, so `main.tex` is unchanged. Uses `fig_tiles.pdf`.
+- `preview_reframe.pdf`, `preview_reframe_supplement.pdf`: tectonic builds of
+  the reframe, for reading only. `preview.pdf` is still the old `main.tex`.
 
 ## Building
 

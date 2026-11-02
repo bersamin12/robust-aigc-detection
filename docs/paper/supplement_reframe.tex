@@ -1,0 +1,259 @@
+% UNCONFIRMED SUPPLEMENT DRAFT (agent, 2026-11-01). Goes with
+% main_REFRAME_UNCONFIRMED.tex. Text marked "moved verbatim" is the old main
+% text (main.tex at 3b1a24c) unchanged. S1 rows follow the test order of
+% EXTENSIONS_TEST_REPORT.md. The printed text names no test numbers.
+\documentclass[10pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{xcolor}
+\newcommand{\pending}[1]{\textcolor{red}{[PENDING: #1]}}
+
+\title{Supplement: Equal Pixels, Unequal Views}
+\date{}
+\begin{document}
+\maketitle
+
+\section*{S1. Every registered test and where it is reported}
+
+All tests were registered in the pre-registration or one of its amendments
+before any of their numbers existed. ``Main'' gives the section of the paper.
+Fit split means \texttt{ntire\_val\_hard}, on which squish was chosen.
+
+\begin{center}
+\small
+\begin{tabular}{p{6.0cm}p{4.6cm}p{3.4cm}}
+\toprule
+question & outcome & reported \\
+\midrule
+proxy: squish-trained beats crop-trained, 3 seeds & passed, +0.078 to +0.093 & Main, Training \\
+full fused models on the hard split & passed, +0.074 & Main, Training \\
+each external benchmark & SocialRF pass, CommunityAI confounded, Synthbuster fail & Main, Held-out \\
+CommunityAI counts only if size-matched JPEG gain clears zero & did not clear, confounded & Main, Held-out \\
+aspect-preserving presentations keep 75\% of the gain & passed, 93 to 100\% & Main (one line), S2 \\
+squish helps public detectors & UnivFD at chance, B-Free fails & Main, Held-out \\
+CLIP repeat of the proxy comparison and test-time gain & passed & Main, Training \\
+does squish's frequency content explain the gain? & coverage holds, design confounded & S8 \\
+does the gain grow with degradation level? & passed, rise holds & Main, What the gain is made of; S9 \\
+field of view or shrink ratio, by regression & not identifiable, no result & S8 \\
+is the gain spread across degradation families? & JPEG gains more, mostly headroom & S8 \\
+is training field of view narrow? & no, 0.391 to 1.000 after augmentation & Main, Table 1 \\
+routed fusion keeps the gain and removes the clean cost & failed & Main, clean cost (one line) \\
+multi-scale training matches squish & squish ahead, gap 73--81\% closed & Main, Training \\
+crop baseline handicapped at 224? & no & Main, Training \\
+learned combiner over nine windows matches squish & squish ahead, B ties on small images & Main, Training \\
+does the periphery carry the evidence? & failed, wrong geometry & S6 \\
+where is the clean cost on large images? & not located & Main (one line), S7 \\
+wording corrections with numbers & no condition & applied in text \\
+does the degradation rise survive degradation after squish? & A 86\% survives, B about half & S3 \\
+coverage against downscale, NTIRE & both effects & Main, What the gain is made of \\
+native 512 window for branch A & +0.042, mixed with view & Main, Training \\
+coverage against downscale, SocialRF & downscale only & Main, What the gain is made of \\
+downscale by 2: degradation removal or field of view? & field of view & Main, What the gain is made of \\
+degradation removal at stronger downscales & larger at 4x than 2x on both branches, not proof & Main, What the gain is made of \\
+enlargement at equal field of view & +0.011, interval includes zero, unresolved & Main, Training \\
+coverage against downscale on CLIP & field of view, small removal & Main, What the gain is made of \\
+downscale on B-Free & +7.9 points on large degraded SocialRF & Main, Held-out \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Not run: a third test read, once planned for routed fusion, was not run by decision.
+Exploratory, not registered: the DINOv2 test-time comparison on the proxies
+(S4), the CLIP trained-minus-test-time comparison, and a headroom check on
+the degradation-family test (S8).
+
+\section*{S2. Resolution-shortcut details (moved verbatim)}
+
+\paragraph{The gain is not only the geometric distortions.} The challenge's
+validation splits add random crops, aspect crops and downscaling, and the
+hard validation and test splits also add perspective transforms; its training
+split has none of these.
+These change native size and could carry the effect. Grouping the distorted
+rows of \texttt{ntire\_val\_hard} by their transforms
+(Table~\ref{tab:groups}), squish gains in every group. On rows that received
+only photometric transforms the gain is +9.0 points on A and +8.3 on B, with
+intervals clear of zero. Those rows have a median short side of 784 pixels;
+large native images are enough to produce the effect.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lrrcc}
+\toprule
+distortions & n & short p50 & A gain & B gain \\
+\midrule
+photometric only & 241 & 784 & +0.090 & +0.083 \\
+downscale, no crop & 740 & 432 & +0.095 & +0.065 \\
+crop or aspect crop & 191 & 320 & +0.059 & +0.063 \\
+perspective & 78 & 536 & +0.146 & +0.140 \\
+\bottomrule
+\end{tabular}
+\caption{Squish gain in robust AUC over the centre window, within groups of
+distorted \texttt{ntire\_val\_hard} rows, frozen crop-trained branches. All
+eight 95\% intervals exclude zero.}
+\label{tab:groups}
+\end{table}
+
+\paragraph{Aspect ratio.} Squish stretches non-square images, which
+Grommelt et al.\ warn introduces frequency artefacts
+along one axis. To attribute the gain to field of view
+rather than to the stretch, we registered two aspect-preserving presentations
+before scoring them: \emph{short-centre} (short side to the input size, then
+the centre square) and \emph{letterbox} (long side to the input size, padded
+to a square). We predicted that each would recover at least 75\% of squish's
+gain on both branches. Both did (Table~\ref{tab:aspect}): short-centre kept
+93\% of the gain on A and 97\% on B, letterbox 100\% and 94\%. Against squish,
+short-centre is 0.7 points lower in robust AUC on A, with an interval that
+excludes zero, and indistinguishable on B. Letterbox matches squish in robust
+AUC but loses 0.4 points of clean AUC on both branches. The stretch is
+therefore not what drives the gain; showing the whole short side is.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lcccc}
+\toprule
+ & \multicolumn{2}{c}{robust gain over centre} & \multicolumn{2}{c}{clean vs.\ squish} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+presentation & A & B & A & B \\
+\midrule
+squish & +0.092 & +0.073 & -- & -- \\
+short-centre & +0.085 & +0.070 & 0.000 & 0.000 \\
+letterbox & +0.092 & +0.069 & $-0.004$* & $-0.004$* \\
+\bottomrule
+\end{tabular}
+\caption{Differences in AUC for the aspect-preserving presentations, with the
+frozen crop-trained branches on \texttt{ntire\_val\_hard} and a paired
+bootstrap of 2000 resamples. Every robust gain
+has a 95\% interval that excludes zero. * marks a clean difference whose
+interval excludes zero.}
+\label{tab:aspect}
+\end{table}
+
+\section*{S3. Degradation after squish}
+
+Under the degradation grid of the main text the degradation is applied
+before squish, so squish's downscale could average it away. We registered a
+second arm that squishes the clean image first and degrades the squished
+view. The share of the rise with degradation level that survives is 0.86
+[0.83, 0.89] on branch A and 0.55 [0.47, 0.62] on B. B's input is 224 pixels,
+so squish downscales its images 2.3 times more than A's. The registered rule
+gives A: coverage, B: unresolved. Degradation on the small squished view is
+not the same strength as native degradation seen through the enlarged window,
+so this arm removes the downscale's averaging without equalising what the two
+arms see. The stronger-downscale test in the main text asks the same
+question directly.
+
+\section*{S4. DINOv2 test-time comparison on the proxies (exploratory, moved verbatim)}
+
+The CLIP results led us to run the same test-time comparison on the DINOv2
+proxies, which we had not registered. Shown the whole image, the DINOv2
+crop-trained proxies gain +0.026 to +0.038 robust AUC, every interval clear
+of zero, and the gain again grows with size (+0.075 above 752 pixels, +0.023
+below 336). At proxy scale, training under squish adds to the test-time
+change for both backbones: squish-trained proxies beat the crop-trained ones
+shown the whole image by +0.048 to +0.057 robust and +0.022 to +0.032 clean
+with DINOv2, and by +0.038 to +0.048 and +0.025 to +0.040 with CLIP, every
+interval clear of zero. Test-time squish costs the crop-trained proxies 1 to
+4 clean points, which training recovers.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llcc}
+\toprule
+backbone & model & robust & clean \\
+\midrule
+DINOv2 & crop-trained & 0.7994 & 0.9255 \\
+       & crop-trained, squish at test & 0.8310 & 0.9087 \\
+       & squish-trained & 0.8841 & 0.9357 \\
+\midrule
+CLIP & crop-trained & 0.7482 & 0.9655 \\
+     & crop-trained, squish at test & 0.8485 & 0.9324 \\
+     & squish-trained & 0.8924 & 0.9645 \\
+\bottomrule
+\end{tabular}
+\caption{Proxy models (one tower, one epoch on a quarter of the training set)
+on \texttt{ntire\_val\_hard}, mean of three seeds. The DINOv2 test-time row
+was not registered.}
+\end{table}
+
+CLIP mechanism check (registered): the training gain is +0.206 above 752
+pixels against +0.091 below 336. On \texttt{ntire\_val} the DINOv2 proxy robust
+gain was +0.035 to +0.037.
+
+\section*{S5. Earlier method changes (moved verbatim)}
+
+Before finding the coverage effect we pre-registered three changes aimed
+at the degradations, each with a written gate. Distilling degraded features
+toward clean ones lost about one robust point on the proxy, and under a
+control that gave both views the same window it still gained nothing
+($-0.2$ points against a gate of $+1$).
+Conditioning the classifier on a predicted degradation embedding through FiLM
+tied the baseline (0.803 against 0.804). Weighting the fusion by predicted
+degradation severity could not clear its gate of $+0.5$ points even with an
+oracle (+0.4 points pooled). These are single-proxy results, but together with the probe they
+suggest the representation was not the bottleneck.
+
+\section*{S6. Masking}
+
+We registered that masking the periphery of the squished image would cost
+more than masking its centre. It failed on both branches: masking a central
+quarter cost about twice as much as masking an outer rim of equal area (A
+$-0.013$ [$-0.021$, $-0.004$], B $-0.012$ [$-0.020$, $-0.003$]). A 25\%-area
+rim is a thin border, the emptiest part of a photo, so the test compared the
+busiest quarter with the emptiest. Unregistered: squish with the centre
+masked still beats the centre window (A +0.069, B +0.055).
+
+\section*{S7. Locating the clean cost}
+
+On Synthbuster, branch A changes by at most 0.007 on every generator. Branch
+B loses in two unrelated places, DALL-E 2 ($-0.110$, 1024 pixels) and Firefly
+($-0.040$, the whole bucket above 1100 pixels). The registered rule required
+one location and found none. On logits z-scored against each model's own
+reals, large fakes gain less than small ones (A $-5.1$, B $-10.7$ real-sd),
+and TPR at 1\% FPR on Firefly falls (A $-0.062$, B $-0.259$). Synthbuster is
+near ceiling for A, so a null AUC result says little. The test-split
+comparison of 0.974 and 0.880 also changes final against averaged weights,
+training round, and a 518 against 512 run setting.
+
+Moved verbatim from the old main text: Split by native size, the real images
+are not the cause: under crop their mean score drifts toward ``fake'' as size
+grows, and under squish it is flat. On their clean images above 1100 pixels,
+branch A trained under squish scores 1.000 against 0.989 for crop on
+\texttt{ntire\_val} (871 images) and 0.978 against 0.981 on
+\texttt{ntire\_val\_hard} (295 images).
+
+\section*{S8. Superseded and unidentifiable tests}
+
+\paragraph{Frequency matching.} We squished the image, resized it
+back to native size, and took the centre window, so the window had squish's
+frequency content at its own small field of view. It recovered none of the
+gain (A $-0.009$, B $-0.014$ against the centre window), which the registered
+rule read as coverage. Above 752 pixels the round trip leaves a window that
+is mostly blur, unlike anything in training, and it also costs clean AUC, so
+the design is confounded. Superseded by the decomposition in the main text.
+
+\paragraph{Shrink ratio against field of view.} A regression of the
+gain on both could not identify them, because they move together. No result.
+
+\paragraph{Degradation families.} JPEG rows gain 2 to 5 times more
+than others. An exploratory headroom check shows most of that excess is
+headroom: it falls to 1.2 to 1.6 times once the room left to gain is counted.
+
+\paragraph{Text corrections.} Ten wording fixes with numbers,
+applied in the text.
+
+\section*{S9. Degradation grid details}
+
+Pooled level-averaged gain of squish over the native presentation, none /
+light / medium / heavy: A $-0.0011$ / +0.0011 / +0.0075 / +0.0285, B +0.0043
+/ +0.0076 / +0.0141 / +0.0271, B-Free $-0.1139$ / $-0.1080$ / $-0.0884$ /
+$-0.0346$. The sign change on clean images is resolved for A only, in the
+528 to 736 pixel bucket ($-0.0013$ [$-0.0027$, $-0.0003$]). A pre-stated
+prediction that JPEG would rise most failed, and cannot be tested because the
+levels are not matched in strength (pixel RMSE at heavy: JPEG 5.7, blur 11.1,
+noise 23.6). On Synthbuster squish loses at every degradation level.
+
+\end{document}
