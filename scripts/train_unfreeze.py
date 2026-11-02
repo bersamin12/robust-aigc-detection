@@ -50,7 +50,10 @@ def main() -> int:
     ap.add_argument("--canon-mode", default="crop", choices=MODES,
                     help="crop: 200px native window (the round-one/two policy); "
                          "squish: whole frame at --nominal-side square, "
-                         "which ignores --crop-side and --crop-clamp")
+                         "which ignores --crop-side and --crop-clamp; "
+                         "rrc: random resized crop (area U(0.2, 1), aspect "
+                         "log-uniform [3/4, 4/3]) squished to --nominal-side, "
+                         "amendment 5 Test 7")
     ap.add_argument("--crop-side", type=int, default=200)
     ap.add_argument("--train-subsample-frac", type=float, default=1.0,
                     help="keep this fraction of train rows, stratified by "

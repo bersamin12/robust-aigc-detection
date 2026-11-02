@@ -100,7 +100,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # a second copy of the presentation resize is exactly how that stops being
 # true.
 from aigcdet.augment.canonical import (  # noqa: E402
-    _DOWNSCALE_INTERP, _UPSCALE_INTERP, MODE_BAND, MODE_SQUISH,
+    _DOWNSCALE_INTERP, _UPSCALE_INTERP, MODE_BAND, MODE_CROP, MODE_RRC, MODE_SQUISH,
     CanonPolicy,
     _resize_short_side, canonicalise,
 )
@@ -129,7 +129,20 @@ def _windows(h: int, w: int, side: int, clamp: bool):
     return side, [(t, l) for t in tops for l in lefts]
 
 
+#: The `center` presentation for an rrc-trained checkpoint (amendment 5,
+#: Test 7): the crop proxies' own eval convention, one 200 px native centre
+#: window at the checkpoint's nominal side, clamp on. An rrc policy has no
+#: deterministic window of its own (with no rng it is the whole frame, which
+#: is the `squish` arm), so `center` has to name one explicitly.
+RRC_CENTER_CROP_SIDE = 200
+
+
 def views_center(img, policy):
+    if policy.mode == MODE_RRC:
+        centre_policy = CanonPolicy(mode=MODE_CROP, crop_side=RRC_CENTER_CROP_SIDE,
+                                    nominal_side=policy.nominal_side,
+                                    crop_clamp=True)
+        return [canonicalise(img, policy=centre_policy)]
     return [canonicalise(img, policy=policy)]
 
 
@@ -330,7 +343,7 @@ def main() -> int:
         sys.exit("REFUSING: this head wants recon features; the probe passes "
                  "None for them")
     policy = _policy_from_config(ck["config"], True)
-    if policy.mode not in ("crop", "squish"):
+    if policy.mode not in ("crop", "squish", "rrc"):
         sys.exit(f"REFUSING: probe compares crop and squish presentations, "
                  f"policy is {policy.mode!r}")
     # Under a squish checkpoint `center` is that checkpoint's own convention

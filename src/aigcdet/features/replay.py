@@ -19,7 +19,7 @@ from typing import Callable
 import numpy as np
 
 from aigcdet.augment.canonical import (
-    DEFAULT_POLICY, MODE_CROP, CanonPolicy, canonical_rng, canonicalise)
+    DEFAULT_POLICY, RANDOM_WINDOW_MODES, CanonPolicy, canonical_rng, canonicalise)
 from aigcdet.augment.geometric import dihedral, geometric_rng, sample_dihedral
 
 
@@ -50,7 +50,7 @@ def canon_base(decoded: np.ndarray, policy: CanonPolicy,
     """
     if is_eval:
         return canonicalise(decoded, policy=policy)
-    return None if policy.mode == MODE_CROP else canonicalise(
+    return None if policy.mode in RANDOM_WINDOW_MODES else canonicalise(
         decoded, policy=policy)
 
 
