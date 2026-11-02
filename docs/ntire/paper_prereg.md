@@ -697,3 +697,580 @@ in `docs/ntire/amend5/test3_shrink-ratio.md` on branch
 `dion/test3-shrink-ratio`.
 
 Nothing else in Amendment 5 changes.
+
+## Amendment 7 (2026-10-20, before any number for Tests 13-15 exists)
+
+A code review of Tests 1-12 raised design questions about the
+coverage-vs-cleaning evidence. Tests 1, 2 and 4 each apply damage at native
+scale and present it through a resize, so a presentation that shrinks the
+image also attenuates the damage. A test of "coverage, not cleaning" has to
+hold one of the two fixed while the other varies. Tests 1-12 do not do this
+cleanly. This amendment registers three new tests that do, and five
+re-analyses of existing results. **No verdict of Tests 1-12 is changed by this
+amendment.** The re-analyses are reported as supplements beside the original
+write-ups, which stay as they are.
+
+The rules of amendment 5 apply unchanged (allowed splits, frozen checkpoints,
+bootstrap, every result reported). Every new script refuses `ntire_test` by
+name. Every bootstrap below uses the index scheme of
+`paper_analyses.paired_diff` (seed 20260827, `rng.integers` within each
+stratum, cells in `np.unique` order), with several statistics computed on
+each draw. Each script asserts that one of its differences reproduces
+`paired_diff`'s interval exactly.
+
+Each verdict below is decided on the 95% interval, not the point estimate.
+An interval that straddles a threshold gives "unresolved", with the point
+estimate reported.
+
+### Test 13: damage after squish (`postsquish`)
+
+**Claim decided:** whether squish's rising advantage under damage (Test 2's
+D curve) comes from the shrink attenuating the damage (cleaning) or from the
+whole field of view (coverage).
+
+**Run.** Test 2's primary source (6,250 clean NTIRE rows), Test 2's nine
+damage conditions and seeds, frozen Branch A and Branch B. New arm
+`squish_post`: `views_squish` on the clean native image, then the damage op
+on the n x n view. The noise generator is seeded per image exactly as in
+Test 2. The `center` arm and the native-damage `squish` arm are Test 2's
+existing per-image logits, unchanged. Only `squish_post` is scored.
+
+**Statistics,** per branch, pooled over size (primary) and per size bucket
+(reported):
+
+- D_nat(c) = AUC(squish) - AUC(center), from Test 2;
+  D_post(c) = AUC(squish_post) - AUC(center).
+- Rise_nat = mean over op types of D_nat(heavy) - D(none); Rise_post the same
+  with D_post. D(none) is the same number in both, because no damage is
+  applied.
+- Retained share Q = Rise_post / Rise_nat. Q is also reported per op type.
+
+**Conditions** (both branches):
+
+- **Not decidable:** the interval of Rise_nat includes zero.
+- **Cleaning explains the rise:** the interval of Q lies below 0.30.
+- **Coverage explains the rise:** the interval of Q lies above 0.60.
+- **Otherwise:** both contribute, or unresolved; report Q with its interval.
+
+The thresholds mirror Test 1's (R < 0.40 coverage, R > 0.70 cleaning, with
+R the share recovered by cleaning, so Q = 1 - R).
+
+**Known limit.** Damage on the n x n view is not "the same damage" as native
+damage seen through the centre window, which enlarges it 2.56x (A) or 1.12x
+(B). The test removes squish's attenuation; it does not equalise damage
+strength across arms.
+
+**Not done.** Re-applying each `ntire_val_hard` row's recorded distortions
+after squish was considered and dropped. Those rows are already damaged, and
+most NTIRE ops (`multnoise`, `pixelate`, `lincontrchange`, ...) have no
+equivalent in `augment/ops.py`, so the re-applied damage would be neither the
+recorded one nor a single application.
+
+### Test 14: shrink x coverage factorial (`tile-factorial`)
+
+**Claim decided:** whether squish's gain on large images comes from the share
+of the image shown (coverage, factor f) or from the shrink (factor k), with
+every view in the branch's trained presentation (a 200 px window resized to
+n). This replaces Test 1 and Test 3 as the decisive design for that claim;
+their write-ups stay.
+
+**View `tiles(k, f)`.** For an image of h x w: take the centred rectangle of
+area fraction f (sides round(h sqrt f) x round(w sqrt f)); shrink it by k with
+squish's downscale kernel (`_DOWNSCALE_INTERP`); cover the result with 200 px
+windows, ceil(L / 200) per axis, evenly spaced from 0 to L - 200 (one centred
+window when ceil(L / 200) = 1); resize each window to n as `views_grid9`
+does. The image score is the mean logit over windows. `tiles(1, 1)` is
+`gridall`: the whole frame in native-pixel windows.
+
+**Cells.** k in {1, 2} x f in {0.25, 0.5, 1}, plus `tiles(4, 1)`, plus
+`center` and `squish` for reference.
+
+**Rows.** `ntire_val` and `ntire_val_hard` with native short side >= 800 px
+(4,068 rows, 1,235 distorted), so that every cell has shrunk-region sides of
+at least 200 px and no window is enlarged beyond the trained 200 -> n.
+Primary: both splits pooled. Each split is reported alone.
+
+**Statistics** (robust AUC, distorted rows; clean AUC reported):
+
+- dF = mean over k in {1, 2} of [AUC(k, 1) - AUC(k, 0.25)];
+- dK = mean over f of [AUC(2, f) - AUC(1, f)];
+- C = dF - dK.
+
+**Conditions** (both branches):
+
+- **Coverage:** the interval of dF is above zero and the interval of C is
+  above zero.
+- **Cleaning:** the interval of dK is above zero and the interval of C is
+  below zero.
+- **Both:** the intervals of dF and dK are above zero and C's includes zero.
+- **Otherwise:** report the three per branch.
+
+**Secondary,** reported, not a condition: gridall's recovered share
+R_g = (AUC(gridall) - AUC(center)) / (AUC(squish) - AUC(center)). An interval
+above 0.60 supports coverage without resampling. A low R_g is not evidence
+for cleaning, because mean pooling over up to ~200 windows may lose signal on
+its own (Test 9).
+
+**Known limit.** Within a window, k also sets how much scene the window holds
+(k^2 more area at k = 2). The factorial separates image-level coverage from
+shrink; it cannot separate shrink from per-window content.
+
+### Test 15: native 512 window for Branch A (`native512-proxy`)
+
+**Claim decided:** whether part of Branch A's crop -> squish gap is a penalty
+for enlarging a 200 px window 2.56x to 512 px. Test 8 tested this at 224 px,
+where the enlargement is 1.12x, and found no such penalty.
+
+**Arms.** Two proxies, one seed each (20260827), the G1 protocol with Branch
+A's backbone (`dinov2regl`, depth 24, `--src-chunk 2`): `crop200@512`
+(`--crop-side 200`) and `native512` (`--crop-side 512`), both with
+`--nominal-side 512 --crop-clamp`. Everything else as Test 8. Scored with
+`score_plan_splits.py` on `ntire_val_hard` and `ntire_val`, centre window.
+
+**Timing first.** 100 timed steps. If one arm's projected time exceeds 7 h,
+the test stops and is reported as not run. The protocol is not changed to
+fit.
+
+**Condition** (single seed, stated as such):
+
+- **Enlargement penalty present:** robust AUC (native512 - crop200@512) on
+  `ntire_val_hard` has an interval above zero. Its size is reported as a
+  share of A2's squish - center robust gap, as a description.
+- **Absent:** the interval includes zero or lies below it.
+
+Images with a short side below 512 px are clamped (their largest square,
+resized up), as the current policy does below 200 px. Their count is
+reported.
+
+### Re-analyses (CPU, reported as supplements)
+
+| # | test | what is added |
+|---|---|---|
+| R1 | 2 | intervals on the level-averaged D per bucket (one draw set across conditions), and the sign-change cell with its interval; the L5 prediction is reported as untestable, because the levels are not matched across op types |
+| R2 | 4 | JPEG-containing vs JPEG-free rows, as disjoint groups, gain difference with interval, per branch |
+| R3 | 9 | squish - combiner per size bucket, with intervals |
+| R4 | 11 | logits z-scored against each model's own reals before any cross-model logit comparison; the raw-logit 5.28 -> 3.94 figure is withdrawn |
+| R5 | 12 | the recomputed-AUC count is corrected; E2 and E3 get intervals; E10 is withdrawn |
+
+### Test 6
+
+Test 6's routing variable `d` is not trained to detect absent damage, and the
+review reports that an oracle router has no margin on condition 1. A refit
+router with a non-inferiority margin, chosen after the condition 1 result,
+would be a post-hoc test, so none is registered. **Read 3 of `ntire_test` is
+suspended, not spent.** It does not run until Dion decides whether it runs
+as registered, under a new registration, or not at all.
+
+### Order
+
+Test 13, then Test 14, then Test 15's timing, then Test 15's arms if the
+timing allows. R1-R5 run on CPU alongside.
+
+## Amendment 8 (2026-10-20, after Test 14's verdict, before any number for Test 16 exists)
+
+Test 14 found both a coverage and a shrink effect on NTIRE (verdict BOTH,
+both branches). Test 16 asks whether that holds off NTIRE. It reruns Test 14
+unchanged on AIGIBench SocialRF. Nothing in Amendments 5-7 changes.
+
+### Test 16: Test 14 on SocialRF (`tile-factorial-socialrf`)
+
+**Views, cells, statistics and conditions:** exactly Test 14's
+(`amend5_test14.views_tiles`, `CELLS`, and `amend5_test14_analysis`'s
+statistics and verdict rule), frozen Branch A and Branch B.
+
+**Rows.**
+- Clean: `ext_aigi_socialrf`, is_distorted = 0.
+- Distorted: `ext_aigi_socialrf_deg`, damaged at scoring time by
+  `score_plan_splits.degrade_native` (seed 20261008, pool `ntire`, at most 5
+  ops), the chain the paper's `_deg` numbers use. is_distorted = 1.
+- Filter: the short side of the image as presented (after damage, which can
+  include `downscale`) is at least 800 px, as in Test 14. Sizes after damage
+  are computed in a CPU pass before any score exists.
+- Subsample: 500 per label from each split after filtering, seed 20261019
+  (2,000 rows). This keeps Branch A near 1.5 GPU-h.
+
+Strata: label x is_distorted, as in Test 14. Robust AUC = AUC on the `_deg`
+rows.
+
+**Conditions:** Test 14's, on both branches: COVERAGE, CLEANING, BOTH or
+NEITHER. R_g is reported as in Test 14.
+
+**Known limits.**
+- SocialRF's reals are larger than its fakes (median short side 1440 vs
+  1024 px), so size is a label cue, and k changes it. The filter does not
+  remove this.
+- SocialRF's fakes were taken from social platforms and were probably
+  re-encoded already, so "clean" means "no added damage".
+- The `_deg` chain is our synthesis of the NTIRE families, not NTIRE's own
+  damage.
+
+### Order
+
+Test 16 runs after Test 15 on the GPU queue.
+
+## Amendment 9 (2026-10-24, after Test 16's verdict, before any number for Test 17 exists)
+
+Tests 14 and 16 found a shrink effect dK on both branches and both row sets.
+Their registration states that k also sets how much scene each window holds
+(k^2 more area at k = 2), so dK mixes two things: the shrink averaging away
+damage in the pixels (attenuation), and each window seeing more of the scene
+(per-window content). Test 17 separates the two with a view that has the
+averaged pixels of tiles(2, f) and the per-window scene of tiles(1, f).
+Test 1 used the same round trip at squish's ratio (5-18x on large images),
+which left mostly blur; Test 17 uses k = 2 only. Nothing in Amendments 5-8
+changes.
+
+### Test 17: shrink then enlarge back (`roundtrip`)
+
+**View `rt(k, f)`.** Test 14's centred area-f region, shrunk by k with
+squish's downscale kernel (`_DOWNSCALE_INTERP`, as `views_tiles`), enlarged
+back to the region's own size with the window kernel (`_UPSCALE_INTERP`),
+then covered with tiles(1, f)'s windows (same count, same places), each
+resized to n. The image score is the mean logit over windows.
+
+**Cells.** rt(2, f) for f in {0.25, 0.5, 1}. tiles(1, f) and tiles(2, f) are
+the logits already scored by Tests 14 and 16, joined on path; they are not
+re-scored.
+
+**Rows.** Test 14's rows (NTIRE, short side >= 800, 4,068) and Test 16's rows
+(SocialRF, 2,000, `_deg` rows damaged by the same chain and seed), unchanged.
+Frozen Branch A and Branch B.
+
+**Statistics** (robust AUC, distorted rows; clean AUC reported):
+
+- dA = mean over f of [AUC(rt(2, f)) - AUC(tiles(1, f))] (attenuation: same
+  scene per window, averaged pixels);
+- dS = mean over f of [AUC(tiles(2, f)) - AUC(rt(2, f))] (per-window content:
+  same averaged pixels, 4x the scene per window);
+- dA + dS = dK of Test 14/16.
+
+**Conditions** (per branch, per row set; the NTIRE rows pooled, each split
+reported):
+
+- **Attenuation:** dA's interval above zero, dS's not.
+- **Content:** dS's interval above zero, dA's not.
+- **Both:** both intervals above zero.
+- **Neither:** otherwise.
+
+**Known limits.**
+- The enlargement back is itself a change no training window had: rt windows
+  are softer than tiles(1, f)'s. If that costs AUC, dA understates
+  attenuation and dS overstates content. Clean-row dA is reported as the
+  size of that cost.
+- tiles(2, f) averages about a quarter as many windows as rt(2, f), so dS
+  also carries any mean-pooling dilution (Test 9).
+- tiles(1, f) and tiles(2, f) logits come from the Test 14/16 runs, with the
+  same weights and code, not from the same run as rt(2, f).
+- SocialRF's size is a label cue (Test 16's limits apply unchanged).
+
+### Order
+
+Test 17 runs on the GPU queue when Dion confirms the GPU is free. Branch B
+first, then Branch A, NTIRE rows before SocialRF rows. About 1.2 GPU-h for B
+and 3 GPU-h for A at Test 16's rate (about 1.0 M windows per branch).
+
+## Amendment 10 (2026-11-01, after Test 17's verdict, before any number for Test 18 exists)
+
+Test 13 found that about half of Branch B's damage rise needs squish's
+shrink (retained share Q = 0.55), which reads as the shrink reducing the
+damage. Test 17 found no such reduction at k = 2 (dA about zero on both
+branches and both row sets). Squish shrinks large images 5-18x; Test 17
+shrinks 2x. Test 18 asks whether the damage reduction from the shrink
+appears only at strong shrinks. It reuses Test 13's damage and Test 14's
+tiles. Nothing in Amendments 5-9 changes.
+
+### Test 18: damage before vs after the shrink (`shrinkorder`)
+
+**Rows.** Test 2's / Test 13's clean NTIRE rows (`ntire_val` +
+`ntire_val_hard`, is_distorted = 0, never `ntire_test`), cut by native short
+side. Row rule, decided from row counts only: use k in {1, 2, 4, 8} with
+short side >= 1,600 if that leaves >= 1,000 rows with both labels present;
+otherwise k in {1, 2, 4} with short side >= 800. Outcome on the counts: short
+side >= 1,600 leaves 679 rows (563 real, 116 fake), under 1,000, so **k in
+{1, 2, 4}, short side >= 800: 2,833 rows (1,520 real, 1,313 fake;
+2,212 `ntire_val`, 621 `ntire_val_hard`)**, k_max = 4. Frozen Branch A (A2,
+n = 512) and Branch B (B2swa, n = 224).
+
+**Damage.** Test 13's three ops at Test 2's heavy level (JPEG q30, blur
+sigma 2.0, noise sigma 0.10), with Test 2's code and seeds: noise is seeded
+per image by `default_rng([20261019, int(content_sha256[:15], 16)])`, the
+same seed in both orders. Damage parameters are fixed in the pixel grid
+where the damage is applied, as in Test 13. A native blur of sigma s is
+about s/k after the shrink; that reduction is part of what is under test,
+so it is deliberately not compensated.
+
+**Views,** per branch, all Test 14's tiles(k, 1): the whole frame, shrunk by
+k with INTER_AREA, covered by 200 px windows spread as in Test 14, each
+resized to n, mean logit per image.
+
+- clean(k): shrink by k, tile.
+- before(op, k): damage at native size, shrink by k, tile.
+- after(op, k): shrink by k, damage at the shrunk size, tile.
+
+At k = 1 before and after are the same pixels. The smoke run scores both and
+asserts identical logits; the full run scores k = 1 once per op. Coverage is
+the whole frame at every k. Per-window content changes with k, identically
+in both orders at a given k. Per-window logits are saved beside the mean.
+Descriptive only: squish clean / damage before / damage after on the same
+rows, joined on path from Test 2's and Test 13's logits (not rescored).
+
+**Statistic,** per branch. Robust AUC = AUC over images damaged by that op
+(real and fake both damaged). The damage reduction from the shrink is
+R_op(k) = AUC(before(op, k)) - AUC(after(op, k)), and R(k) = mean over the
+3 ops of R_op(k) (called S(k) in the design notes). Positive R means
+damaging first helped: the shrink reduced the damage. R(1) = 0 by
+construction. Reported: R(k) and R_op(k), clean AUC(k), and drop(k) = clean
+AUC(k) - damaged AUC for each order. Intervals: 2,000 paired bootstrap draws
+over images, 95% percentile, stratified by label (every row is clean),
+seed 20260827, `paired_diff`'s index scheme.
+
+**Conditions** (per branch; the pooled R is primary):
+
+- **STRONG-ONLY:** R(2)'s CI includes zero and lies entirely within
+  [-0.01, +0.01], AND [R(k_max) - R(2)]'s CI is above zero. The margin 0.01
+  is just below the smallest content effect reported (Test 17, Branch B,
+  NTIRE dS = +0.0097).
+- **EVERYWHERE:** R(2)'s CI is above zero.
+- **NONE:** every R(k)'s CI includes zero or is below it, AND
+  [R(k_max) - R(2)]'s CI includes zero.
+- **UNRESOLVED:** otherwise (including an R(2) CI that includes zero but
+  extends past +/-0.01 while the rise is above zero).
+
+Secondary: the same rule on each op's R_op (JPEG, blur, noise), per branch.
+The output flags per-op verdicts that disagree with each other or with the
+pooled one.
+
+**Known limits.**
+- Damage applied after the shrink is relatively stronger on the small view
+  (as in Test 13): the same parameters act on fewer pixels of scene.
+- Damage applied before the shrink is reduced and also rescaled (for example
+  JPEG 8x8 blocks become 2x2 at 4x). R measures both. Test 18 tests whether R
+  depends on shrink level, not which of these causes it. Noise is the
+  cleanest case (the shrink mostly averages it); JPEG the least.
+- The window count falls with k (about 84, 23 and 7 per image at k = 1, 2,
+  4), so mean pooling dilutes differently across k (Test 9); it is the same
+  in both orders at a given k.
+- Rows whose shrunk short side is under 200 px would be clamped; the row
+  rule leaves none (the shortest side at k = 4 is 200 px), and the code
+  asserts it.
+- Single source (clean NTIRE, >= 800 px).
+
+### Budget and order
+
+Projected at Test 17's measured rates (A 96, B 249 windows/s): about
+1.56 M windows per branch, 4.5 GPU-h for A and 1.7 GPU-h for B. Before the
+full run, about 20 rows (10 per label) are scored per view and the full run
+is projected from them. The projection must be <= 8 GPU-h. If it is over,
+the registered fallback is a label-stratified random subsample of rows
+(seed 20260827), sized to fit 8 GPU-h, fixed and logged before any full
+scoring. Branch B first, then Branch A, on the GPU queue
+(`queue_a10.sh`), capped at 10 GiB on the shared GPU. The queue logs the md5
+of the staged prereg diff and of the staged Test 18 code before scoring
+starts.
+
+## Amendment 11 (2026-11-01, during Test 18's run, before any number for Test 19 exists)
+
+Two parts: a record of Dion's decision on Test 6 read 3, and Test 19.
+Nothing in Amendments 5-10 changes.
+
+### Test 6 read 3
+
+Test 6 read 3 of `ntire_test`: not run, by Dion's decision (2026-11-01).
+Test 6 failed condition 1 on `ntire_val_hard` and cannot pass; the
+amendment-7 audit found an oracle router has no margin on condition 1; the
+clean-cost comparison it would measure is confounded (checkpoint, round and
+run settings, Test 11 R4); `ntire_test` stays reserved for the paper's final
+numbers. The extensions have scored no `ntire_test` row.
+
+### Test 19: does enlarging the window hurt, at equal view? (`stretch`)
+
+**Claim decided:** whether enlarging the window hurts when the view is held
+fixed. Test 15 found native512 beats crop200@512 by +0.0415 robust AUC on
+`ntire_val_hard`, but the 512 window both avoids the 2.56x enlargement and
+shows 2.56x more of the scene per side. Test 19 adds the missing cell: a
+small window at its own size, with no enlargement and the same view as
+crop200@512.
+
+**Input size, decided before any training.** The registered arm is
+`crop200@200`. DINOv2's patch is 14, and neither 200 nor 512 is a multiple of
+it. The existing pipeline handles 512 by squishing the canonical image to the
+tower's fixed `image_size` (`dinov2regl`: 518, `cv2.INTER_AREA`, in
+`features.backbones.model_inputs`). At nominal 200 that same mechanism
+squishes the window to 518, a 2.59x enlargement, which is exactly what this
+arm must not have. So the trainer cannot run 200 unenlarged the same way, and
+**the registered substitute applies: n = 196 with window 196 (`crop196@196`)**.
+196 = 14 x 14 patches. It runs on `dinov2regl196`, a new registry entry for
+the same tower and weights at `image_size` 196 (as `dinov2regl224` is at 224).
+A CPU check confirms that a 196 px centre window reaches the tower with no
+pixel changed. The view is 196 px instead of 200 px per side, a 2% change.
+
+**Arm.** One proxy, one seed (20260827): Test 15's `crop200@512` arm
+(`scripts/amend5_test15.sh`), flag for flag, except `--crop-side 196
+--nominal-side 196 --backbone dinov2regl196`. So: the G1 protocol on Branch
+A's tower (`dinov2regl` weights, depth 24, `--src-chunk 2`), 1 epoch over 25%
+of train, the same optimiser, LR schedule (cosine, warm-up 0.03, SWA from
+0.75), augmentation, family weighting and `--crop-clamp`. Scored with
+`score_plan_splits.py` on `ntire_val_hard` (primary) and `ntire_val`, centre
+window, Test 15's scoring flags. `crop200@512` and `native512` are not
+retrained: their per-image logits are Test 15's parquets, joined on path, and
+the analysis asserts the three arms have the same row set.
+
+**Rows.** Primary: `ntire_val_hard` distorted rows with native short side
+>= 512, where no arm clamps (630 rows). Secondary: all rows, `ntire_val`,
+clean rows, and Test 15's size buckets.
+
+**Statistics.** Robust AUC = AUC on the distorted rows.
+
+- E = AUC(crop196@196) - AUC(crop200@512). Same view, enlarged or not.
+  Positive means enlarging the window hurts (a stretch penalty).
+- V = AUC(native512) - AUC(crop196@196). Both arms unenlarged; the
+  difference is the view (and the token count).
+- T = AUC(native512) - AUC(crop200@512) = V + E. This is Test 15's effect on
+  these rows. The analysis asserts the identity, and that T on all distorted
+  rows reproduces Test 15's +0.0415 (`ntire_val_hard`) and +0.0314
+  (`ntire_val`) to 4 dp.
+
+Intervals: 2,000 paired bootstrap draws, 95% percentile, stratified by
+label x is_distorted, seed 20260827, `paired_diff`'s index scheme. E, V and T
+share one draw set (rows in the order of Test 15's parquet).
+
+**Condition on E** (`ntire_val_hard`, distorted, short side >= 512; single
+seed, stated as such):
+
+- **PENALTY:** E's CI is above zero.
+- **BENEFIT:** E's CI is below zero (enlarging helps, for example through
+  more tokens).
+- **NONE:** E's CI lies within [-0.01, +0.01] (and so includes zero).
+- **UNRESOLVED:** otherwise.
+
+V and T are reported with intervals, and E/T and V/T as descriptions, by size
+bucket as in Test 15.
+
+**Known limits.**
+- One seed and a proxy, as in Test 15.
+- The enlargement also gives the tower about 7x more image tokens of the same
+  detail (518 px: 37 x 37 = 1,369 patches; 196 px: 14 x 14 = 196). So E
+  measures "same detail, more tokens", not pure resampling.
+- Training augmentations whose strength is set in pixels act on the enlarged
+  image in crop200@512 and on native pixels in crop196@196. That is part of
+  what enlarging changes, and E includes it.
+- Two arms' logits come from Test 15's runs (same code path, asserted on
+  rows, row counts and T).
+- Patch-size handling: 196 instead of 200 (2% less view per side); the tower
+  runs at 196 with interpolated position embeddings, as `dinov2regl224` does
+  at 224.
+
+### Budget and order
+
+Timing first, as in Test 15: 100 timed steps of this arm. If the projected
+training time plus a 0.5 h scoring allowance exceeds 6 GPU-h, the test stops
+and is reported as not run. The protocol is not shrunk to fit. Before the
+run, a smoke run (a few training steps, a handful of rows scored) goes end to
+end through the analysis; its numbers are not results. The run is queued
+after Test 18 (`queue_a11.sh`). It starts only after `QUEUE A10 DONE` and
+when at least 12 GB of GPU memory is free, with no memory cap. The queue logs
+the md5 of the staged prereg diff and of the staged Test 19 code before
+training starts.
+
+## Amendment 12 (2026-11-01, during Test 18's run, before any number for Tests 20 or 21 exists)
+
+Tests 13-18 decompose the squish gain on our two frozen DINOv2 branches only.
+Amendment 12 asks whether that decomposition holds on two other detectors: our
+CLIP ViT-L/14 crop-trained proxies (amendment 4) and B-Free (amendment 3).
+Nothing in Amendments 5-11 changes. Dion's decision (2026-11-01) to run both.
+
+Registration file: this text, saved as `outputs/test20/amendment12.md` with
+its md5 logged before any Test 20 or Test 21 score. It is appended to
+`docs/ntire/paper_prereg.md` (staged) only after `queue_a11` has logged its
+own staged-diff md5, so Test 19's logged provenance is unchanged.
+
+**Inclusion rule, fixed now.** If a test's analysis JSON exists by
+2026-11-02 18:00 Singapore time, the paper reports it, whatever it shows. If
+not, the paper states that the test was registered and had not finished at
+submission. The decision depends only on the finish time, never on the result.
+
+### Test 20: the decomposition on CLIP (`clip-decomp`)
+
+**Models.** The three crop-trained CLIP proxies of amendment 4
+(`clip_crop_s1`, `_s2`, `_s3`; `clipl`, window 200, nominal 224; checkpoints
+in `/scratch/justin_r13/aigcdet/outputs/paper_clip/`), frozen, loaded as
+`amend5_test2.OurBranch` loads A2 and B2swa (no SWA). The scorer asserts each
+policy is crop, window 200, nominal 224. No training.
+
+**Rows.** Test 16's rows unchanged (`outputs/test16/rows.parquet`: SocialRF
+clean and `_deg`, short side >= 800 after damage, 500 per label per split,
+2,000 rows; `_deg` damaged by `amend5_test16.presented`).
+
+**Views.** Per image, in one pass: `center`, `squish`, Test 14's seven
+tiles(k, f) cells and Test 17's three rt(2, f) cells, with the code of those
+tests unchanged. Mean logit per image.
+
+**Statistics, per seed.** Test 16's statistics and verdict rule (Test 14's
+code: dF, dK, C; COVERAGE, CLEANING, BOTH, NEITHER) and Test 17's (dA, dS;
+ATTENUATION, CONTENT, BOTH, NEITHER), robust AUC on the `_deg` rows. Same
+bootstrap as Tests 14 and 17 (2,000 draws, seed 20260827, strata label x
+is_distorted).
+
+**Verdict.** For each rule, the verdict that at least two of the three seeds
+share; otherwise SEEDS DISAGREE. Descriptive: each AUC averaged over seeds.
+
+**What it decides.** The paper's claims carry to CLIP if the Test 16 rule
+gives CLEANING (the label Test 16 gave both DINOv2 branches: the downscale
+effect dK above zero and larger than the coverage effect dF) and the Test 17
+rule gives CONTENT (more scene per view, no measurable degradation removal).
+Any other verdict is reported as a difference between backbones.
+
+**Floor.** If the seed-mean robust AUC of `center` on these rows is below
+0.60, the detector is too weak for the decomposition to mean anything: the
+numbers are reported and no verdict is read.
+
+**Budget.** Timing on 20 rows (10 per label per split) first, for one seed.
+If three seeds project over 6 GPU-h on the RTX 4090, only `clip_crop_s1` runs
+and its verdicts stand, marked single-seed. Runs on the GPU queue after
+`QUEUE A11 DONE` with at least 12 GB free, no memory cap (`queue_a12.sh`).
+
+**Known limits.** Proxy models (1 epoch, 25% of train), weaker than the full
+branches. One held-out set. Test 17's window-count confound applies unchanged.
+
+### Test 21: the shrink x coverage factorial on B-Free (`bfree-tiles`)
+
+**Model.** B-Free (`BFREE_dino2reg4`, authors' checkpoint, ViT-B/14 with
+registers at 504 px), loaded by `public_detector_probe.BFree`. Its `--selfcheck`
+(the authors' four demo images to 1e-3) must pass on the machine that scores
+before any row is scored.
+
+**Window.** B-Free trains on 504 px crops, so its tiles use 504 px windows fed
+at 504 px with no resize: tiles504(k, f) is Test 14's tiles(k, f) with window
+504 in place of 200 and no resize to n. Same seven cells, same region rule,
+same INTER_AREA shrink, same window spacing. For a 504 px input the authors'
+five-crop wrapper sees five identical crops, so the scorer runs one forward per
+window and asserts, on the smoke rows, that it equals `BFree.logits` to 1e-4.
+Reference views: `native` (the authors' five-crop on the whole image, as in
+Test 2) and `squish` (504, as in Test 2).
+
+**Rows.** SocialRF clean and `_deg` (damage as in Test 16), short side as
+presented >= 2,016 px (so that tiles504(2, 0.25) and tiles504(4, 1) have sides
+of at least 504), up to 500 per label per split (seed 20261019, as Test 16). The
+row step runs on the RTX 4090 box from the manifest and stores, per row, the
+SHA-256 of the presented pixels. The scorer may run on the second box (RTX 4060
+Ti, `labbox`); it recomputes and asserts every SHA-256 before scoring, so both
+boxes see identical pixels.
+
+**Statistics.** Test 14's code unchanged, with `native` in `center`'s role (it
+enters only R_g, which is reported, not read): dF, dK, C and the verdict rule,
+robust AUC on the `_deg` rows. Same bootstrap.
+
+**What it decides.** B-Free relies on native-resolution traces, and Test 2
+found squish costs it AUC at every degradation level. Prediction: dK not above
+zero. If dK's interval is above zero, the downscale effect carries even to a
+native-trace detector. If not, B-Free marks where the effect stops, which the
+paper states.
+
+**Budget.** Timing on 10 rows first. If the projection is over 8 GPU-h on the
+scoring box, a label-stratified random subsample (seed 20260827), sized to fit
+and logged before any full scoring, replaces the rows.
+
+**Known limits.** Different window (504 vs 200) and a different detector
+family, so a difference from Test 16 cannot be pinned on one cause. Fewer
+fakes than reals (SocialRF has few large fakes). Only images >= 2,016 px. Test
+16's notes on SocialRF ("clean" is not clean; the size cue) apply.
