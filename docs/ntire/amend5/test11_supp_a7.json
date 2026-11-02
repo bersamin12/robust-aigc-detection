@@ -1,0 +1,389 @@
+{
+  "commit": "bbb1306ca202a9d179318def80cead0c66d1cc27",
+  "seed": 20260827,
+  "n_boot": 2000,
+  "strata": "label (all rows clean)",
+  "z": "(logit - mean of model's reals) / sd (ddof=1) of model's reals, re-estimated per draw",
+  "tpr": "score_plan_splits.tpr_at_fpr, 1% FPR, threshold re-derived per draw",
+  "models": {
+    "A": [
+      "A2",
+      "A3sqswa"
+    ],
+    "B": [
+      "B2swa",
+      "B3sqswa"
+    ]
+  },
+  "size_cut_px": 1100,
+  "n_real": 994,
+  "n_fake_small": 7999,
+  "n_fake_large": 997,
+  "large_generators": [
+    "firefly"
+  ],
+  "statistics": {
+    "A_crop_small_mean_z": {
+      "point": 19.734529594087306,
+      "ci": [
+        16.494818339404617,
+        24.854284317312317
+      ]
+    },
+    "A_crop_small_tpr": {
+      "point": 0.9822477809726216,
+      "ci": [
+        0.9787948714448096,
+        0.9922303303632392
+      ]
+    },
+    "A_crop_large_mean_z": {
+      "point": 18.173435320874777,
+      "ci": [
+        15.185300526380257,
+        22.8831435515055
+      ]
+    },
+    "A_crop_large_tpr": {
+      "point": 0.9799398194583752,
+      "ci": [
+        0.9707589048378522,
+        0.9970384995064165
+      ]
+    },
+    "A_squish_small_mean_z": {
+      "point": 33.9210544759632,
+      "ci": [
+        24.954880694778865,
+        54.49713041077048
+      ]
+    },
+    "A_squish_small_tpr": {
+      "point": 0.9838729841230154,
+      "ci": [
+        0.9761869134455538,
+        0.9949971228585086
+      ]
+    },
+    "A_squish_large_mean_z": {
+      "point": 27.21480966739525,
+      "ci": [
+        19.907260454866734,
+        43.92578960707719
+      ]
+    },
+    "A_squish_large_tpr": {
+      "point": 0.917753259779338,
+      "ci": [
+        0.8900169538050777,
+        0.9617624790039245
+      ]
+    },
+    "A_small_mean_z_diff": {
+      "point": 14.186524881875897,
+      "ci": [
+        3.345559976099202,
+        34.30467648129094
+      ]
+    },
+    "A_small_tpr_diff": {
+      "point": 0.001625203150393828,
+      "ci": [
+        -0.00975468393912351,
+        0.013457985855517501
+      ]
+    },
+    "A_large_mean_z_diff": {
+      "point": 9.041374346520474,
+      "ci": [
+        -0.0539811406400141,
+        25.16905728090501
+      ]
+    },
+    "A_large_tpr_diff": {
+      "point": -0.06218655967903719,
+      "ci": [
+        -0.09520126213770373,
+        -0.017857142857142794
+      ]
+    },
+    "A_large_minus_small_mean_z_diff": {
+      "point": -5.145150535355423,
+      "ci": [
+        -9.202659310915916,
+        -3.2167983368437176
+      ]
+    },
+    "A_pooled_auc_diff": {
+      "point": -0.0008914089248698298,
+      "ci": [
+        -0.001454354741163727,
+        -0.0004261674985440307
+      ]
+    },
+    "B_crop_small_mean_z": {
+      "point": 15.00403755760586,
+      "ci": [
+        12.883819416441932,
+        18.015219782094412
+      ]
+    },
+    "B_crop_small_tpr": {
+      "point": 0.960745093136642,
+      "ci": [
+        0.9503277147282562,
+        0.9702021212510031
+      ]
+    },
+    "B_crop_large_mean_z": {
+      "point": 13.64265741133164,
+      "ci": [
+        11.718008200696017,
+        16.47249999634331
+      ]
+    },
+    "B_crop_large_tpr": {
+      "point": 0.9638916750250752,
+      "ci": [
+        0.934884508881005,
+        0.9801260421995164
+      ]
+    },
+    "B_squish_small_mean_z": {
+      "point": 27.40593812247789,
+      "ci": [
+        22.52824084246494,
+        35.23946957215842
+      ]
+    },
+    "B_squish_small_tpr": {
+      "point": 0.8782347793474184,
+      "ci": [
+        0.8558918640734937,
+        0.902071052766743
+      ]
+    },
+    "B_squish_large_mean_z": {
+      "point": 15.368331128995942,
+      "ci": [
+        12.457615044761287,
+        19.771687329350733
+      ]
+    },
+    "B_squish_large_tpr": {
+      "point": 0.7051153460381143,
+      "ci": [
+        0.6433632115460166,
+        0.775149482870071
+      ]
+    },
+    "B_small_mean_z_diff": {
+      "point": 12.401900564872031,
+      "ci": [
+        6.453374930453241,
+        20.338814193567476
+      ]
+    },
+    "B_small_tpr_diff": {
+      "point": -0.08251031378922358,
+      "ci": [
+        -0.10655663577396465,
+        -0.0560974373863658
+      ]
+    },
+    "B_large_mean_z_diff": {
+      "point": 1.7256737176643018,
+      "ci": [
+        -2.272568743570209,
+        6.41003935552178
+      ]
+    },
+    "B_large_tpr_diff": {
+      "point": -0.2587763289869609,
+      "ci": [
+        -0.32268286069311203,
+        -0.17901497040635161
+      ]
+    },
+    "B_large_minus_small_mean_z_diff": {
+      "point": -10.67622684720773,
+      "ci": [
+        -14.206507763908084,
+        -8.35506275095888
+      ]
+    },
+    "B_pooled_auc_diff": {
+      "point": -0.022042772419309076,
+      "ci": [
+        -0.02463522799759881,
+        -0.01929327465459714
+      ]
+    }
+  },
+  "paired_diff_check": {
+    "A": {
+      "a": 0.9995464114164757,
+      "b": 0.9986550024916059,
+      "diff": -0.0008914089248698298,
+      "ci": [
+        -0.001454354741163727,
+        -0.0004261674985440307
+      ]
+    },
+    "B": {
+      "a": 0.998516331425637,
+      "b": 0.9764735590063279,
+      "diff": -0.022042772419309076,
+      "ci": [
+        -0.02463522799759881,
+        -0.01929327465459714
+      ]
+    }
+  },
+  "power": {
+    "A": {
+      "per_generator": {
+        "dalle2": {
+          "crop_auc": 0.9979788732394366,
+          "diff": 0.001246478873239476,
+          "ci_width": 0.0020645875251508595,
+          "crop_median_fake_z": 17.605648643569936
+        },
+        "dalle3": {
+          "crop_auc": 0.9999818913480886,
+          "diff": -0.00045171026156942684,
+          "ci_width": 0.0013372233400402028,
+          "crop_median_fake_z": 21.24473581288312
+        },
+        "firefly": {
+          "crop_auc": 0.9996216012221776,
+          "diff": -0.0066951357089376495,
+          "ci_width": 0.006711659122235878,
+          "crop_median_fake_z": 20.143040917694172
+        },
+        "glide": {
+          "crop_auc": 0.9983933601609658,
+          "diff": 0.00034406438631784386,
+          "ci_width": 0.0016559356136820497,
+          "crop_median_fake_z": 19.678149654640045
+        },
+        "midjourney-v5": {
+          "crop_auc": 0.9999889225241337,
+          "diff": -0.0018851849837764334,
+          "ci_width": 0.002242786045602973,
+          "crop_median_fake_z": 21.27913377775705
+        },
+        "stable-diffusion-1-3": {
+          "crop_auc": 1.0,
+          "diff": 0.0,
+          "ci_width": 0.0,
+          "crop_median_fake_z": 21.205099667620658
+        },
+        "stable-diffusion-1-4": {
+          "crop_auc": 1.0,
+          "diff": 0.0,
+          "ci_width": 0.0,
+          "crop_median_fake_z": 21.202094189230458
+        },
+        "stable-diffusion-2": {
+          "crop_auc": 0.9999657947686117,
+          "diff": -0.0005201207243461514,
+          "ci_width": 0.0009446931589536995,
+          "crop_median_fake_z": 21.178575139456363
+        },
+        "stable-diffusion-xl": {
+          "crop_auc": 0.9999879275653923,
+          "diff": -7.94768611669383e-05,
+          "ci_width": 0.0001901659959759494,
+          "crop_median_fake_z": 21.177601618852375
+        }
+      },
+      "min_crop_auc": 0.9979788732394366,
+      "max_ci_width": 0.006711659122235878
+    },
+    "B": {
+      "per_generator": {
+        "dalle2": {
+          "crop_auc": 0.9940513078470825,
+          "diff": -0.10996780684104634,
+          "ci_width": 0.03058699698189135,
+          "crop_median_fake_z": 12.358633100497993
+        },
+        "dalle3": {
+          "crop_auc": 0.9998440643863179,
+          "diff": -0.0006961770623742369,
+          "ci_width": 0.002414486921529127,
+          "crop_median_fake_z": 16.714905916455898
+        },
+        "firefly": {
+          "crop_auc": 0.9990131359874391,
+          "diff": -0.03992863903581967,
+          "ci_width": 0.01779251234589075,
+          "crop_median_fake_z": 14.992974437863946
+        },
+        "glide": {
+          "crop_auc": 0.9946066398390342,
+          "diff": -0.013834004024144808,
+          "ci_width": 0.012089612676056403,
+          "crop_median_fake_z": 14.056817096114706
+        },
+        "midjourney-v5": {
+          "crop_auc": 0.9997774434394153,
+          "diff": -0.016950552161819843,
+          "ci_width": 0.01144967905531287,
+          "crop_median_fake_z": 16.683689357335886
+        },
+        "stable-diffusion-1-3": {
+          "crop_auc": 0.9999939637826962,
+          "diff": -2.0120724346650576e-06,
+          "ci_width": 4.325955734407749e-05,
+          "crop_median_fake_z": 16.664761090544342
+        },
+        "stable-diffusion-1-4": {
+          "crop_auc": 0.9999959758551308,
+          "diff": -0.0002535211267605808,
+          "ci_width": 0.0007072434607645645,
+          "crop_median_fake_z": 16.6776775466275
+        },
+        "stable-diffusion-2": {
+          "crop_auc": 0.9997877263581489,
+          "diff": -0.011605633802816984,
+          "ci_width": 0.00822117706237432,
+          "crop_median_fake_z": 16.427486482618058
+        },
+        "stable-diffusion-xl": {
+          "crop_auc": 0.999579476861167,
+          "diff": -0.005195171026156964,
+          "ci_width": 0.006681363179074453,
+          "crop_median_fake_z": 16.638592183811564
+        }
+      },
+      "min_crop_auc": 0.9940513078470825,
+      "max_ci_width": 0.03058699698189135
+    }
+  },
+  "test_read_checkpoints": {
+    "read1_crop": {
+      "config": "docs/ntire/fusion_ntire2_final.json",
+      "branch_a": {
+        "prefix": "outputs/scores/A2",
+        "ckpt": "/scratch/justin_r13/aigcdet/outputs/unfreeze/ntire2_d24_518/checkpoint.pt"
+      },
+      "branch_b": {
+        "prefix": "outputs/scores/B2swa",
+        "ckpt": "/scratch/justin_r13/aigcdet/outputs/dual/ntire2_dual224/checkpoint.pt"
+      }
+    },
+    "read2_squish": {
+      "config": "docs/ntire/paper/fusion_squish_final.json",
+      "branch_a": {
+        "prefix": "outputs/scores/paper/A3sqswa",
+        "ckpt": "/scratch/justin_r13/aigcdet/outputs/paper/unfreeze/ntire3_d24_512_sq/checkpoint.pt"
+      },
+      "branch_b": {
+        "prefix": "outputs/scores/paper/B3sqswa",
+        "ckpt": "/scratch/justin_r13/aigcdet/outputs/paper/dual/ntire3_dual224_sq/checkpoint.pt"
+      }
+    }
+  }
+}
