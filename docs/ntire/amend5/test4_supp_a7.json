@@ -1,0 +1,224 @@
+{
+ "reanalysis": "R2",
+ "test": 4,
+ "amendment": 7,
+ "commit": "4652e27e224eb38c19a1958adda5eb81a3709c6b",
+ "seed": 20260827,
+ "n_boot": 2000,
+ "jpeg_tokens": [
+  "jpeg",
+  "jpeg_ai",
+  "jpeg_recompression_1",
+  "jpeg_recompression_2",
+  "jpeg_recompression_comb_jpegai",
+  "quantization"
+ ],
+ "splits": {
+  "ntire_val_hard": {
+   "n_distorted": 1250,
+   "counts": {
+    "JPEG": {
+     "n": 832,
+     "n_real": 417,
+     "n_fake": 415,
+     "n_with_downscale": 633,
+     "short_p50": 496.0
+    },
+    "no-JPEG": {
+     "n": 418,
+     "n_real": 208,
+     "n_fake": 210,
+     "n_with_downscale": 298,
+     "short_p50": 512.0
+    }
+   },
+   "branches": {
+    "A2": {
+     "gain_jpeg": {
+      "point": 0.13110282858050903,
+      "ci": [
+       0.10472826558030678,
+       0.15775707145127268
+      ]
+     },
+     "gain_no_jpeg": {
+      "point": 0.02825091575091576,
+      "ci": [
+       0.007576694139194112,
+       0.05023294413919416
+      ]
+     },
+     "diff_jpeg_minus_no_jpeg": {
+      "point": 0.10285191282959327,
+      "ci": [
+       0.06910762878178861,
+       0.13702432030279388
+      ]
+     },
+     "gain_pooled": {
+      "point": 0.092032,
+      "ci": [
+       0.07314617600000002,
+       0.11063667199999998
+      ]
+     },
+     "pooled_matches_paired_diff": true
+    },
+    "B2swa": {
+     "gain_jpeg": {
+      "point": 0.0935194013463928,
+      "ci": [
+       0.07001964693305601,
+       0.11728915662650603
+      ]
+     },
+     "gain_no_jpeg": {
+      "point": 0.03997252747252744,
+      "ci": [
+       0.017421588827838768,
+       0.06405906593406592
+      ]
+     },
+     "diff_jpeg_minus_no_jpeg": {
+      "point": 0.053546873873865364,
+      "ci": [
+       0.018933390937852103,
+       0.08546479131404265
+      ]
+     },
+     "gain_pooled": {
+      "point": 0.07272447999999998,
+      "ci": [
+       0.05574092800000003,
+       0.08969049599999993
+      ]
+     },
+     "pooled_matches_paired_diff": true
+    }
+   },
+   "test4_resampler_check": {
+    "A2": {
+     "all_rows_cell_identical": true,
+     "jpeg_family_identical": false,
+     "jpeg_family_max_abs_draw_diff": 0.08047356538121819,
+     "jpeg_ci_joint_gain_draws": [
+      0.10476027050407566,
+      0.15794896994142027
+     ],
+     "jpeg_ci_paired_diff": [
+      0.10519560255410129,
+      0.1585168010170177
+     ],
+     "jpeg_n_fixed_in_paired_diff": 832,
+     "jpeg_n_per_draw_in_joint_gain_draws": {
+      "min": 763,
+      "max": 891,
+      "sd": 16.878059418961648
+     }
+    },
+    "B2swa": {
+     "all_rows_cell_identical": true,
+     "jpeg_family_identical": false,
+     "jpeg_family_max_abs_draw_diff": 0.05838566146022106,
+     "jpeg_ci_joint_gain_draws": [
+      0.0701912924687255,
+      0.11714017776093825
+     ],
+     "jpeg_ci_paired_diff": [
+      0.07140692265464736,
+      0.11680780676663485
+     ],
+     "jpeg_n_fixed_in_paired_diff": 832,
+     "jpeg_n_per_draw_in_joint_gain_draws": {
+      "min": 763,
+      "max": 891,
+      "sd": 16.878059418961648
+     }
+    }
+   }
+  },
+  "ntire_val": {
+   "n_distorted": 5000,
+   "counts": {
+    "JPEG": {
+     "n": 1570,
+     "n_real": 759,
+     "n_fake": 811,
+     "n_with_downscale": 1159,
+     "short_p50": 480.0
+    },
+    "no-JPEG": {
+     "n": 3430,
+     "n_real": 1741,
+     "n_fake": 1689,
+     "n_with_downscale": 2549,
+     "short_p50": 464.0
+    }
+   },
+   "branches": {
+    "A2": {
+     "gain_jpeg": {
+      "point": 0.04816188475653449,
+      "ci": [
+       0.037527759772170814,
+       0.05966048194376068
+      ]
+     },
+     "gain_no_jpeg": {
+      "point": 0.015328770239843026,
+      "ci": [
+       0.011154736751538639,
+       0.019608013673637088
+      ]
+     },
+     "diff_jpeg_minus_no_jpeg": {
+      "point": 0.032833114516691464,
+      "ci": [
+       0.02156850245976366,
+       0.04522559470814476
+      ]
+     },
+     "gain_pooled": {
+      "point": 0.02367600000000003,
+      "ci": [
+       0.019559632000000077,
+       0.02803556799999998
+      ]
+     },
+     "pooled_matches_paired_diff": true
+    },
+    "B2swa": {
+     "gain_jpeg": {
+      "point": 0.03264565452953383,
+      "ci": [
+       0.02401323858864198,
+       0.04199641295818847
+      ]
+     },
+     "gain_no_jpeg": {
+      "point": 0.01503443744688493,
+      "ci": [
+       0.010875834750585716,
+       0.019257339360779214
+      ]
+     },
+     "diff_jpeg_minus_no_jpeg": {
+      "point": 0.0176112170826489,
+      "ci": [
+       0.0074129813994457255,
+       0.027637287162173587
+      ]
+     },
+     "gain_pooled": {
+      "point": 0.020198319999999992,
+      "ci": [
+       0.016460504000000025,
+       0.024254673999999952
+      ]
+     },
+     "pooled_matches_paired_diff": true
+    }
+   }
+  }
+ }
+}
