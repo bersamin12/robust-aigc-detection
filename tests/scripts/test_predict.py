@@ -404,7 +404,7 @@ def pred_ckpt(monkeypatch):
                                  BackboneSpec(n, "none", 48, DIM, 1, 0)))
     monkeypatch.setattr(
         finetune, "_forward_tower",
-        lambda model, sp, imgs, device, dtype, chunk: torch.stack(
+        lambda model, sp, imgs, device, dtype, chunk, pooler=None: torch.stack(
             [torch.full((sp.dim,), float(np.mean(i)) / 255.0) for i in imgs]))
     return mod
 
@@ -435,6 +435,79 @@ def test_ckpt_mode_scores_a_bad_file_half_and_exits_nonzero(tmp_path, pred_ckpt)
     assert len(rows) == 3
 
 
+def _fusion_json(tmp_path, w=0.3, mu_a=0.0, sd_a=1.0, mu_b=0.0, sd_b=2.0):
+    rec = {"fusion": {"weight": w, "z_a": {"mu": mu_a, "sigma": sd_a},
+                      "z_b": {"mu": mu_b, "sigma": sd_b},
+                      "fit_population": "split=test_fixture"},
+           "branch_a": {"ckpt": "a.pt"}, "branch_b": {"ckpt": "b.pt"}}
+    p = tmp_path / "fusion.json"
+    p.write_text(json.dumps(rec))
+    return str(p)
+
+
+def test_two_ckpts_fuse_logits_with_the_recorded_parameters(tmp_path, pred_ckpt):
+    """The fused score is w*zA + (1-w)*zB over the two branches' own logits,
+    each under its own canonicalisation, with the z-scores and weight taken
+    from the fusion json -- never refitted on the files being scored."""
+    paths = _images(tmp_path / "in", n=3)
+    ck = _dual_ckpt(tmp_path)
+    fj = _fusion_json(tmp_path, w=0.3, mu_a=0.1, sd_a=0.5, mu_b=-0.2, sd_b=2.0)
+    solo = tmp_path / "solo.json"
+    assert pred_ckpt.main(["--images", str(tmp_path / "in"), "--ckpt", ck,
+                           "--out", str(solo), "--device", "cpu", "--full"]) == 0
+    fused = tmp_path / "fused.json"
+    assert pred_ckpt.main(["--images", str(tmp_path / "in"), "--ckpt", ck,
+                           "--ckpt", ck, "--fusion", fj,
+                           "--out", str(fused), "--device", "cpu", "--full"]) == 0
+    s = {r["image_path"]: r for r in json.loads(solo.read_text())}
+    f = {r["image_path"]: r for r in json.loads(fused.read_text())}
+    assert set(f) == {str(p) for p in paths}
+    for p, r in f.items():
+        lg = s[p]["logit"]
+        want = 0.3 * (lg - 0.1) / 0.5 + 0.7 * (lg + 0.2) / 2.0
+        assert r["logit"] == pytest.approx(want)
+        assert r["pred"] == pytest.approx(1 / (1 + np.exp(-want)))
+        assert r["logit_a"] == pytest.approx(lg) and r["logit_b"] == pytest.approx(lg)
+    # The minimal contract is unchanged in fused mode.
+    minimal = tmp_path / "min.json"
+    assert pred_ckpt.main(["--images", str(tmp_path / "in"), "--ckpt", ck,
+                           "--ckpt", ck, "--fusion", fj,
+                           "--out", str(minimal), "--device", "cpu"]) == 0
+    assert all(sorted(r) == ["image_path", "pred"] for r in json.loads(minimal.read_text()))
+
+
+def test_two_ckpts_need_a_fusion_json_and_one_ckpt_refuses_it(tmp_path, pred_ckpt):
+    _images(tmp_path / "in", n=1)
+    ck = _dual_ckpt(tmp_path)
+    fj = _fusion_json(tmp_path)
+    with pytest.raises(SystemExit, match="need --fusion"):
+        pred_ckpt.main(["--images", str(tmp_path / "in"), "--ckpt", ck,
+                        "--ckpt", ck, "--out", str(tmp_path / "o.json"), "--device", "cpu"])
+    with pytest.raises(SystemExit, match="exactly two"):
+        pred_ckpt.main(["--images", str(tmp_path / "in"), "--ckpt", ck,
+                        "--fusion", fj, "--out", str(tmp_path / "o.json"), "--device", "cpu"])
+    with pytest.raises(SystemExit, match="at most two"):
+        pred_ckpt.main(["--images", str(tmp_path / "in"), "--ckpt", ck, "--ckpt", ck,
+                        "--ckpt", ck, "--fusion", fj, "--out", str(tmp_path / "o.json"),
+                        "--device", "cpu"])
+
+
+def test_fused_mode_fails_a_file_either_branch_could_not_score(tmp_path, pred_ckpt):
+    _images(tmp_path / "in", n=2)
+    (tmp_path / "in" / "broken.png").write_bytes(b"not an image")
+    ck = _dual_ckpt(tmp_path)
+    fj = _fusion_json(tmp_path)
+    out = tmp_path / "p.json"
+    rc = pred_ckpt.main(["--images", str(tmp_path / "in"), "--ckpt", ck,
+                         "--ckpt", ck, "--fusion", fj, "--out", str(out),
+                         "--device", "cpu", "--full"])
+    assert rc == 1
+    rows = {r["image_path"]: r for r in json.loads(out.read_text())}
+    bad = rows[str(tmp_path / "in" / "broken.png")]
+    assert bad["pred"] == 0.5 and bad["error"]
+    assert sum(1 for r in rows.values() if r["error"]) == 1
+
+
 def test_ckpt_and_bundle_are_mutually_exclusive(tmp_path, pred_ckpt):
     _images(tmp_path / "in", n=1)
     with pytest.raises(SystemExit):
@@ -456,3 +529,21 @@ def test_ckpt_mode_refuses_a_recon_head(tmp_path, pred_ckpt):
     with pytest.raises(SystemExit, match="recon"):
         pred_ckpt.main(["--images", str(tmp_path / "in"), "--ckpt", str(p),
                         "--out", str(tmp_path / "p.json"), "--device", "cpu"])
+
+
+def test_ckpt_mode_scores_an_undersized_image_as_failed(tmp_path, pred_ckpt):
+    """canonicalise refuses an image smaller than the crop window; that is the
+    file's failure, not the run's -- the other files still get real scores."""
+    ck = _dual_ckpt(tmp_path)
+    _images(tmp_path / "in", n=2)
+    Image.fromarray(np.zeros((20, 25, 3), dtype=np.uint8)).save(
+        tmp_path / "in" / "tiny.png")
+    out = tmp_path / "p.json"
+    rc = pred_ckpt.main(["--images", str(tmp_path / "in"), "--ckpt", ck,
+                         "--out", str(out), "--device", "cpu"])
+    assert rc == 1
+    rows = {r["image_path"]: r["pred"] for r in json.loads(out.read_text())}
+    assert rows[str(tmp_path / "in" / "tiny.png")] == 0.5
+    assert len(rows) == 3
+    others = [v for k, v in rows.items() if not k.endswith("tiny.png")]
+    assert all(v != 0.5 for v in others)

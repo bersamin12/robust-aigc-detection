@@ -138,6 +138,26 @@ which it emphatically did not before, when it meant one blur on a 200px image
 and a quite different one on a 512px image. That is a gain in consistency, not
 a redefinition, but it does move the numbers.
 
+A THIRD POLICY: SQUISH (2026-10-08)
+-----------------------------------
+`mode="crop"` was adopted to remove the resolution cue above without paying
+band mode's spectral cost, and it does: its resample factor scores AUC 0.505
+against the label on ntire_val_hard. But it equalises the NUMBER of pixels,
+not the FIELD OF VIEW, and on the NTIRE stream that is the larger problem.
+Every training image sits at 384-512px, so a 200px window is 39-52% of the
+short side in training; 71% of the NTIRE eval images are above 512px, and the
+window there is as little as 5%. `mode="squish"` presents the whole frame at
+`nominal_side` square and so equalises field of view instead. A test-time
+probe on the crop-trained checkpoints (docs/ntire/crop_probe.md) took fused
+robust AUC on ntire_val_hard from 0.8856 to 0.9631 by this change alone, and
+three controls there show the gain is not the resolution cue returning: the
+cue is absent from training (AUC 0.5275, nothing above 512), the gain holds
+within deciles of native size, and it survives band-limiting the squished
+image to 160. What squish does NOT do is band-limit, so on eval sets whose
+real and fake classes differ in native size the cue is present in the pixels
+even though training gives the model no reason to read it. Report the
+short-side-vs-label AUC of any new eval set beside a squish number.
+
 WIRING: THREE CALL SITES, NOT TWO
 ---------------------------------
 This must run on the training path AND the evaluation path, at the same point
@@ -233,7 +253,20 @@ MODE_BAND = "band"
 #: confound for a content one. See docs/dataset_presets.md.
 MODE_CROP = "crop"
 
-MODES = (MODE_BAND, MODE_CROP)
+#: Squish: present the WHOLE frame at `nominal_side` x `nominal_side`, aspect
+#: discarded. Equalises FIELD OF VIEW, which crop leaves free: a 200px window
+#: is 39% of the short side of a 512px training image and 5% of a 4016px test
+#: one, and on the NTIRE eval sets 86% of rows fall outside the training band
+#: of that ratio (docs/ntire/crop_probe.md). Two downscales on one kernel
+#: (short side to nominal if larger, then the long side to nominal), so no
+#: image larger than nominal is routed through a different kernel for its
+#: size. The cost: native resolution is NOT band-limited away, and an image
+#: smaller than nominal is UPSCALED (INTER_AREA, which OpenCV treats as a
+#: near-neighbour/bilinear enlargement), so how soft it arrives depends on its
+#: native size. That residue is what the probe's `band_squish` arm measures.
+MODE_SQUISH = "squish"
+
+MODES = (MODE_BAND, MODE_CROP, MODE_SQUISH)
 
 
 @dataclass(frozen=True)
@@ -295,6 +328,13 @@ class CanonPolicy:
                     "as an interpolation signature")
             if not 0.0 <= self.jitter < 1.0:
                 raise ValueError(f"jitter must be in [0, 1), got {self.jitter!r}")
+        elif self.mode == MODE_SQUISH:
+            # Reads nominal_side and nothing else. crop_side / crop_clamp are
+            # deliberately NOT validated: every scorer rebuilds the policy
+            # from a checkpoint config that always carries them.
+            if not (isinstance(self.nominal_side, int) and self.nominal_side > 0):
+                raise ValueError(
+                    f"need nominal_side > 0, got {self.nominal_side!r}")
         else:
             if self.crop_clamp and not 0 < self.crop_side <= self.nominal_side:
                 raise ValueError(
@@ -316,7 +356,7 @@ class CanonPolicy:
         rotation transposes a non-square image and every op downstream is
         shape-preserving.
         """
-        return self.mode == MODE_CROP
+        return self.mode in (MODE_CROP, MODE_SQUISH)
 
     def as_record(self) -> dict:
         """The blob written into the feature bank's config.
@@ -328,6 +368,8 @@ class CanonPolicy:
         rec = {"mode": self.mode, "nominal_side": self.nominal_side}
         if self.mode == MODE_BAND:
             rec.update(band_side=self.band_side, jitter=self.jitter)
+        elif self.mode == MODE_SQUISH:
+            pass
         else:
             rec.update(crop_side=self.crop_side)
             # Only recorded when set, so every bank written before this field
@@ -434,7 +476,7 @@ def canonicalise(img: np.ndarray, *,
                  nominal_side: int = CANON_NOMINAL_SIDE,
                  rng: np.random.Generator | None = None,
                  jitter: float = CANON_BAND_JITTER) -> np.ndarray:
-    """Map any image to `nominal_side` by one of two standardisation policies.
+    """Map any image to `nominal_side` by one of three standardisation policies.
 
     Takes no label, no source and no path: the transform is a pure function of
     the pixels and its configuration, so it cannot be applied asymmetrically to
@@ -447,7 +489,7 @@ def canonicalise(img: np.ndarray, *,
     resampling signature; derive it with `canonical_rng` so the result stays
     reproducible from `(seed, row_id, view_idx)`.
 
-    `policy` selects between the two (see `CanonPolicy`). The loose keyword
+    `policy` selects between band, crop and squish (see `CanonPolicy`). The loose keyword
     arguments are the original signature, kept working so that no existing
     call site or test had to change; they build a band-mode policy. Passing a
     `policy` AND a loose argument raises rather than picking a winner -- two
@@ -486,6 +528,21 @@ def canonicalise(img: np.ndarray, *,
     # them too, with the same messages. Keeping a copy here would also have
     # applied band mode's contract to crop mode, where `band_side` is never
     # read -- which is what a policy is FOR.
+
+    if policy.mode == MODE_SQUISH:
+        # The whole frame, every time: field of view is 1.0 for every image in
+        # every split. `rng` is accepted and ignored -- the policy has no
+        # randomness, and callers such as content_blind_probe pass one
+        # unconditionally. The two steps are exactly `views_squish` in
+        # scripts/ntire_crop_probe.py, whose test-time numbers this mode is
+        # meant to carry into training; a test pins the pixels equal.
+        n = policy.nominal_side
+        out = img
+        if min(out.shape[:2]) > n:
+            out = _resize_short_side(out, n, _DOWNSCALE_INTERP)
+        if out.shape[:2] != (n, n):
+            out = cv2.resize(out, (n, n), interpolation=_DOWNSCALE_INTERP)
+        return out.copy() if out is img else out
 
     if policy.mode == MODE_CROP:
         # Step 1', the crop, replaces step 1, the band-limit. It removes no

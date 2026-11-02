@@ -36,23 +36,30 @@ exactly the class of error this repo keeps finding.
 """
 from __future__ import annotations
 
+import copy
 import json
 import os
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 
 import numpy as np
 import torch
 from PIL import Image
 
-from aigcdet.augment.canonical import DEFAULT_POLICY, CanonPolicy
+from aigcdet.augment.canonical import DEFAULT_POLICY, MODE_CROP, CanonPolicy
+from aigcdet.augment.recipes import (
+    MAX_OPS_DEFAULT, RECIPE_POOL_DEFAULT, pool_has_pre_ops)
 from aigcdet.features.backbones import (
-    BackboneSpec, load_backbone, model_inputs, _pool,
+    BackboneSpec, load_backbone, model_inputs, _pool, tokens,
 )
 from aigcdet.features.bank import FeatureBank
 from aigcdet.features.extract import build_view
 from aigcdet.models.heads import Detector
+from aigcdet.models.pooling import (
+    TOKEN_POOL_MEAN, TOKEN_POOLS, build_pooler, pooled_dim, tower_poolers,
+)
 from aigcdet.models.losses import (
-    LossWeights, classification_loss, consistency_loss, total_loss,
+    LossWeights, classification_loss, consistency_loss, distillation_loss,
+    total_loss,
 )
 from aigcdet.models.sampler import PairedSampler
 
@@ -66,6 +73,20 @@ _BLOCK_PATHS: tuple[str, ...] = (
     "encoder.layer", "encoder.layers", "blocks", "layers",
     "encoder.stages", "stages",
 )
+
+#: What the degraded view's pooled tower feature is pulled towards
+#: (`FinetuneConfig.distil`). "off" is every run before this existed. "self"
+#: is the clean view's feature from the SAME tower, stop-gradient, at no extra
+#: compute. "ema" is the clean view's feature from an exponential moving
+#: average of the tower (`_EmaTeacher`): a slower-moving target that costs a
+#: third forward per source and a second copy of the tower on the card.
+DISTIL_OFF, DISTIL_SELF, DISTIL_EMA = "off", "self", "ema"
+DISTIL_MODES: tuple[str, ...] = (DISTIL_OFF, DISTIL_SELF, DISTIL_EMA)
+
+#: The loss parts every trainer reports, in the order they are logged,
+#: summed across ranks and written to `history`. `dis` is the distillation
+#: term and reads 0.0 for a run without one.
+LOSS_PARTS: tuple[str, ...] = ("cls", "deg", "con", "dis", "total")
 
 
 def _resolve(model, path: str):
@@ -215,18 +236,26 @@ def _prepare_batch(task: BatchTask) -> dict:
     running it in another process is safe by construction and produces the
     same pixels as running it inline.
     """
-    (paths, row_ids, view_ids, seed, policy, geometric, exclude) = task
+    (paths, row_ids, view_ids, seed, policy, geometric, exclude,
+     pool, max_ops, share_window) = task[:10]
+    # The crop-confound control: degraded views built on the clean view's
+    # window, so each pair differs in degradation only. Off, every view draws
+    # its own window, which is what the bank's extraction did.
+    window_view = 0 if share_window else None
     clean, deg = [], []
     m_deg = view_ids.shape[1]
     for path, row_id, views in zip(paths, row_ids, view_ids):
         with Image.open(path) as im:
             decoded = np.asarray(im.convert("RGB"), dtype=np.uint8)
         clean.append(build_view(decoded, 0, int(row_id), seed, policy=policy,
-                                geometric=geometric, exclude_families=exclude)[0])
+                                geometric=geometric, exclude_families=exclude,
+                                pool=pool, max_ops=max_ops)[0])
         for v in views:
             deg.append(build_view(decoded, int(v), int(row_id), seed,
                                   policy=policy, geometric=geometric,
-                                  exclude_families=exclude)[0])
+                                  exclude_families=exclude,
+                                  pool=pool, max_ops=max_ops,
+                                  window_view=window_view)[0])
     return {"clean": clean, "deg": deg, "m_deg": m_deg}
 
 
@@ -243,15 +272,43 @@ class LiveViewSampler(PairedSampler):
 
     What this yields is IMAGES, not features. The forward is the caller's, so
     the tower stays in the training loop where its gradients are.
+
+    `share_window` builds every degraded view on its clean partner's crop
+    window (`build_view`'s `window_view=0`). The draw and the bank's targets
+    do not change with it; only the pixels do.
     """
 
     def __init__(self, bank, indices, *, root: str, seed: int,
                  policy: CanonPolicy = DEFAULT_POLICY, geometric: bool = False,
-                 exclude_families: tuple[str, ...] = (), **kw):
+                 exclude_families: tuple[str, ...] = (),
+                 share_window: bool = False, **kw):
         super().__init__(bank, indices, **kw)
         self.root, self.seed = root, seed
         self.policy, self.geometric = policy, geometric
+        self.share_window = bool(share_window)
+        if self.share_window and policy.mode != MODE_CROP:
+            # share_window only re-keys the crop rng; under any other policy
+            # it changes nothing, and a "control" arm that is silently
+            # identical to its baseline is worse than a refusal.
+            raise ValueError(
+                f"share_window is a crop-window control and does nothing under "
+                f"mode={policy.mode!r}; drop --share-window")
         self.exclude_families = tuple(exclude_families)
+        # The op pool and chain depth come from the BANK, never from the
+        # trainer's config: the bank's presence/severity targets were computed
+        # from recipes sampled under them, and a trainer that rebuilt a view
+        # under a different pool would train the degradation head against
+        # targets for pixels it never saw. A bank written before pools existed
+        # carries no key and was, by construction, sampled under "legacy".
+        self.pool = str(bank.config.get("recipe_pool", RECIPE_POOL_DEFAULT))
+        self.max_ops = int(bank.config.get("max_ops", MAX_OPS_DEFAULT))
+        if (pool_has_pre_ops(self.pool) and self.policy.mode == MODE_CROP
+                and not self.policy.crop_clamp):
+            raise ValueError(
+                f"bank pool {self.pool!r} samples a pre-canonical downscale that "
+                f"can leave an image below the {self.policy.crop_side}px crop "
+                "window, and this policy would refuse such a view mid-epoch. "
+                "Train with --crop-clamp (the scoring policy already does).")
         col = "rel_path" if "rel_path" in bank.meta.columns else "path"
         self._paths = bank.meta[col].to_numpy()
         self._absolute = col == "path"
@@ -279,6 +336,7 @@ class LiveViewSampler(PairedSampler):
                 self._row_ids[src],
                 views,
                 self.seed, self.policy, self.geometric, self.exclude_families,
+                self.pool, self.max_ops, self.share_window,
                 si, vi,
             ))
         return tasks
@@ -336,6 +394,10 @@ class FinetuneConfig:
     use_consistency: bool = True
     use_degradation: bool = True
     use_film: bool = False
+    #: Condition each row on its NEIGHBOUR's degradation embedding: the
+    #: information control for `use_film` (identical parameters, no
+    #: per-image signal). A control, not a recipe option.
+    film_shuffle: bool = False
     head_hidden: int = 512
     epochs: int = 5
     lr: float = 1e-3                 # the HEAD's learning rate
@@ -444,6 +506,11 @@ class FinetuneConfig:
     #: See `CanonPolicy.crop_clamp`. Gate it on the content-blind probe.
     crop_clamp: bool = False
     geometric: bool = False
+    #: Degraded views take the clean view's crop window, so a distillation
+    #: or consistency pair differs in degradation only. Off by default: the
+    #: banks and every run to date drew a window per view. A control, not a
+    #: recipe change -- see `LiveViewSampler`.
+    share_window: bool = False
     train_exclude_generators: tuple[str, ...] = ()
     #: Fraction of the train rows to keep, stratified by (generator, label).
     #: 1.0 is the whole split and the default; anything smaller exists to
@@ -454,6 +521,40 @@ class FinetuneConfig:
     #: Feed the head the bank's precomputed 12-d reconstruction block (the
     #: VAE branch, spec section 3.3). The block must already be attached.
     use_recon: bool = False
+    #: How a generator family is chosen before an image is drawn from it
+    #: (`models.sampler.FAMILY_WEIGHTINGS`). "uniform" is every run before
+    #: this existed; "proportional" draws families by row count, which is the
+    #: NTIRE setting -- one pseudo-family holds most of the fakes. Part of
+    #: `_RESUME_INVARIANT`: it changes the batch sequence.
+    family_weighting: str = "uniform"
+    #: How the tower's token sequence becomes the head's input
+    #: (`models.pooling.TOKEN_POOLS`). "mean" is every run before this
+    #: existed and takes the bank's own `_pool` path unchanged; the others
+    #: put a `TokenPooler` inside the head, so `dim_feat` follows it. Part of
+    #: `_RESUME_INVARIANT`: it changes the head's shape.
+    token_pool: str = TOKEN_POOL_MEAN
+    #: Degradation-invariant distillation (`DISTIL_MODES`): pull each degraded
+    #: view's pooled TOWER feature towards the clean view's, by cosine, with
+    #: the clean side a stop-gradient target. "off" leaves every existing run
+    #: untouched. The a3 consistency terms (`weights.alpha`, `weights.beta`)
+    #: are NOT switched off by this -- they act on the head's hidden state,
+    #: this acts on the tower's output, and whether the two should coexist is
+    #: an arm of the ablation, not a decision this field makes for you. Set
+    #: alpha and beta to 0 explicitly to replace them. Part of
+    #: `_RESUME_INVARIANT`: it changes what is trained.
+    distil: str = DISTIL_OFF
+    #: Weight on the distillation term. The term is a mean cosine distance in
+    #: [0, 2], so 1.0 puts it on the same scale as the class-balanced BCE.
+    distil_weight: float = 1.0
+    #: Decay of the EMA teacher, per optimiser step. 0.999 is a ~1000-step
+    #: memory, a sixth of an NTIRE epoch: long enough that the target is not
+    #: the student's last step, short enough that it is not the pretrained
+    #: tower for most of the run. Unused unless `distil == "ema"`.
+    distil_ema_decay: float = 0.999
+    #: Print step, running losses, s/step and the epoch ETA every this many
+    #: optimiser steps (0 = only the per-epoch line). A day-long run that
+    #: prints once per epoch cannot be told apart from a hung one.
+    log_every: int = 50
 
     def policy(self) -> CanonPolicy:
         kw = {} if self.nominal_side is None else {
@@ -463,7 +564,7 @@ class FinetuneConfig:
 
 
 def _forward_tower(model, spec: BackboneSpec, imgs, device: str,
-                   dtype: torch.dtype, chunk: int) -> torch.Tensor:
+                   dtype: torch.dtype, chunk: int, pooler=None) -> torch.Tensor:
     """Differentiable counterpart of `features.backbones.embed`.
 
     Reuses `model_inputs` and `_pool` rather than restating them, so the
@@ -472,16 +573,24 @@ def _forward_tower(model, spec: BackboneSpec, imgs, device: str,
     included. `embed` itself cannot be reused: it is `@torch.inference_mode()`,
     which is not merely no-grad but poisons its outputs against ever being used
     in a graph.
+
+    With a `pooler` (`models.pooling.TokenPooler`, owned by the head) the
+    tower's token sequence is read by it instead of by `_pool`; `None` keeps
+    the historical path exactly.
     """
     outs = []
     for i in range(0, len(imgs), chunk):
         inputs = model_inputs(spec, imgs[i:i + chunk], device, dtype)
-        outs.append(_pool(model, spec, inputs))
+        if pooler is None:
+            outs.append(_pool(model, spec, inputs))
+        else:
+            outs.append(pooler(tokens(model, spec, inputs)))
     return torch.cat(outs, dim=0)
 
 
-def _step_loss(head, batch: dict, cfg: FinetuneConfig):
-    """One micro-batch's loss and its parts, for whichever rung this is.
+def _a3_loss(head, batch: dict, cfg: FinetuneConfig):
+    """The cached rungs' loss over one micro-batch: what every run before
+    distillation existed minimised, and what `_step_loss` adds to.
 
     Identical in structure to `train_head.train_rung`'s body, deliberately:
     the unfreeze ladder varies the TOWER, so every other term has to be the
@@ -509,6 +618,131 @@ def _step_loss(head, batch: dict, cfg: FinetuneConfig):
             cfg.weights.alpha, cfg.weights.beta)
     v = float(loss.detach())
     return loss, {"cls": v, "deg": 0.0, "con": 0.0, "total": v}
+
+
+def _step_loss(head, batch: dict, cfg: FinetuneConfig):
+    """One micro-batch's loss and its parts (`LOSS_PARTS`).
+
+    The a3 terms, plus the distillation term when `cfg.distil` asks for one.
+    That term reads `batch["f_deg"]` -- the degraded views' pooled tower
+    features, WITH their graph -- against `batch["f_teacher"]`, which the
+    trainer supplies: the clean features detached (self) or the EMA tower's
+    (ema), already repeated to one row per degraded view. It is computed here
+    and not inside the head because it is about the tower's output, which the
+    head only ever sees as an input.
+
+    `dis` in the parts is the raw cosine distance, not the weighted term, so
+    a log line reads in [0, 2] whatever `distil_weight` is.
+    """
+    loss, parts = _a3_loss(head, batch, cfg)
+    parts = {**parts, "dis": 0.0}
+    if cfg.distil == DISTIL_OFF:
+        return loss, parts
+    if "f_teacher" not in batch:
+        raise ValueError(f"distil={cfg.distil!r} but the batch carries no "
+                         "f_teacher; the trainer must attach one")
+    l_dis = distillation_loss(batch["f_deg"], batch["f_teacher"])
+    loss = loss + cfg.distil_weight * l_dis
+    parts["dis"] = float(l_dis.detach())
+    parts["total"] = float(loss.detach())
+    return loss, parts
+
+
+def _check_distil(cfg: FinetuneConfig) -> None:
+    """Refuse a distillation config that could run and mean nothing."""
+    if cfg.distil not in DISTIL_MODES:
+        raise ValueError(f"distil={cfg.distil!r}; choose from {DISTIL_MODES}")
+    if cfg.distil == DISTIL_OFF:
+        return
+    if not cfg.use_augmented:
+        raise ValueError("distil needs degraded views; use_augmented is off")
+    if cfg.distil_weight <= 0:
+        raise ValueError(f"distil={cfg.distil!r} with distil_weight="
+                         f"{cfg.distil_weight}: that is distil=off wearing a "
+                         "different config, and the two would be scored as "
+                         "different arms")
+    if cfg.distil == DISTIL_EMA and not 0.0 < cfg.distil_ema_decay < 1.0:
+        raise ValueError(f"distil_ema_decay must be in (0, 1), got "
+                         f"{cfg.distil_ema_decay}")
+
+
+class _EmaTeacher:
+    """An exponential moving average of the tower and the head, kept on the
+    device in float32, read as the distillation target (`distil="ema"`).
+
+    Not `_WeightAverager`, though the two look alike: that one is SWA -- an
+    equal-weight mean over the tail of training, kept on the CPU because it
+    is only ever read at checkpoint time. This one is read on EVERY step, so
+    it lives on the card, and it forgets: a 0.999 decay weights the last
+    thousand steps and the pretrained tower is gone from it after a few
+    thousand. Float32 is required, not preferred -- at decay 0.999 each
+    update moves a weight by a thousandth of its distance to the student,
+    and bfloat16's eight mantissa bits round that to no change at all, so a
+    bf16 teacher would be the pretrained tower for the whole run while
+    reporting that it was averaging.
+
+    The head rides along so the average is a whole model: `score_plan_splits
+    --ema` can then score it beside the final and SWA weights, and the
+    teacher's own pooler (for a readout that has one) is the averaged one.
+
+    Copied BEFORE `_enable_eval_checkpointing` touches the student, and it
+    refuses otherwise: that function replaces each block's `forward` with a
+    closure over the block's ORIGINAL bound method, and `deepcopy` keeps
+    functions by reference, so a copy taken afterwards has blocks whose
+    `forward` runs the STUDENT's layers. The teacher would then be the
+    student under another name, the term would read near zero, and nothing
+    in the log would say so.
+    """
+
+    def __init__(self, tower, decay: float):
+        if not 0.0 < decay < 1.0:
+            raise ValueError(f"decay must be in (0, 1), got {decay}")
+        _, blocks = tower_blocks(tower)
+        if any("forward" in blk.__dict__ for blk in blocks):
+            raise ValueError(
+                "the tower's blocks already carry the activation-checkpointing "
+                "wrapper; copy the teacher before _enable_eval_checkpointing "
+                "or its forward will run the student's layers")
+        self.decay = float(decay)
+        self.tower = self._frozen_copy(tower)
+        self.head = None
+
+    @staticmethod
+    def _frozen_copy(module):
+        m = copy.deepcopy(module).float().eval()
+        for p in m.parameters():
+            p.requires_grad_(False)
+        return m
+
+    def attach_head(self, head) -> None:
+        self.head = self._frozen_copy(head)
+
+    @torch.no_grad()
+
+    def update(self, tower, head) -> None:
+        """`ema <- decay * ema + (1 - decay) * student`, float tensors only.
+
+        Integer and boolean buffers are copied, as `_WeightAverager` copies
+        them: an index buffer is not a quantity an average is meaningful over.
+        """
+        for ema, live in ((self.tower, tower), (self.head, head)):
+            dst = [p for p in ema.parameters()]
+            src = [p.detach().to(d.dtype) for p, d in zip(live.parameters(), dst)]
+            if dst:
+                torch._foreach_lerp_(dst, src, 1.0 - self.decay)
+            for bd, bl in zip(ema.buffers(), live.buffers()):
+                if bd.is_floating_point():
+                    bd.lerp_(bl.detach().to(bd.dtype), 1.0 - self.decay)
+                else:
+                    bd.copy_(bl)
+
+    def state_dicts(self) -> tuple[dict, dict]:
+        """`(head, tower)` state, for the checkpoint."""
+        return self.head.state_dict(), self.tower.state_dict()
+
+    def load_state_dicts(self, head_sd: dict, tower_sd: dict) -> None:
+        self.head.load_state_dict(head_sd)
+        self.tower.load_state_dict(tower_sd)
 
 
 def _owned_chunks(n_src, src_chunk, rank, world):
@@ -542,13 +776,14 @@ def _shard_task(task, rank, world, src_chunk):
     the GPU into a 4x multiplication of the CPU. Slicing the task first keeps
     both halves of the step parallel.
     """
-    paths, row_ids, views, seed, policy, geometric, exclude = task[:7]
+    (paths, row_ids, views, seed, policy, geometric, exclude,
+     pool, max_ops, share_window) = task[:10]
     if world == 1:
-        return task[:7]
+        return task[:10]
     keep = [i for g0, g1, _, _ in _owned_chunks(len(paths), src_chunk, rank, world)
             for i in range(g0, g1)]
     return ([paths[i] for i in keep], row_ids[keep], views[keep],
-            seed, policy, geometric, exclude)
+            seed, policy, geometric, exclude, pool, max_ops, share_window)
 
 
 def _dist_init(cfg):
@@ -759,12 +994,74 @@ class _WeightAverager:
 #: between the run that crashed and the one picking it up; these six change what
 #: is being trained or what it is trained on, and a checkpoint that silently
 #: mixed two of them would be unattributable.
+class _Progress:
+    """Periodic one-line progress for a run that would otherwise be silent
+    for hours: step, running mean of the loss parts, s/step, epoch ETA."""
+
+    def __init__(self, epoch: int, epochs: int, steps: int, every: int,
+                 enabled: bool = True):
+        import time
+        self._time = time.time
+        self.epoch, self.epochs, self.steps = epoch, epochs, steps
+        self.every, self.enabled = int(every), enabled
+        self.t0 = self._time()
+        self.n = 0
+        self.acc = {k: 0.0 for k in LOSS_PARTS}
+
+    def step(self, parts: dict, lr: float) -> None:
+        self.n += 1
+        for k in self.acc:
+            self.acc[k] += float(parts.get(k, 0.0))
+        if not self.enabled or not self.every or self.n % self.every:
+            return
+        el = self._time() - self.t0
+        per = el / self.n
+        eta = per * (self.steps - self.n)
+        mean = {k: v / self.n for k, v in self.acc.items()}
+        print(f"epoch {self.epoch + 1}/{self.epochs} step {self.n}/{self.steps} "
+              f"total={mean['total']:.4f} cls={mean['cls']:.4f} "
+              f"deg={mean['deg']:.4f} con={mean['con']:.4f} "
+              f"dis={mean['dis']:.4f} lr={lr:.2e} "
+              f"{per:.2f}s/step eta {eta / 3600:.2f}h", flush=True)
+
+    def summary(self) -> dict:
+        el = self._time() - self.t0
+        return {"seconds": float(el),
+                "s_per_step": float(el / max(self.n, 1))}
+
+
 _RESUME_INVARIANT = ("name", "bank_dir", "backbone", "depth", "seed", "lr",
-                     "tower_lr", "n_src", "m_deg", "head_hidden", "use_film")
+                     "tower_lr", "n_src", "m_deg", "head_hidden", "use_film",
+                     "film_shuffle",
+                     "family_weighting", "token_pool",
+                     "distil", "distil_weight", "distil_ema_decay",
+                     # The canon policy decides every pixel the tower sees;
+                     # resuming a crop run under squish would splice two
+                     # different input distributions into one checkpoint.
+                     "policy_mode", "nominal_side", "crop_side", "crop_clamp")
+
+
+def _resume_diff(stored: dict, cfg, keys=_RESUME_INVARIANT) -> dict:
+    """{field: (stored, requested)} for every invariant that differs.
+
+    A field the stored config predates is read at the dataclass default: a
+    checkpoint written before `token_pool` existed was trained with the mean
+    readout, which is what the default says, and refusing to resume it over
+    a key it could not have carried would strand every older run.
+    """
+    defaults = {fl.name: fl.default for fl in fields(FinetuneConfig)}
+    out = {}
+    for k in keys:
+        have = stored.get(k, defaults.get(k))
+        want = getattr(cfg, k)
+        if have != want:
+            out[k] = (have, want)
+    return out
 
 
 def _write_ckpt(path, *, head, tower, opt, sampler, epoch, history, cfg,
-                dim_feat, backbone_name, unfrozen, averager=None) -> None:
+                dim_feat, backbone_name, unfrozen, averager=None,
+                teacher=None) -> None:
     """One epoch's checkpoint, written atomically.
 
     `torch.save` straight onto the live path is not safe here: these files are
@@ -780,6 +1077,7 @@ def _write_ckpt(path, *, head, tower, opt, sampler, epoch, history, cfg,
     """
     tmp = path + ".tmp"
     swa = averager.state_dicts() if averager is not None else None
+    ema = teacher.state_dicts() if teacher is not None else None
     torch.save({"state_dict": head.state_dict(),
                 "tower_state_dict": tower.state_dict(),
                 "optimizer_state_dict": opt.state_dict(),
@@ -789,18 +1087,23 @@ def _write_ckpt(path, *, head, tower, opt, sampler, epoch, history, cfg,
                 "swa_state_dict": None if swa is None else swa[0],
                 "swa_tower_state_dict": None if swa is None else swa[1],
                 "swa_n": 0 if averager is None else averager.n,
+                # The EMA teacher, when there is one: part of the training
+                # state (a resume that restarted it from the student would
+                # hand the next epoch a different target), and a scorable
+                # model in its own right.
+                "ema_state_dict": None if ema is None else ema[0],
+                "ema_tower_state_dict": None if ema is None else ema[1],
                 "epoch": epoch, "history": history,
                 "config": asdict(cfg), "dim_feat": dim_feat,
                 "backbone": backbone_name, "unfrozen": unfrozen}, tmp)
     os.replace(tmp, path)
 
 
-def _load_resume(path, cfg, head, tower, opt, sampler):
+def _load_resume(path, cfg, head, tower, opt, sampler, teacher=None):
     """Restore a run, or refuse. Returns the epoch to start from."""
     ck = torch.load(path, map_location=cfg.device, weights_only=False)
     stored = ck.get("config") or {}
-    differing = {k: (stored.get(k), getattr(cfg, k)) for k in _RESUME_INVARIANT
-                 if stored.get(k) != getattr(cfg, k)}
+    differing = _resume_diff(stored, cfg)
     if differing:
         raise ValueError(
             f"refusing to resume {path}: it was written by a run that differs "
@@ -820,6 +1123,14 @@ def _load_resume(path, cfg, head, tower, opt, sampler):
         torch.set_rng_state(ck["torch_rng_state"].cpu()
                             if hasattr(ck["torch_rng_state"], "cpu")
                             else ck["torch_rng_state"])
+    if teacher is not None:
+        if ck.get("ema_tower_state_dict") is None:
+            raise ValueError(
+                f"refusing to resume {path}: this run distils from an EMA "
+                "teacher and the checkpoint carries none. Restarting the "
+                "average from the student would hand the remaining epochs a "
+                "different target from the ones already run.")
+        teacher.load_state_dicts(ck["ema_state_dict"], ck["ema_tower_state_dict"])
     return int(ck.get("epoch", 0)), list(ck.get("history") or [])
 
 
@@ -827,6 +1138,7 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
     """Train one depth rung end to end and write its checkpoint."""
     from concurrent.futures import ThreadPoolExecutor
 
+    _check_distil(cfg)
     rank, world = _dist_init(cfg)
     bank = FeatureBank.open(cfg.bank_dir)
     backbone_name = cfg.backbone or bank.config["backbone"]
@@ -846,6 +1158,11 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
 
     tower, spec = load_backbone(backbone_name, device=cfg.device)
     tower = tower.to(getattr(torch, cfg.tower_dtype))
+    # The teacher is copied HERE, before the checkpointing wrappers go on
+    # (see `_EmaTeacher`), and before `unfreeze_last_n`, so its copy is the
+    # pretrained tower with nothing trainable.
+    teacher = (_EmaTeacher(tower, cfg.distil_ema_decay)
+               if cfg.distil == DISTIL_EMA else None)
     unfrozen = unfreeze_last_n(tower, cfg.depth)
     if cfg.grad_checkpointing and cfg.depth:
         # Only when something is actually trainable: with a fully frozen tower
@@ -859,8 +1176,18 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
 
     with torch.random.fork_rng(devices=[]):
         torch.manual_seed(cfg.seed)
-        head = Detector(dim_feat=spec.dim, use_recon=cfg.use_recon,
-                        use_film=cfg.use_film, hidden=cfg.head_hidden).to(cfg.device)
+        # The pooler is built under the same seed as the head: for "attn"
+        # it has parameters, and two runs of one config must start identical.
+        dim_feat = pooled_dim(cfg.token_pool, [spec])
+        head = Detector(dim_feat=dim_feat, use_recon=cfg.use_recon,
+                        use_film=cfg.use_film, hidden=cfg.head_hidden,
+                        film_shuffle=cfg.film_shuffle,
+                        pooler=build_pooler(cfg.token_pool, [spec])).to(cfg.device)
+    pooler = tower_poolers(head, 1)[0]
+    teacher_pooler = None
+    if teacher is not None:
+        teacher.attach_head(head)
+        teacher_pooler = tower_poolers(teacher.head, 1)[0]
 
     tower_params = [p for p in tower.parameters() if p.requires_grad]
     groups = [{"params": list(head.parameters()), "lr": cfg.lr}]
@@ -876,8 +1203,10 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
         bank, train_idx, root=cfg.root, use_recon=cfg.use_recon,
         seed=int(bank.config["seed"]),
         policy=cfg.policy(), geometric=cfg.geometric,
+        share_window=cfg.share_window,
         exclude_families=(), n_src=cfg.n_src, m_deg=cfg.m_deg,
-        rng=np.random.default_rng(cfg.seed), device=cfg.device)
+        rng=np.random.default_rng(cfg.seed), device=cfg.device,
+        family_weighting=cfg.family_weighting)
 
     amp = getattr(torch, cfg.amp_dtype)
     param_dtype = next(tower.parameters()).dtype
@@ -901,7 +1230,8 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
 
     history, start_epoch = [], 0
     if cfg.resume and os.path.exists(ckpt):
-        start_epoch, history = _load_resume(ckpt, cfg, head, tower, opt, sampler)
+        start_epoch, history = _load_resume(ckpt, cfg, head, tower, opt, sampler,
+                                            teacher=teacher)
         print(f"resuming {cfg.name} from epoch {start_epoch}/{cfg.epochs}",
               flush=True)
         if start_epoch >= cfg.epochs:
@@ -912,6 +1242,8 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
     gstep = start_epoch * steps_per_epoch
     for epoch in range(start_epoch, cfg.epochs):
         tasks = sampler.batch_tasks()
+        progress = _Progress(epoch, cfg.epochs, len(tasks), cfg.log_every,
+                             enabled=rank == 0)
         # Threads, not processes: the work inside `_prepare_batch` is PIL
         # decode and OpenCV/numpy augmentation, all of which release the GIL,
         # and threads keep the memmapped bank and the already-loaded tower
@@ -923,7 +1255,7 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
                         _shard_task(t, rank, world, cfg.src_chunk)),
                     tasks, 2 * max(1, cfg.workers)):
                 prepared = fut.result()
-                si, vi = task[7], task[8]
+                si, vi = task[-2], task[-1]
                 batch = sampler.targets(si, vi, cfg.device)
                 # The FULL batch's pair count on every rank, never this rank's
                 # share of it: `share` below has to be each chunk's fraction of
@@ -931,7 +1263,7 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
                 # single-GPU one.
                 n_src_all, n_pairs = len(task[0]), len(si)
                 opt.zero_grad(set_to_none=True)
-                parts = {"cls": 0.0, "deg": 0.0, "con": 0.0, "total": 0.0}
+                parts = {k: 0.0 for k in LOSS_PARTS}
 
                 # Micro-batches are cut on SOURCE boundaries, never on pair
                 # boundaries. A pair's clean and degraded halves must land in
@@ -954,14 +1286,32 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
                         # repeats the cached one. Forwarding it `m_deg` times
                         # would give the same number for a third more compute.
                         f_src = _forward_tower(tower, spec, srcs, cfg.device,
-                                               param_dtype, cfg.src_chunk)
+                                               param_dtype, cfg.src_chunk,
+                                               pooler=pooler)
                         f_clean = f_src.repeat_interleave(cfg.m_deg, dim=0)
                         f_deg = _forward_tower(tower, spec, degs, cfg.device,
-                                               param_dtype, cfg.src_chunk)
+                                               param_dtype, cfg.src_chunk,
+                                               pooler=pooler)
+                        if teacher is not None:
+                            # A third forward per source, no graph: the
+                            # average tower's view of the clean image.
+                            with torch.no_grad():
+                                f_teach = _forward_tower(
+                                    teacher.tower, spec, srcs, cfg.device,
+                                    param_dtype, cfg.src_chunk,
+                                    pooler=teacher_pooler
+                                ).repeat_interleave(cfg.m_deg, dim=0)
                     micro = {k: (v[p0:p1] if torch.is_tensor(v) else v)
                              for k, v in batch.items()}
                     micro["f_clean"] = f_clean.float()
                     micro["f_deg"] = f_deg.float()
+                    if cfg.distil == DISTIL_SELF:
+                        # The same tower's clean feature, as a target only:
+                        # the distillation gradient reaches the degraded
+                        # forward and never the clean one.
+                        micro["f_teacher"] = f_clean.detach().float()
+                    elif teacher is not None:
+                        micro["f_teacher"] = f_teach.float()
                     loss, part = _step_loss(head, micro, cfg)
                     # Weighted by this micro-batch's share of the pairs, which
                     # is what makes the accumulated gradient equal the one the
@@ -974,26 +1324,29 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
                     reducer.reduce()
                 sched.apply(gstep)
                 opt.step()
+                if teacher is not None:
+                    teacher.update(tower, head)
                 if averager is not None and gstep >= swa_start:
                     averager.update()
                 gstep += 1
+                progress.step(parts, lr=opt.param_groups[0]["lr"])
         if world > 1:
             # Each rank only accumulated its own chunks' share, so the loss
             # printed by a rank alone would be a quarter of the batch's.
             import torch.distributed as dist
-            t = torch.tensor([parts[k] for k in ("cls", "deg", "con", "total")],
+            t = torch.tensor([parts[k] for k in LOSS_PARTS],
                              device=cfg.device, dtype=torch.float64)
             dist.all_reduce(t, op=dist.ReduceOp.SUM)
-            parts = dict(zip(("cls", "deg", "con", "total"), t.tolist()))
-        history.append({"epoch": epoch, **parts})
+            parts = dict(zip(LOSS_PARTS, t.tolist()))
+        history.append({"epoch": epoch, **parts, **progress.summary()})
         # Write EVERY epoch, not just the last. A 375k-row arm is hours per
         # epoch; the cost of one 1.2 GB atomic write against losing all of them
         # is not a trade worth thinking about.
         if rank == 0:
             _write_ckpt(ckpt, head=head, tower=tower, opt=opt, sampler=sampler,
                         epoch=epoch + 1, history=history, cfg=cfg,
-                        dim_feat=spec.dim, backbone_name=backbone_name,
-                        unfrozen=unfrozen, averager=averager)
+                        dim_feat=dim_feat, backbone_name=backbone_name,
+                        unfrozen=unfrozen, averager=averager, teacher=teacher)
         if rank == 0:
             # Keep this epoch's own copy. `checkpoint.pt` is overwritten every
             # epoch, so without this the only scorable model is the last one and
@@ -1037,8 +1390,8 @@ def train_finetune(cfg: FinetuneConfig) -> dict:
     # arm from scratch.
     _write_ckpt(ckpt, head=head, tower=tower, opt=opt, sampler=sampler,
                 epoch=cfg.epochs, history=history, cfg=cfg,
-                dim_feat=spec.dim, backbone_name=backbone_name,
-                unfrozen=unfrozen, averager=averager)
+                dim_feat=dim_feat, backbone_name=backbone_name,
+                unfrozen=unfrozen, averager=averager, teacher=teacher)
     result = {"unfrozen": unfrozen, "history": history, "world_size": world}
     with open(os.path.join(out_dir, "result.json"), "w") as f:
         json.dump(result, f, indent=2)

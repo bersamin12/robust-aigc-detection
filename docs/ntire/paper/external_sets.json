@@ -1,0 +1,104 @@
+{
+  "sets": {
+    "ext_aigi_socialrf": {
+      "n": 5994,
+      "n_real": 2994,
+      "n_fake": 3000,
+      "short_side": {
+        "p5": 592.0,
+        "p50": 1366.0,
+        "p95": 3024.0
+      },
+      "short_side_max": 8000,
+      "frac_above_512": 0.9601267934601267,
+      "shortside_vs_label_auc": 0.694307949231797,
+      "format_vs_label_auc": 0.5,
+      "format_by_label": {
+        "png": {
+          "0": 2994,
+          "1": 3000
+        }
+      },
+      "generators": [
+        "SocialRF"
+      ],
+      "dropped_duplicate_within": 6,
+      "dropped_overlap_with_ntire_manifest": 0,
+      "root": "/scratch/justin_r13/ext/aigibench/SocialRF"
+    },
+    "ext_aigi_community": {
+      "n": 12000,
+      "n_real": 6000,
+      "n_fake": 6000,
+      "short_side": {
+        "p5": 333.0,
+        "p50": 500.0,
+        "p95": 1024.0
+      },
+      "short_side_max": 4992,
+      "frac_above_512": 0.4216666666666667,
+      "shortside_vs_label_auc": 0.9158925,
+      "format_vs_label_auc": 1.0,
+      "format_by_label": {
+        "jpeg": {
+          "0": 6000,
+          "1": 0
+        },
+        "png": {
+          "0": 0,
+          "1": 6000
+        }
+      },
+      "generators": [
+        "CommunityAI"
+      ],
+      "dropped_duplicate_within": 0,
+      "dropped_overlap_with_ntire_manifest": 0,
+      "root": "/scratch/justin_r13/ext/aigibench/CommunityAI"
+    },
+    "ext_synthbuster": {
+      "n": 9990,
+      "n_real": 994,
+      "n_fake": 8996,
+      "short_side": {
+        "p5": 256.0,
+        "p50": 833.0,
+        "p95": 1792.0
+      },
+      "short_side_max": 2048,
+      "frac_above_512": 0.6996996996996997,
+      "shortside_vs_label_auc": 0.5188972876834148,
+      "format_vs_label_auc": 0.5554135171187194,
+      "format_by_label": {
+        "jpeg": {
+          "0": 0,
+          "1": 997
+        },
+        "png": {
+          "0": 994,
+          "1": 7999
+        }
+      },
+      "generators": [
+        "dalle2",
+        "dalle3",
+        "firefly",
+        "glide",
+        "midjourney-v5",
+        "stable-diffusion-1-3",
+        "stable-diffusion-1-4",
+        "stable-diffusion-2",
+        "stable-diffusion-xl"
+      ],
+      "dropped_duplicate_within": 10,
+      "dropped_overlap_with_ntire_manifest": 0,
+      "root": "/scratch/justin_r13/ext/synthbuster/synthbuster"
+    }
+  },
+  "missing": [],
+  "variants": [
+    "",
+    "_deg",
+    "_jpeg95"
+  ]
+}

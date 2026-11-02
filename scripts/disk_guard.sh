@@ -9,8 +9,9 @@
 set -u
 TARGET_PID="$1"
 FLOOR_GB="${2:-12}"
+MOUNT="${MOUNT:-/mnt/berstorage}"
 while kill -0 "$TARGET_PID" 2>/dev/null; do
-  FREE=$(df -BG --output=avail /mnt/berstorage | tail -1 | tr -dc '0-9')
+  FREE=$(df -BG --output=avail "$MOUNT" | tail -1 | tr -dc '0-9')
   if [ "$FREE" -lt "$FLOOR_GB" ]; then
     echo "[$(date +%H:%M:%S)] FREE=${FREE}G below ${FLOOR_GB}G floor -- killing NTIRE chain $TARGET_PID"
     pkill -P "$TARGET_PID" 2>/dev/null

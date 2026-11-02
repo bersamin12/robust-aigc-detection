@@ -23,7 +23,7 @@ import pandas as pd
 import pytest
 import torch
 
-from aigcdet.augment.canonical import MODE_BAND, MODE_CROP, CanonPolicy
+from aigcdet.augment.canonical import MODE_BAND, MODE_CROP, MODE_SQUISH, CanonPolicy
 from aigcdet.data.manifest import make_dummy_manifest
 from aigcdet.features.bank import FeatureBank
 from aigcdet.train.finetune import (
@@ -170,7 +170,8 @@ def _fingerprint(img, dim):
     return np.array([a[s::dim].mean() for s in range(dim)], dtype=np.float32)
 
 
-@pytest.mark.parametrize("mode, kw", [(MODE_BAND, {}), (MODE_CROP, {"crop_side": 64})])
+@pytest.mark.parametrize("mode, kw", [(MODE_BAND, {}), (MODE_CROP, {"crop_side": 64}),
+                                      (MODE_SQUISH, {"nominal_side": 64})])
 def test_build_view_reproduces_every_cached_view(tmp_path, monkeypatch, mode, kw):
     """The foundation of the D0 control, on both canonicalisation policies.
 
@@ -293,6 +294,84 @@ def test_the_live_sampler_never_draws_the_clean_view_as_a_degraded_partner(
                            m_deg=2, rng=np.random.default_rng(3), device="cpu")
     for task in live.batch_tasks():
         assert (task[2] >= 1).all()
+
+
+def test_share_window_builds_the_degraded_view_on_the_clean_views_window():
+    """The crop-confound control. With it, a (clean, degraded) pair differs
+    in degradation and nothing else: the same window, the same upscale, so
+    an empty recipe reproduces the clean pixels exactly. Without it the two
+    views draw their own windows and do not."""
+    from aigcdet.augment.recipes import Recipe
+    from aigcdet.features.extract import build_view
+
+    img = np.random.default_rng(0).integers(0, 256, (300, 340, 3), dtype=np.uint8)
+    policy = CanonPolicy(mode=MODE_CROP, crop_side=48, nominal_side=64)
+    empty = Recipe(())
+    clean, _ = build_view(img, 0, 5, 7, policy=policy, recipe=empty)
+    shared, _ = build_view(img, 3, 5, 7, policy=policy, recipe=empty, window_view=0)
+    own, _ = build_view(img, 3, 5, 7, policy=policy, recipe=empty)
+    np.testing.assert_array_equal(shared, clean)
+    assert not np.array_equal(own, clean)
+
+
+def test_the_live_sampler_carries_share_window_into_every_task_and_batch(
+        tmp_path, monkeypatch):
+    """The flag rides in the task tuple, so a worker process builds the
+    pair the sampler was asked for; `_shard_task` must pass it through."""
+    from aigcdet.train.finetune import _prepare_batch, _shard_task
+
+    bank, _ = _bank_for_sampler(tmp_path, monkeypatch)
+    idx = np.arange(len(bank.meta))
+    policy = CanonPolicy(mode=MODE_CROP, crop_side=32, nominal_side=64)
+    for flag in (False, True):
+        live = LiveViewSampler(bank, idx, root=str(tmp_path), seed=7, n_src=4,
+                               m_deg=2, rng=np.random.default_rng(3),
+                               device="cpu", policy=policy, share_window=flag)
+        tasks = live.batch_tasks()
+        assert all(t[9] is flag for t in tasks)
+        assert _shard_task(tasks[0], 0, 1, 2)[9] is flag
+        out = _prepare_batch(tasks[0])
+        assert len(out["clean"]) == 4 and len(out["deg"]) == 8
+        assert all(v.shape == (64, 64, 3) for v in out["clean"] + out["deg"])
+
+
+def test_share_window_is_refused_outside_crop_mode(tmp_path, monkeypatch):
+    """It only re-keys the crop rng; under squish a share_window arm would be
+    silently identical to its baseline."""
+    bank, _ = _bank_for_sampler(tmp_path, monkeypatch)
+    idx = np.arange(len(bank.meta))
+    with pytest.raises(ValueError, match="share_window"):
+        LiveViewSampler(bank, idx, root=str(tmp_path), seed=7, n_src=4, m_deg=2,
+                        rng=np.random.default_rng(3), device="cpu",
+                        policy=CanonPolicy(mode=MODE_SQUISH, nominal_side=64),
+                        share_window=True)
+
+
+def test_the_squish_sampler_builds_whole_frame_square_views(tmp_path, monkeypatch):
+    from aigcdet.train.finetune import _prepare_batch
+
+    bank, _ = _bank_for_sampler(tmp_path, monkeypatch)
+    live = LiveViewSampler(bank, np.arange(len(bank.meta)), root=str(tmp_path),
+                           seed=7, n_src=4, m_deg=2, rng=np.random.default_rng(3),
+                           device="cpu",
+                           policy=CanonPolicy(mode=MODE_SQUISH, nominal_side=64))
+    out = _prepare_batch(live.batch_tasks()[0])
+    assert all(v.shape == (64, 64, 3) for v in out["clean"] + out["deg"])
+
+
+def test_resuming_under_a_different_canon_policy_is_refused():
+    """A crop checkpoint resumed under squish would splice two input
+    distributions into one model."""
+    from aigcdet.train.finetune import _resume_diff
+
+    crop = FinetuneConfig(name="x", bank_dir="b", root="r", policy_mode="crop")
+    from dataclasses import asdict
+    stored = asdict(crop)
+    assert _resume_diff(stored, crop) == {}
+    sq = FinetuneConfig(name="x", bank_dir="b", root="r", policy_mode="squish",
+                        nominal_side=224)
+    diff = _resume_diff(stored, sq)
+    assert set(diff) >= {"policy_mode", "nominal_side"}
 
 
 # ===========================================================================
@@ -639,3 +718,419 @@ def test_the_ladder_refuses_banks_over_different_rows(tmp_path):
     with pytest.raises(ValueError, match="different ORDER"):
         sul.assert_ladder_comparable({"d0": _bank("a", [0, 1]),
                                       "d1": _bank("b", [1, 0])})
+
+
+# ===========================================================================
+# Token pooling (models/pooling.py) through the trainer
+# ===========================================================================
+
+class _StubTokenTower(_StubTower):
+    """`_StubTower` that also emits a token sequence: CLS, two registers and
+    four patches, each a differently scaled copy of the block output, so
+    every readout in `TOKEN_POOLS` sees a different vector."""
+
+    def __init__(self, dim=8, n=4, n_tokens=7):
+        super().__init__(dim, n)
+        self.register_buffer("scales", torch.linspace(0.5, 1.5, n_tokens))
+
+    def forward(self, pixel_values):
+        from types import SimpleNamespace
+        h = pixel_values
+        for blk in self.encoder.layer:
+            h = torch.tanh(blk(h))
+        h = self.layernorm(h)
+        return SimpleNamespace(
+            last_hidden_state=h[:, None, :] * self.scales[None, :, None])
+
+
+def _patch_token_tower(monkeypatch, dim=8, n=4, prefix=3):
+    from aigcdet.features.backbones import BackboneSpec
+    from aigcdet.train import finetune
+
+    spec = BackboneSpec("fake", "none", image_size=64, dim=dim,
+                        num_prefix_tokens=prefix, params=0)
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(1234)
+        tower = _StubTokenTower(dim, n)
+    monkeypatch.setattr(finetune, "load_backbone", lambda name, device: (tower, spec))
+    monkeypatch.setattr(finetune, "model_inputs",
+                        lambda spec, imgs, device, dtype: {"pixel_values": torch.stack(
+                            [torch.as_tensor(np.asarray(im, np.float32).reshape(-1)[:spec.dim] / 255.0)
+                             for im in imgs])})
+    return tower, spec
+
+
+@pytest.mark.parametrize("mode,width", [("cls", 8), ("cls_mean", 16),
+                                        ("cls_reg_mean", 32), ("attn", 8)])
+def test_a_token_pool_trains_end_to_end_and_records_its_width(
+        tmp_path, monkeypatch, mode, width):
+    """`dim_feat` in the checkpoint is the pooled width, the pooler's
+    parameters are saved under the head, and `token_pool` is in the config
+    the scorer rebuilds from."""
+    from aigcdet.train.finetune import train_finetune
+
+    _patch_token_tower(monkeypatch)
+    bank = _corpus(tmp_path, monkeypatch)
+    res = train_finetune(_cfg(tmp_path, bank, depth=1, token_pool=mode))
+    ck = torch.load(res["checkpoint"], map_location="cpu", weights_only=False)
+    assert ck["dim_feat"] == width
+    assert ck["config"]["token_pool"] == mode
+    head_keys = [k for k in ck["state_dict"] if k.startswith("pooler.")]
+    if mode == "attn":
+        assert "pooler.query" in head_keys
+        assert "pooler.query" in ck["swa_state_dict"] if ck["swa_n"] else True
+    else:
+        assert not head_keys
+    assert ck["state_dict"]["classifier.trunk.0.weight"].shape[1] == width
+
+
+def test_attention_pooling_is_trained_with_the_head(tmp_path, monkeypatch):
+    from aigcdet.train.finetune import train_finetune
+
+    _patch_token_tower(monkeypatch)
+    bank = _corpus(tmp_path, monkeypatch)
+    res = train_finetune(_cfg(tmp_path, bank, depth=0, token_pool="attn"))
+    ck = torch.load(res["checkpoint"], map_location="cpu", weights_only=False)
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(ck["config"]["seed"])
+        from aigcdet.models.pooling import build_pooler
+        fresh = build_pooler("attn", [type("S", (), {"dim": 8, "num_prefix_tokens": 3})()])
+    assert not torch.equal(ck["state_dict"]["pooler.query"], fresh.query.detach())
+
+
+def test_two_attention_pooling_runs_agree(tmp_path, monkeypatch):
+    """The pooler is built under the head's seed, so a config is one model."""
+    from aigcdet.train.finetune import train_finetune
+
+    outs = []
+    for i in range(2):
+        _patch_token_tower(monkeypatch)
+        bank = _corpus(tmp_path / str(i), monkeypatch)
+        res = train_finetune(_cfg(tmp_path / str(i), bank, depth=1, token_pool="attn"))
+        outs.append(torch.load(res["checkpoint"], map_location="cpu",
+                               weights_only=False)["state_dict"])
+    for k in outs[0]:
+        assert torch.equal(outs[0][k], outs[1][k]), k
+
+
+def test_a_checkpoint_from_before_token_pool_existed_resumes_at_the_mean(
+        tmp_path, monkeypatch):
+    """Every older run was the mean readout. Refusing to resume it over a key
+    it could not have carried would strand all of them."""
+    from aigcdet.train.finetune import train_finetune
+
+    _patch_tower(monkeypatch)
+    bank = _corpus(tmp_path, monkeypatch)
+    res = train_finetune(_cfg(tmp_path, bank, depth=1))
+    ck = torch.load(res["checkpoint"], map_location="cpu", weights_only=False)
+    del ck["config"]["token_pool"]
+    torch.save(ck, res["checkpoint"])
+    cfg = _cfg(tmp_path, bank, depth=1, resume=True)
+    cfg.epochs = 2
+    res2 = train_finetune(cfg)
+    assert [h["epoch"] for h in res2["history"]] == [0, 1]
+
+
+def test_resuming_under_a_different_token_pool_is_refused(tmp_path, monkeypatch):
+    from aigcdet.train.finetune import train_finetune
+
+    _patch_token_tower(monkeypatch)
+    bank = _corpus(tmp_path, monkeypatch)
+    train_finetune(_cfg(tmp_path, bank, depth=1, token_pool="cls"))
+    cfg = _cfg(tmp_path, bank, depth=1, resume=True, token_pool="cls_mean")
+    cfg.epochs = 2
+    with pytest.raises(ValueError, match="token_pool"):
+        train_finetune(cfg)
+
+
+def test_the_default_readout_takes_the_historical_pool_path(monkeypatch):
+    """`token_pool="mean"` must not change a single bit of an existing run:
+    the head has no pooler and `_forward_tower` goes through `_pool`."""
+    from aigcdet.train import finetune
+    from aigcdet.models.pooling import build_pooler, tower_poolers
+
+    calls = []
+    monkeypatch.setattr(finetune, "_pool",
+                        lambda m, s, i: calls.append("pool") or torch.zeros(1, 8))
+    monkeypatch.setattr(finetune, "tokens",
+                        lambda m, s, i: calls.append("tokens") or torch.zeros(1, 4, 8))
+    monkeypatch.setattr(finetune, "model_inputs", lambda *a: {})
+    spec = type("S", (), {"dim": 8, "num_prefix_tokens": 1})()
+    head = finetune.Detector(dim_feat=8, pooler=build_pooler("mean", [spec]))
+    finetune._forward_tower(None, spec, [None], "cpu", torch.float32, 1,
+                            pooler=tower_poolers(head, 1)[0])
+    assert calls == ["pool"]
+    head = finetune.Detector(dim_feat=8, pooler=build_pooler("cls", [spec]))
+    finetune._forward_tower(None, spec, [None], "cpu", torch.float32, 1,
+                            pooler=tower_poolers(head, 1)[0])
+    assert calls == ["pool", "tokens"]
+
+
+def test_the_live_sampler_refuses_a_pre_op_pool_without_crop_clamp(tmp_path, monkeypatch):
+    """ntire2 shrinks images below the crop window; a strict crop policy
+    would refuse such a view mid-epoch, hours in. Fail at construction."""
+    from aigcdet.augment.canonical import CanonPolicy
+    from aigcdet.train.finetune import LiveViewSampler
+
+    bank, _ = _bank_for_sampler(tmp_path, monkeypatch)
+    bank.config["recipe_pool"] = "ntire2"
+    strict = CanonPolicy(mode="crop", crop_side=200, nominal_side=224)
+    with pytest.raises(ValueError, match="crop-clamp"):
+        LiveViewSampler(bank, np.arange(len(bank.meta)), root=str(tmp_path), seed=7,
+                        policy=strict, n_src=4, m_deg=2, rng=np.random.default_rng(0),
+                        device="cpu")
+    clamp = CanonPolicy(mode="crop", crop_side=200, nominal_side=224, crop_clamp=True)
+    s = LiveViewSampler(bank, np.arange(len(bank.meta)), root=str(tmp_path), seed=7,
+                        policy=clamp, n_src=4, m_deg=2, rng=np.random.default_rng(0),
+                        device="cpu")
+    assert s.pool == "ntire2"
+    bank.config["recipe_pool"] = "ntire"
+    LiveViewSampler(bank, np.arange(len(bank.meta)), root=str(tmp_path), seed=7,
+                    policy=strict, n_src=4, m_deg=2, rng=np.random.default_rng(0),
+                    device="cpu")
+
+
+# ===========================================================================
+# Degradation-invariant distillation (component 1): the tower's degraded
+# feature pulled to its clean one
+# ===========================================================================
+
+def _feature_batch(seed=0, n=4, dim=8):
+    from aigcdet.augment.recipes import N_FAMILIES
+    g = torch.Generator().manual_seed(seed)
+    f_clean = torch.randn(n, dim, generator=g)
+    f_deg = torch.randn(n, dim, generator=g)
+    return {"f_clean": f_clean, "f_deg": f_deg,
+            "y_clean": torch.tensor([1.0, 0.0] * (n // 2)),
+            "y_deg": torch.tensor([1.0, 0.0] * (n // 2)),
+            "presence_deg": (torch.rand(n, N_FAMILIES, generator=g) > 0.5).float(),
+            "severity_deg": torch.rand(n, N_FAMILIES, generator=g)}
+
+
+def _head(dim=8):
+    from aigcdet.models.heads import Detector
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(5)
+        return Detector(dim_feat=dim)
+
+
+def test_distillation_off_is_the_a3_loss_with_a_zero_term():
+    """`distil="off"` must not change a bit of an existing run's objective."""
+    from aigcdet.train.finetune import _a3_loss, _step_loss
+
+    head, batch = _head(), _feature_batch()
+    cfg = FinetuneConfig(name="x", bank_dir="b", root="r")
+    loss, parts = _step_loss(head, batch, cfg)
+    ref, ref_parts = _a3_loss(head, batch, cfg)
+    assert torch.equal(loss, ref)
+    assert parts["dis"] == 0.0 and parts["total"] == ref_parts["total"]
+    assert set(parts) == {"cls", "deg", "con", "dis", "total"}
+
+
+def test_self_distillation_adds_exactly_the_weighted_cosine_term():
+    from aigcdet.models.losses import distillation_loss
+    from aigcdet.train.finetune import _a3_loss, _step_loss
+
+    head, batch = _head(), _feature_batch()
+    batch["f_teacher"] = batch["f_clean"].detach()
+    cfg = FinetuneConfig(name="x", bank_dir="b", root="r", distil="self",
+                         distil_weight=0.7)
+    loss, parts = _step_loss(head, batch, cfg)
+    ref, _ = _a3_loss(head, batch, cfg)
+    want = distillation_loss(batch["f_deg"], batch["f_clean"])
+    assert torch.isclose(loss - ref, 0.7 * want, atol=1e-6)
+    assert parts["dis"] == pytest.approx(want.item(), abs=1e-6)
+    assert 0.0 < parts["dis"] < 2.0
+
+
+def test_the_distillation_gradient_never_reaches_the_clean_forward():
+    """The clean feature is the target. If the term also pulled the clean
+    feature towards the degraded one, both could meet at a constant and the
+    detector above them would be reading noise while the term read zero."""
+    from aigcdet.train.finetune import _step_loss
+
+    head, batch = _head(), _feature_batch()
+    f_clean = batch["f_clean"].clone().requires_grad_(True)
+    f_deg = batch["f_deg"].clone().requires_grad_(True)
+    cfg_off = FinetuneConfig(name="x", bank_dir="b", root="r", use_degradation=False,
+                             use_consistency=False)
+    cfg_on = FinetuneConfig(name="x", bank_dir="b", root="r", use_degradation=False,
+                            use_consistency=False, distil="self")
+    grads = []
+    for cfg in (cfg_off, cfg_on):
+        b = {**batch, "f_clean": f_clean, "f_deg": f_deg,
+             "f_teacher": f_clean.detach()}
+        f_clean.grad = f_deg.grad = None
+        _step_loss(head, b, cfg)[0].backward()
+        grads.append((f_clean.grad.clone(), f_deg.grad.clone()))
+    torch.testing.assert_close(grads[0][0], grads[1][0])      # clean: unchanged
+    assert not torch.allclose(grads[0][1], grads[1][1])       # degraded: pulled
+
+
+def test_distillation_needs_degraded_views():
+    from aigcdet.train.finetune import _check_distil
+    with pytest.raises(ValueError, match="use_augmented"):
+        _check_distil(FinetuneConfig(name="x", bank_dir="b", root="r",
+                                     distil="self", use_augmented=False))
+    with pytest.raises(ValueError, match="distil_weight"):
+        _check_distil(FinetuneConfig(name="x", bank_dir="b", root="r",
+                                     distil="self", distil_weight=0.0))
+    with pytest.raises(ValueError, match="choose from"):
+        _check_distil(FinetuneConfig(name="x", bank_dir="b", root="r",
+                                     distil="teacher"))
+    _check_distil(FinetuneConfig(name="x", bank_dir="b", root="r"))
+
+
+def test_self_distillation_trains_end_to_end_and_records_the_term(tmp_path, monkeypatch):
+    from aigcdet.train.finetune import train_finetune
+
+    _patch_tower(monkeypatch)
+    bank = _corpus(tmp_path, monkeypatch)
+    res = train_finetune(_cfg(tmp_path, bank, depth=1, distil="self"))
+    h = res["history"][-1]
+    assert np.isfinite(h["total"]) and 0.0 < h["dis"] < 2.0
+    ck = torch.load(res["checkpoint"], map_location="cpu", weights_only=False)
+    assert ck["config"]["distil"] == "self"
+    assert ck["ema_tower_state_dict"] is None and ck["ema_state_dict"] is None
+
+
+def test_the_ema_teacher_moves_a_fraction_of_the_way_per_update():
+    from aigcdet.train.finetune import _EmaTeacher
+
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(0)
+        tower = _StubTower()
+    teacher = _EmaTeacher(tower, decay=0.75)
+    head = torch.nn.Linear(8, 1)
+    teacher.attach_head(head)
+    start = {k: v.clone() for k, v in tower.state_dict().items()}
+    with torch.no_grad():
+        for p in tower.parameters():
+            p.add_(1.0)
+    teacher.update(tower, head)
+    for k, v in teacher.tower.state_dict().items():
+        torch.testing.assert_close(v, start[k] + 0.25)
+    assert not any(p.requires_grad for p in teacher.tower.parameters())
+    assert not any(p.requires_grad for p in teacher.head.parameters())
+
+
+def test_the_ema_teacher_refuses_a_student_already_wrapped_for_checkpointing():
+    """`deepcopy` keeps functions by reference, so a copy taken after the
+    wrappers go on has blocks whose forward runs the STUDENT's layers: the
+    teacher would be the student under another name and the term would read
+    near zero with nothing in the log to say so."""
+    from aigcdet.train.finetune import _EmaTeacher, _enable_eval_checkpointing
+
+    tower = _StubTower()
+    _EmaTeacher(tower, decay=0.9)               # fine before
+    _enable_eval_checkpointing(tower)
+    with pytest.raises(ValueError, match="checkpointing"):
+        _EmaTeacher(tower, decay=0.9)
+
+
+def test_ema_distillation_keeps_a_teacher_between_the_start_and_the_student(
+        tmp_path, monkeypatch):
+    """The teacher is neither the pretrained tower (it moved) nor the
+    student (it lags), it only moved where the student did, and it is in the
+    checkpoint beside the final weights."""
+    from aigcdet.train.finetune import train_finetune
+
+    tower, _ = _patch_tower(monkeypatch, n=4)
+    bank = _corpus(tmp_path, monkeypatch)
+    start = {k: v.clone() for k, v in tower.state_dict().items()}
+    res = train_finetune(_cfg(tmp_path, bank, depth=1, distil="ema",
+                              distil_ema_decay=0.5))
+    assert 0.0 < res["history"][-1]["dis"] < 2.0
+    ck = torch.load(res["checkpoint"], map_location="cpu", weights_only=False)
+    ema, final = ck["ema_tower_state_dict"], ck["tower_state_dict"]
+    for k in ema:
+        if k.startswith("encoder.layer.3") or k.startswith("layernorm"):
+            assert not torch.equal(ema[k], start[k]), f"{k}: teacher never moved"
+            assert not torch.equal(ema[k], final[k]), f"{k}: teacher is the student"
+        else:
+            assert torch.equal(ema[k], start[k]), f"{k}: a frozen weight moved"
+    assert set(ck["ema_state_dict"]) == set(ck["state_dict"])
+
+
+def test_an_ema_run_resumed_after_a_kill_equals_the_uninterrupted_one(
+        tmp_path, monkeypatch):
+    """The teacher is training state. A resume that restarted it from the
+    student would hand the remaining epochs a different target from the one
+    the finished epochs saw, and nothing downstream could tell."""
+    from aigcdet.train.finetune import train_finetune
+
+    def cfg(sub, epochs, **kw):
+        c = _cfg(tmp_path / sub, bank, depth=1, distil="ema",
+                 distil_ema_decay=0.5, **kw)
+        c.epochs = epochs
+        return c
+
+    _patch_tower(monkeypatch)
+    bank = _corpus(tmp_path / "a", monkeypatch)
+    straight = train_finetune(cfg("a", 2))
+
+    _patch_tower(monkeypatch)
+    bank = _corpus(tmp_path / "b", monkeypatch)
+    train_finetune(cfg("b", 1))
+    # A fresh tower, as a new process would load: the stub above hands the
+    # same object back, already wrapped for checkpointing by the first run,
+    # and the teacher refuses to copy a wrapped tower (see `_EmaTeacher`).
+    _patch_tower(monkeypatch)
+    resumed = train_finetune(cfg("b", 2, resume=True))
+
+    a = torch.load(straight["checkpoint"], map_location="cpu", weights_only=False)
+    b = torch.load(resumed["checkpoint"], map_location="cpu", weights_only=False)
+    for key in ("tower_state_dict", "ema_tower_state_dict", "state_dict", "ema_state_dict"):
+        for k in a[key]:
+            torch.testing.assert_close(a[key][k], b[key][k], rtol=0, atol=0,
+                                       msg=lambda m: f"{key}/{k}: {m}")
+
+
+def test_resuming_an_ema_run_from_a_checkpoint_without_a_teacher_is_refused(
+        tmp_path, monkeypatch):
+    from aigcdet.train.finetune import train_finetune
+
+    _patch_tower(monkeypatch)
+    bank = _corpus(tmp_path, monkeypatch)
+    res = train_finetune(_cfg(tmp_path, bank, depth=1, distil="ema"))
+    ck = torch.load(res["checkpoint"], map_location="cpu", weights_only=False)
+    ck["ema_tower_state_dict"] = None
+    torch.save(ck, res["checkpoint"])
+    cfg = _cfg(tmp_path, bank, depth=1, distil="ema", resume=True)
+    cfg.epochs = 2
+    _patch_tower(monkeypatch)                  # a fresh, unwrapped tower
+    with pytest.raises(ValueError, match="carries none"):
+        train_finetune(cfg)
+
+
+def test_resuming_under_a_different_distil_mode_is_refused(tmp_path, monkeypatch):
+    from aigcdet.train.finetune import train_finetune
+
+    _patch_tower(monkeypatch)
+    bank = _corpus(tmp_path, monkeypatch)
+    train_finetune(_cfg(tmp_path, bank, depth=1))
+    for kw in ({"distil": "self"}, {"distil": "self", "distil_weight": 2.0}):
+        cfg = _cfg(tmp_path, bank, depth=1, resume=True, **kw)
+        cfg.epochs = 2
+        with pytest.raises(ValueError, match="distil"):
+            train_finetune(cfg)
+
+
+def test_a_checkpoint_from_before_distil_existed_resumes_with_it_off(
+        tmp_path, monkeypatch):
+    """Every older run trained without the term, which is what the default
+    says; refusing to resume over keys it could not carry would strand them."""
+    from aigcdet.train.finetune import train_finetune
+
+    _patch_tower(monkeypatch)
+    bank = _corpus(tmp_path, monkeypatch)
+    res = train_finetune(_cfg(tmp_path, bank, depth=1))
+    ck = torch.load(res["checkpoint"], map_location="cpu", weights_only=False)
+    for k in ("distil", "distil_weight", "distil_ema_decay"):
+        del ck["config"][k]
+    for k in ("ema_state_dict", "ema_tower_state_dict"):
+        del ck[k]
+    torch.save(ck, res["checkpoint"])
+    cfg = _cfg(tmp_path, bank, depth=1, resume=True)
+    cfg.epochs = 2
+    assert [h["epoch"] for h in train_finetune(cfg)["history"]] == [0, 1]

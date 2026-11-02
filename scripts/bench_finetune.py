@@ -61,9 +61,14 @@ def main() -> int:
             params.append({"params": tp, "lr": 1e-5})
         opt = torch.optim.AdamW(params)
 
-        if depth and not a.no_checkpointing and hasattr(
-                tower, "gradient_checkpointing_enable"):
-            tower.gradient_checkpointing_enable()
+        if depth and not a.no_checkpointing:
+            # The trainer's path, not HF's `gradient_checkpointing_enable()`:
+            # that one is a no-op on a tower held in eval mode (see
+            # `_enable_eval_checkpointing`), so the d24 benches of 2026-08-31
+            # measured an UNcheckpointed step -- their peak memory is an upper
+            # bound and their s/step an underestimate of the real run.
+            from aigcdet.train.finetune import _enable_eval_checkpointing
+            _enable_eval_checkpointing(tower)
 
         def step():
             # Mirrors `train_finetune`'s accumulation exactly, because the

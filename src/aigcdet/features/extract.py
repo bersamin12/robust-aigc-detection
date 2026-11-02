@@ -41,7 +41,9 @@ import pandas as pd
 from PIL import Image
 from tqdm import tqdm
 
-from aigcdet.augment.recipes import FAMILIES, Recipe, sample_training_recipe
+from aigcdet.augment.recipes import (
+    FAMILIES, MAX_OPS_DEFAULT, RECIPE_POOL_DEFAULT, Recipe,
+    sample_training_recipe)
 from aigcdet.data.manifest import dataset_root
 from aigcdet.features.backbones import embed, load_backbone
 from aigcdet.features.bank import (
@@ -57,8 +59,15 @@ from aigcdet.augment.canonical import (
 from aigcdet.augment.geometric import dihedral, geometric_rng, sample_dihedral
 
 
-def _sample_recipe_excluding(rng: np.random.Generator, exclude: tuple[str, ...]) -> Recipe:
+def _sample_recipe_excluding(rng: np.random.Generator, exclude: tuple[str, ...],
+                             pool: str = RECIPE_POOL_DEFAULT,
+                             max_ops: int = MAX_OPS_DEFAULT) -> Recipe:
     """Sample a recipe drawn only from the families not in `exclude`.
+
+    `pool` and `max_ops` name which ops a family may realise as and how long a
+    chain may be; both are recorded in the bank's config and read back by the
+    live trainer, so the recipe a view was cached under and the recipe the
+    trainer rebuilds it from cannot disagree.
 
     Used for the leave-one-transform-out run (spec §4.6): the excluded family
     must be entirely absent from training so evaluation on it measures
@@ -75,11 +84,11 @@ def _sample_recipe_excluding(rng: np.random.Generator, exclude: tuple[str, ...])
     hard constraint.
     """
     if not exclude:
-        return sample_training_recipe(rng)
+        return sample_training_recipe(rng, max_ops=max_ops, pool=pool)
     kept = tuple(f for f in FAMILIES if f not in exclude)
     if not kept:
         raise ValueError(f"excluding {exclude} leaves no transform families to sample")
-    return sample_training_recipe(rng, families=kept)
+    return sample_training_recipe(rng, max_ops=max_ops, families=kept, pool=pool)
 
 
 def shard_bounds(n: int, n_shards: int) -> list[tuple[int, int]]:
@@ -162,11 +171,13 @@ def shard_frame(df: pd.DataFrame, spec: str | None) -> pd.DataFrame:
 
 #: One image's CPU work, as a picklable argument tuple for `_prepare_image`.
 PrepareTask = tuple  # (write_idx, row_id, path, n_views, seed,
-                     #  exclude_families, policy, geometric)
+                     #  exclude_families, policy, geometric, pool, max_ops)
 
 
 def recipe_for_view(view_idx: int, row_id: int, seed: int,
-                    exclude_families: tuple[str, ...] = ()) -> Recipe:
+                    exclude_families: tuple[str, ...] = (),
+                    pool: str = RECIPE_POOL_DEFAULT,
+                    max_ops: int = MAX_OPS_DEFAULT) -> Recipe:
     """The recipe cached view `view_idx` of `row_id` was built from.
 
     View 0 is the clean view by the bank's own invariant and has the empty
@@ -180,14 +191,18 @@ def recipe_for_view(view_idx: int, row_id: int, seed: int,
     if view_idx == 0:
         return Recipe(())
     return _sample_recipe_excluding(
-        np.random.default_rng([seed, row_id, view_idx]), exclude_families)
+        np.random.default_rng([seed, row_id, view_idx]), exclude_families,
+        pool=pool, max_ops=max_ops)
 
 
 def build_view(decoded: np.ndarray, view_idx: int, row_id: int, seed: int, *,
                policy, geometric: bool = False,
                exclude_families: tuple[str, ...] = (),
                recipe: Recipe | None = None,
-               base: np.ndarray | None = None) -> tuple[np.ndarray, Recipe]:
+               base: np.ndarray | None = None,
+               pool: str = RECIPE_POOL_DEFAULT,
+               max_ops: int = MAX_OPS_DEFAULT,
+               window_view: int | None = None) -> tuple[np.ndarray, Recipe]:
     """One cached view's pixels, from the decoded image and nothing else.
 
     `(pixels, recipe)`. Standardise, then orient, then degrade -- the same
@@ -201,23 +216,43 @@ def build_view(decoded: np.ndarray, view_idx: int, row_id: int, seed: int, *,
     than an approximation of one: a frozen tower fed these pixels computes the
     features already in the bank, so D0 and the cached rung it is the baseline
     for are the same model twice, not two similar ones.
+
+    `window_view` re-keys the crop window to ANOTHER view's index:
+    `window_view=0` builds this view on the clean view's window, so a
+    (clean, degraded) pair differs in degradation and nothing else. `None`,
+    the default, is each view's own window -- what every bank was extracted
+    with, and what the trainers do unless a control opts in. The recipe and
+    the orientation stay keyed on the view's own index. A view holding a
+    pre-canonical op shares the KEY, not the window: its image was resized
+    first, so the same draw lands somewhere else.
     """
-    r = recipe_for_view(view_idx, row_id, seed, exclude_families) if recipe is None else recipe
+    r = (recipe_for_view(view_idx, row_id, seed, exclude_families,
+                         pool=pool, max_ops=max_ops)
+         if recipe is None else recipe)
     # `base` is the caller's already-standardised image, and it is ONLY valid
     # under a band policy, where canonicalisation is a pure function of the
     # pixels and every view shares one result. Under crop each view draws its
     # own window from its own key, so there is nothing to share and passing a
     # base would hand all 11 views the same window -- silently, with no shape
     # error, which is why the caller does not get to decide: crop ignores it.
-    if base is not None and policy.mode != MODE_CROP:
+    # Pre-canonical ops (NTIRE's permanent downscale) act on the decoded
+    # image, before the window is taken -- so a view holding one cannot share
+    # the caller's `base` either, and canonicalises its own resized copy.
+    wv = view_idx if window_view is None else int(window_view)
+    pre, post = r.split()
+    if pre.ops:
+        std = canonicalise(pre.apply_pre(decoded), policy=policy,
+                           rng=canonical_rng(seed, row_id, wv)
+                           if policy.mode == MODE_CROP else None)
+    elif base is not None and policy.mode != MODE_CROP:
         std = base
     else:
         std = canonicalise(decoded, policy=policy,
-                           rng=canonical_rng(seed, row_id, view_idx)
+                           rng=canonical_rng(seed, row_id, wv)
                            if policy.mode == MODE_CROP else None)
     if geometric:
         std = dihedral(std, sample_dihedral(geometric_rng(seed, row_id, view_idx)))
-    return r.apply(std, np.random.default_rng([seed, row_id, view_idx])), r
+    return post.apply_post(std, np.random.default_rng([seed, row_id, view_idx])), r
 
 
 def _prepare_image(task: PrepareTask) -> dict:
@@ -232,7 +267,7 @@ def _prepare_image(task: PrepareTask) -> dict:
     construction and bit-identical to running it inline.
     """
     (write_idx, row_id, path, n_views, seed, exclude_families,
-     policy, geometric) = task
+     policy, geometric, pool, max_ops) = task
     with Image.open(path) as im:
         decoded = np.asarray(im.convert("RGB"), dtype=np.uint8)
         # Resolution canonicalisation, BEFORE any recipe/condition transform
@@ -271,7 +306,8 @@ def _prepare_image(task: PrepareTask) -> dict:
     recipes = [Recipe(())]
     for v in range(1, n_views):
         sample_rng = np.random.default_rng([seed, row_id, v])
-        recipes.append(_sample_recipe_excluding(sample_rng, exclude_families))
+        recipes.append(_sample_recipe_excluding(sample_rng, exclude_families,
+                                                pool=pool, max_ops=max_ops))
 
     # Standardise, then orient, then degrade. The order is deliberate: a
     # recipe's jpeg or blur must act on the pixels the model will actually
@@ -367,8 +403,18 @@ def extract_bank(
     resume: bool = False,
     checkpoint_every: int = CHECKPOINT_EVERY,
     workers: int = 0,
+    pool: str = RECIPE_POOL_DEFAULT,
+    max_ops: int = MAX_OPS_DEFAULT,
 ) -> str:
     """Extract a feature bank from `manifest_df` and write it to `out_dir`.
+
+    `pool` and `max_ops` select the op pool and chain length the training
+    sampler draws from (`augment.recipes.POOLS`). Both are recorded in the
+    bank's config, where they are must-match keys for `merge_banks` and
+    `resume`, and where `train.finetune.LiveViewSampler` reads them back so
+    the recipe a view is rebuilt from is the recipe its targets were computed
+    from. The defaults are the brief's six ops, three deep -- bit-identical to
+    every bank extracted before pools existed.
 
     View 0 is always the clean, unmodified image with an empty recipe
     (`FeatureBank.check_invariants` enforces this on the output). Views 1..
@@ -482,6 +528,13 @@ def extract_bank(
                             # bank written before this existed.
                             "canon_policy": policy.as_record(),
                             "geometric": "dihedral8" if geometric else "",
+                            # Which ops a family may realise as, and how
+                            # deep a chain may go. A bank sampled under one
+                            # pool holds different pixels from one sampled
+                            # under another for the same (seed, row, view),
+                            # and its presence/severity targets differ too.
+                            "recipe_pool": str(pool),
+                            "max_ops": int(max_ops),
                         })
 
     # Each image's RNG is keyed on the row's own index label -- its position
@@ -512,7 +565,7 @@ def extract_bank(
             "generator": row["generator"], "source": row["source"],
             "split": row["split"]}
         tasks.append((write_idx, int(row_id), row["path"], n_views, seed,
-                      exclude_families, policy, geometric))
+                      exclude_families, policy, geometric, pool, max_ops))
 
     for prepared in tqdm(_iter_prepared(tasks, workers), total=len(tasks),
                           desc=f"extract:{backbone_name}"):

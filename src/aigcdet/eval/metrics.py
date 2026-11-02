@@ -79,7 +79,10 @@ def risk_coverage(y_correct: np.ndarray, confidence: np.ndarray) -> tuple[np.nda
 
 def aurc(y_correct: np.ndarray, confidence: np.ndarray) -> float:
     coverage, risk = risk_coverage(y_correct, confidence)
-    return float(np.trapezoid(risk, coverage))
+    # `trapezoid` is numpy 2's name for `trapz`; the box's venv sits on
+    # numpy 1.26 since compressai (recipe pool ntire2) pins numpy < 2.
+    trapezoid = getattr(np, "trapezoid", None) or np.trapz
+    return float(trapezoid(risk, coverage))
 
 
 def accuracy_at_coverage(y_correct: np.ndarray, confidence: np.ndarray, coverage: float) -> float:

@@ -1,0 +1,45 @@
+{
+  "ckpt": "/scratch/justin_r13/aigcdet/outputs/dual/ntire2_dual224/checkpoint.pt",
+  "weights": "swa",
+  "split": "ntire_val_hard",
+  "policy": {
+    "mode": "crop",
+    "nominal_side": 224,
+    "crop_side": 200,
+    "crop_clamp": true
+  },
+  "band_side": 160,
+  "arms": {
+    "band_squish": {
+      "n": 2500,
+      "auc": 0.9757584,
+      "tpr_at_1pct_fpr": 0.724,
+      "robust_auc": 0.95943808,
+      "clean_auc": 0.9878144,
+      "by_bucket": {
+        "80-336": {
+          "n": 314,
+          "robust_auc": 0.9600535866520521,
+          "clean_auc": null
+        },
+        "352-512": {
+          "n": 416,
+          "robust_auc": 0.9739651894105602,
+          "clean_auc": 0.9938461538461539
+        },
+        "528-736": {
+          "n": 741,
+          "robust_auc": 0.958903469854761,
+          "clean_auc": 0.9924378020404511
+        },
+        "752-4016": {
+          "n": 1029,
+          "robust_auc": 0.9503931738330266,
+          "clean_auc": 0.9832253265918136
+        }
+      },
+      "views_mean": 1.0,
+      "views_max": 1
+    }
+  }
+}

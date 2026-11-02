@@ -1,0 +1,97 @@
+{
+  "n": 2500,
+  "n_boot": 2000,
+  "seed": 20260827,
+  "alpha": 0.05,
+  "n_robust": 1250,
+  "n_clean": 1250,
+  "models": {
+    "testtime": {
+      "auc": {
+        "value": 0.89035776,
+        "ci": [
+          0.878036864,
+          0.90282256
+        ]
+      },
+      "robust_auc": {
+        "value": 0.83691776,
+        "ci": [
+          0.8150117760000001,
+          0.8588517760000001
+        ]
+      },
+      "clean_auc": {
+        "value": 0.93289216,
+        "ci": [
+          0.919403264,
+          0.946263488
+        ]
+      }
+    },
+    "trained": {
+      "auc": {
+        "value": 0.92828416,
+        "ci": [
+          0.91869664,
+          0.937784192
+        ]
+      },
+      "robust_auc": {
+        "value": 0.88279808,
+        "ci": [
+          0.863870528,
+          0.900599552
+        ]
+      },
+      "clean_auc": {
+        "value": 0.96346368,
+        "ci": [
+          0.953110208,
+          0.972703104
+        ]
+      }
+    }
+  },
+  "vs_baseline": {
+    "trained": {
+      "auc": {
+        "diff": 0.03792640000000003,
+        "ci": [
+          0.028410671999999904,
+          0.046915136000000045
+        ],
+        "p": 0.0,
+        "excludes_zero": true
+      },
+      "robust_auc": {
+        "diff": 0.045880320000000085,
+        "ci": [
+          0.030592896000000046,
+          0.061773823999999956
+        ],
+        "p": 0.0,
+        "excludes_zero": true
+      },
+      "clean_auc": {
+        "diff": 0.030571520000000074,
+        "ci": [
+          0.020155328000000076,
+          0.04091961600000002
+        ],
+        "p": 0.0,
+        "excludes_zero": true
+      }
+    }
+  },
+  "inputs": {
+    "testtime": {
+      "parquet": "outputs/scores/paper/clip_probe_s3_squish_ntire_val_hard.parquet",
+      "column": null
+    },
+    "trained": {
+      "parquet": "outputs/scores/paper/clip_squish_s3_ntire_val_hard.parquet",
+      "column": null
+    }
+  }
+}

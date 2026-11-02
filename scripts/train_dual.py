@@ -14,7 +14,10 @@ from __future__ import annotations
 import argparse
 import os
 
-from aigcdet.train.finetune import FinetuneConfig
+from aigcdet.augment.canonical import MODES
+from aigcdet.models.losses import LossWeights
+from aigcdet.models.pooling import TOKEN_POOLS
+from aigcdet.train.finetune import DISTIL_MODES, FinetuneConfig
 from aigcdet.train.finetune_dual import DualFinetuneConfig, train_dual
 
 
@@ -45,7 +48,10 @@ def main() -> int:
     ap.add_argument("--workers", type=int, default=16)
     ap.add_argument("--seed", type=int, default=20260827)
     ap.add_argument("--device", default="cuda")
-    ap.add_argument("--canon-mode", default="crop")
+    ap.add_argument("--canon-mode", default="crop", choices=MODES,
+                    help="crop: 200px native window (the round-one/two policy); "
+                         "squish: whole frame at --nominal-side square, "
+                         "which ignores --crop-side and --crop-clamp")
     ap.add_argument("--crop-side", type=int, default=200)
     ap.add_argument("--train-subsample-frac", type=float, default=1.0)
     ap.add_argument("--no-checkpointing", action="store_true")
@@ -72,6 +78,41 @@ def main() -> int:
                          "final weights, both scorable")
     ap.add_argument("--swa-start-frac", type=float, default=0.75)
     ap.add_argument("--resume", action="store_true")
+    ap.add_argument("--token-pool", default="mean", choices=TOKEN_POOLS,
+                    help="how the tower's tokens become the head's input: "
+                         "mean (patch mean, every run before this existed), "
+                         "cls, cls_mean, cls_reg_mean (CLS + registers + "
+                         "mean, 6x width on dinov2regl) or attn (a learned "
+                         "query over the patches). See models/pooling.py")
+    ap.add_argument("--family-weighting", default="uniform",
+                    choices=("uniform", "proportional"),
+                    help="see train_unfreeze.py")
+    ap.add_argument("--distil", default="off", choices=DISTIL_MODES,
+                    help="see train_unfreeze.py; with ema, one teacher per "
+                         "tower")
+    ap.add_argument("--distil-weight", type=float, default=1.0)
+    ap.add_argument("--log-every", type=int, default=50,
+                    help="progress line every this many optimiser steps")
+
+    ap.add_argument("--distil-ema-decay", type=float, default=0.999)
+    ap.add_argument("--film", action="store_true",
+                    help="FiLM-modulate the classifier's hidden state by the "
+                         "degradation head's (detached) embedding, so the "
+                         "classifier is told what degradation it is looking "
+                         "at (default: off, as the headline recipe)")
+    ap.add_argument("--film-shuffle", action="store_true",
+                    help="with --film, condition each row on its neighbour's "
+                         "degradation embedding: the information control, "
+                         "identical parameters with no per-image signal")
+    ap.add_argument("--share-window", action="store_true",
+                    help="degraded views take the clean view's crop window, "
+                         "so each pair differs in degradation only (the "
+                         "crop-confound control; default: a window per view)")
+    ap.add_argument("--lambda-deg", type=float, default=LossWeights.lambda_deg)
+    ap.add_argument("--alpha", type=float, default=LossWeights.alpha,
+                    help="see train_unfreeze.py")
+    ap.add_argument("--beta", type=float, default=LossWeights.beta,
+                    help="see train_unfreeze.py")
     a = ap.parse_args()
 
     base = FinetuneConfig(
@@ -85,7 +126,14 @@ def main() -> int:
         lr_schedule=a.lr_schedule, warmup_frac=a.warmup_frac,
         min_lr_frac=a.min_lr_frac, swa=a.swa, swa_start_frac=a.swa_start_frac,
         use_recon=a.use_recon,
-        train_subsample_frac=a.train_subsample_frac)
+        train_subsample_frac=a.train_subsample_frac,
+        family_weighting=a.family_weighting,
+        token_pool=a.token_pool,
+        weights=LossWeights(lambda_deg=a.lambda_deg, alpha=a.alpha, beta=a.beta),
+        distil=a.distil, distil_weight=a.distil_weight,
+        distil_ema_decay=a.distil_ema_decay, log_every=a.log_every,
+        share_window=a.share_window,
+        use_film=a.film, film_shuffle=a.film_shuffle)
     cfg = DualFinetuneConfig(base=base, backbone2=a.backbone2,
                              perturb_tower2=a.perturb_tower2)
 
@@ -99,7 +147,8 @@ def main() -> int:
               f"({u['n_blocks']} blocks at {u['block_path']!r})")
     for h in res["history"]:
         print(f"  epoch {h['epoch']}: total={h['total']:.4f} "
-              f"cls={h['cls']:.4f} deg={h['deg']:.4f} con={h['con']:.4f}")
+              f"cls={h['cls']:.4f} deg={h['deg']:.4f} con={h['con']:.4f} "
+              f"dis={h.get('dis', 0.0):.4f}")
     print(f"checkpoint: {res['checkpoint']}")
     return 0
 

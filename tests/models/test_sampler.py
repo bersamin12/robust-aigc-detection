@@ -188,6 +188,63 @@ def test_generator_balance_is_stratified_not_proportional_to_pool_size(tmp_path)
         assert 0.10 < frac < 0.30, f"{g} drawn {frac:.3f} of the time, expected ~0.2"
 
 
+def _skewed_bank(tmp_path, name="bp"):
+    """50 positives: gA holds 44, gB/gC 2 each, gD/gE 1 each."""
+    n = 100
+    w = BankWriter(str(tmp_path / name), n, N_VIEWS, 3, "t", 0)
+    rng = np.random.default_rng(0)
+    pos_gens = iter(["gA"] * 44 + ["gB"] * 2 + ["gC"] * 2 + ["gD"] + ["gE"])
+    for i in range(n):
+        pres = np.zeros((N_VIEWS, 6), np.float32); pres[1:, 0] = 1.0
+        sev = np.zeros((N_VIEWS, 6), np.float32); sev[1:, 0] = 0.4
+        label = i % 2
+        gen = next(pos_gens) if label == 1 else "real"
+        w.write_image(i, {"path": f"/p{i}", "label": label, "generator": gen,
+                          "source": "s", "split": "train"},
+                      feats=rng.normal(size=(N_VIEWS, 3)).astype(np.float32),
+                      presence=pres, severity=sev,
+                      proxies=np.zeros((N_VIEWS, 3), np.float32),
+                      recipes=["[]"] * N_VIEWS)
+    w.close()
+    return FeatureBank.open(str(tmp_path / name))
+
+
+def test_proportional_weighting_draws_families_by_row_count(tmp_path):
+    """The NTIRE setting: one pseudo-family holds nearly every fake. Under
+    "proportional" a draw is uniform over the POOL, so gA (44 of 50) should
+    take ~88% of draws instead of the ~20% "uniform" gives it."""
+    b = _skewed_bank(tmp_path)
+    s = PairedSampler(b, np.arange(100), n_src=10, m_deg=1,
+                      rng=np.random.default_rng(7), family_weighting="proportional")
+    n_draws = 5000
+    drawn = s._draw_stratified(s.pos, n_draws)
+    gens = s.generators[drawn]
+    frac_a = float((gens == "gA").mean())
+    assert 0.84 < frac_a < 0.92, frac_a
+    # Every image is still reachable, and only positives are drawn.
+    assert set(drawn.tolist()) <= set(s.pos.tolist())
+    assert len(set(drawn.tolist())) == 50
+
+
+def test_uniform_weighting_is_the_default_and_its_stream_is_unchanged(tmp_path):
+    """Adding the knob must not move a single draw of the runs before it."""
+    b = _skewed_bank(tmp_path, "bu")
+    a = PairedSampler(b, np.arange(100), n_src=8, m_deg=2, rng=np.random.default_rng(3))
+    u = PairedSampler(b, np.arange(100), n_src=8, m_deg=2, rng=np.random.default_rng(3),
+                      family_weighting="uniform")
+    assert a.family_weighting == "uniform"
+    for _ in range(len(a)):
+        for x, y in zip(a.draw_batch(), u.draw_batch()):
+            np.testing.assert_array_equal(x, y)
+
+
+def test_unknown_family_weighting_is_refused(tmp_path):
+    b = _bank(tmp_path)
+    with pytest.raises(ValueError, match="family_weighting"):
+        PairedSampler(b, np.arange(40), n_src=4, m_deg=1,
+                      rng=np.random.default_rng(0), family_weighting="sqrt")
+
+
 def test_determinism_with_equivalently_seeded_generators(tmp_path):
     """Project rule: no global seeding. Two samplers built from
     equivalently-seeded generators must produce identical batch sequences."""

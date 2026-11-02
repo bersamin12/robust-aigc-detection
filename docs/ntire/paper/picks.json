@@ -1,0 +1,5 @@
+{
+  "A": "outputs/scores/paper/A3sqswa",
+  "B": "outputs/scores/paper/B3sqswa",
+  "rule": "mean(robust,clean) on ntire_val; tie -> final"
+}

@@ -302,3 +302,50 @@ def test_total_loss_returns_finite_scalar_and_component_dict():
     assert torch.isfinite(loss)
     assert set(parts) == {"cls", "deg", "con", "total"}
     assert all(torch.isfinite(torch.tensor(v)) for v in parts.values())
+
+
+# ---------------------------------------------------------------------------
+# Degradation-invariant distillation (component 1)
+# ---------------------------------------------------------------------------
+
+def test_distillation_loss_is_zero_when_the_student_matches_the_teacher():
+    from aigcdet.models.losses import distillation_loss
+    f = torch.randn(4, 16, generator=torch.Generator().manual_seed(0))
+    assert distillation_loss(f, f.clone()).item() == pytest.approx(0.0, abs=1e-6)
+
+
+def test_distillation_loss_is_two_for_an_opposite_student():
+    """Cosine distance, so the range is [0, 2] whatever the feature width."""
+    from aigcdet.models.losses import distillation_loss
+    f = torch.randn(4, 16, generator=torch.Generator().manual_seed(0))
+    assert distillation_loss(-f, f).item() == pytest.approx(2.0, abs=1e-5)
+
+
+def test_distillation_loss_ignores_the_feature_norm():
+    """The head opens with a LayerNorm, so the pooled feature's scale is not
+    something the detector reads; an MSE would spend its gradient on it."""
+    from aigcdet.models.losses import distillation_loss
+    g = torch.Generator().manual_seed(1)
+    s, t = torch.randn(4, 16, generator=g), torch.randn(4, 16, generator=g)
+    a = distillation_loss(s, t)
+    b = distillation_loss(s * 7.0, t * 0.01)
+    assert torch.isclose(a, b, atol=1e-5)
+
+
+def test_distillation_gradient_reaches_the_student_and_never_the_teacher():
+    """The clean side is the target by definition. With both sides free the
+    cheapest solution is one constant feature, at which the term reads zero
+    and the detector on top of it reads nothing."""
+    from aigcdet.models.losses import distillation_loss
+    g = torch.Generator().manual_seed(2)
+    s = torch.randn(4, 16, generator=g, requires_grad=True)
+    t = torch.randn(4, 16, generator=g, requires_grad=True)
+    distillation_loss(s, t).backward()
+    assert s.grad is not None and s.grad.abs().sum() > 0
+    assert t.grad is None
+
+
+def test_distillation_loss_refuses_mismatched_shapes():
+    from aigcdet.models.losses import distillation_loss
+    with pytest.raises(ValueError, match="differ in shape"):
+        distillation_loss(torch.zeros(4, 16), torch.zeros(4, 8))

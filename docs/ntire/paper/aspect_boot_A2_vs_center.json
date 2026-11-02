@@ -1,0 +1,209 @@
+{
+  "n": 2500,
+  "n_boot": 2000,
+  "seed": 20260827,
+  "alpha": 0.05,
+  "n_robust": 1250,
+  "n_clean": 1250,
+  "models": {
+    "center": {
+      "auc": {
+        "value": 0.94077056,
+        "ci": [
+          0.932273264,
+          0.948833328
+        ]
+      },
+      "robust_auc": {
+        "value": 0.85614592,
+        "ci": [
+          0.8350607999999999,
+          0.875444224
+        ]
+      },
+      "clean_auc": {
+        "value": 0.99124736,
+        "ci": [
+          0.9871487360000001,
+          0.994387008
+        ]
+      }
+    },
+    "squish": {
+      "auc": {
+        "value": 0.97300864,
+        "ci": [
+          0.967970176,
+          0.9777127680000001
+        ]
+      },
+      "robust_auc": {
+        "value": 0.94817792,
+        "ci": [
+          0.936555264,
+          0.959088896
+        ]
+      },
+      "clean_auc": {
+        "value": 0.99061504,
+        "ci": [
+          0.987010496,
+          0.993659264
+        ]
+      }
+    },
+    "short_center": {
+      "auc": {
+        "value": 0.9700288,
+        "ci": [
+          0.9643710879999999,
+          0.97525376
+        ]
+      },
+      "robust_auc": {
+        "value": 0.94145536,
+        "ci": [
+          0.929399872,
+          0.953352576
+        ]
+      },
+      "clean_auc": {
+        "value": 0.99034368,
+        "ci": [
+          0.986663296,
+          0.99349248
+        ]
+      }
+    },
+    "letterbox": {
+      "auc": {
+        "value": 0.96931136,
+        "ci": [
+          0.96360888,
+          0.974243328
+        ]
+      },
+      "robust_auc": {
+        "value": 0.94819328,
+        "ci": [
+          0.93682496,
+          0.958951232
+        ]
+      },
+      "clean_auc": {
+        "value": 0.9865984,
+        "ci": [
+          0.981578112,
+          0.9908558080000001
+        ]
+      }
+    }
+  },
+  "vs_baseline": {
+    "squish": {
+      "auc": {
+        "diff": 0.03223807999999995,
+        "ci": [
+          0.024363823999999968,
+          0.040309359999999975
+        ],
+        "p": 0.0,
+        "excludes_zero": true
+      },
+      "robust_auc": {
+        "diff": 0.092032,
+        "ci": [
+          0.07268319999999999,
+          0.11212089600000005
+        ],
+        "p": 0.0,
+        "excludes_zero": true
+      },
+      "clean_auc": {
+        "diff": -0.0006323200000000195,
+        "ci": [
+          -0.0049204480000000885,
+          0.003945279999999996
+        ],
+        "p": 0.761,
+        "excludes_zero": false
+      }
+    },
+    "short_center": {
+      "auc": {
+        "diff": 0.02925823999999999,
+        "ci": [
+          0.02155806399999997,
+          0.03728712000000005
+        ],
+        "p": 0.0,
+        "excludes_zero": true
+      },
+      "robust_auc": {
+        "diff": 0.08530943999999996,
+        "ci": [
+          0.06706662399999994,
+          0.10375724799999998
+        ],
+        "p": 0.0,
+        "excludes_zero": true
+      },
+      "clean_auc": {
+        "diff": -0.0009036800000000733,
+        "ci": [
+          -0.005373887999999954,
+          0.0039124479999999694
+        ],
+        "p": 0.689,
+        "excludes_zero": false
+      }
+    },
+    "letterbox": {
+      "auc": {
+        "diff": 0.028540799999999922,
+        "ci": [
+          0.020315904000000017,
+          0.03694236799999999
+        ],
+        "p": 0.0,
+        "excludes_zero": true
+      },
+      "robust_auc": {
+        "diff": 0.09204736000000002,
+        "ci": [
+          0.07251910399999997,
+          0.11277619200000004
+        ],
+        "p": 0.0,
+        "excludes_zero": true
+      },
+      "clean_auc": {
+        "diff": -0.004648960000000035,
+        "ci": [
+          -0.009710271999999956,
+          0.00045631999999995384
+        ],
+        "p": 0.072,
+        "excludes_zero": false
+      }
+    }
+  },
+  "inputs": {
+    "center": {
+      "parquet": "outputs/scores/probe_A2_center_ntire_val_hard.parquet",
+      "column": null
+    },
+    "squish": {
+      "parquet": "outputs/scores/probe_A2_squish_ntire_val_hard.parquet",
+      "column": null
+    },
+    "short_center": {
+      "parquet": "outputs/scores/paper/aspect_A2_short_center_ntire_val_hard.parquet",
+      "column": null
+    },
+    "letterbox": {
+      "parquet": "outputs/scores/paper/aspect_A2_letterbox_ntire_val_hard.parquet",
+      "column": null
+    }
+  }
+}

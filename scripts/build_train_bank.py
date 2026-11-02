@@ -36,7 +36,8 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from aigcdet.augment.recipes import FAMILIES
+from aigcdet.augment.recipes import (
+    FAMILIES, MAX_OPS_DEFAULT, POOLS, RECIPE_POOL_DEFAULT)
 from aigcdet.features.bank import BankWriter
 from aigcdet.features.extract import recipe_for_view
 
@@ -59,6 +60,15 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=20260827)
     ap.add_argument("--backbone", default="metadata-only")
     ap.add_argument("--exclude-families", default="")
+    ap.add_argument("--recipe-pool", default=RECIPE_POOL_DEFAULT,
+                    choices=sorted(POOLS),
+                    help="which ops each transform family may realise as "
+                         "(aigcdet.augment.recipes.POOLS). Recorded in the "
+                         "bank; the live trainer reads it back, so the views "
+                         "it rebuilds match the targets written here")
+    ap.add_argument("--max-ops", type=int, default=MAX_OPS_DEFAULT,
+                    help="longest chain of distinct families per view; "
+                         "NTIRE applies 1-5, the brief's ladder used 3")
     ap.add_argument("--path-map", action="append", default=[],
                     metavar="OLD=NEW",
                     help="prefix rewrite applied to the absolute `path` "
@@ -136,6 +146,8 @@ def main() -> int:
             "source_manifest": os.path.abspath(a.manifest),
             "splits_included": keep,
             "paths_are_absolute": absolute,
+            "recipe_pool": a.recipe_pool,
+            "max_ops": int(a.max_ops),
         })
 
     nan_feats = np.full((a.n_views, 1), np.nan, dtype=np.float32)
@@ -150,7 +162,8 @@ def main() -> int:
         # match what `LiveViewSampler` will pass, which is `bank.row_ids[i]`.
         recipes = []
         for v in range(a.n_views):
-            r = recipe_for_view(v, i, a.seed, excl)
+            r = recipe_for_view(v, i, a.seed, excl,
+                                pool=a.recipe_pool, max_ops=a.max_ops)
             lab = r.labels()
             presence[v] = lab["presence"]
             severity[v] = lab["severity"]

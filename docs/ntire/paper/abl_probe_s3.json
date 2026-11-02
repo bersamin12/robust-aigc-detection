@@ -1,0 +1,76 @@
+{
+  "ckpt": "/scratch/justin_r13/aigcdet/outputs/paper/abl_crop_s3/checkpoint_slim.pt",
+  "weights": "final",
+  "split": "ntire_val_hard",
+  "policy": {
+    "mode": "crop",
+    "nominal_side": 224,
+    "crop_side": 200,
+    "crop_clamp": true
+  },
+  "band_side": 160,
+  "arms": {
+    "center": {
+      "n": 2500,
+      "auc": 0.8681324800000001,
+      "tpr_at_1pct_fpr": 0.1424,
+      "robust_auc": 0.7996467199999999,
+      "clean_auc": 0.9233023999999999,
+      "by_bucket": {
+        "80-336": {
+          "n": 314,
+          "robust_auc": 0.8246660983233872,
+          "clean_auc": null
+        },
+        "352-512": {
+          "n": 416,
+          "robust_auc": 0.8195114816439959,
+          "clean_auc": 0.9653846153846154
+        },
+        "528-736": {
+          "n": 741,
+          "robust_auc": 0.7818614860131697,
+          "clean_auc": 0.9625022373366744
+        },
+        "752-4016": {
+          "n": 1029,
+          "robust_auc": 0.7812029446210473,
+          "clean_auc": 0.9071854155292329
+        }
+      },
+      "views_mean": 1.0,
+      "views_max": 1
+    },
+    "squish": {
+      "n": 2500,
+      "auc": 0.86711936,
+      "tpr_at_1pct_fpr": 0.2296,
+      "robust_auc": 0.8298803199999999,
+      "clean_auc": 0.9019955199999998,
+      "by_bucket": {
+        "80-336": {
+          "n": 314,
+          "robust_auc": 0.8499167783055251,
+          "clean_auc": null
+        },
+        "352-512": {
+          "n": 416,
+          "robust_auc": 0.8385256691531373,
+          "clean_auc": 0.9676923076923076
+        },
+        "528-736": {
+          "n": 741,
+          "robust_auc": 0.8090879372343904,
+          "clean_auc": 0.9625469840701629
+        },
+        "752-4016": {
+          "n": 1029,
+          "robust_auc": 0.8531035636606994,
+          "clean_auc": 0.879190701133873
+        }
+      },
+      "views_mean": 1.0,
+      "views_max": 1
+    }
+  }
+}
