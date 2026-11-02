@@ -266,7 +266,31 @@ MODE_CROP = "crop"
 #: native size. That residue is what the probe's `band_squish` arm measures.
 MODE_SQUISH = "squish"
 
-MODES = (MODE_BAND, MODE_CROP, MODE_SQUISH)
+#: Random resized crop (paper_prereg.md amendment 5, Test 7, the multi-scale
+#: training baseline). A window covering a random fraction of the native
+#: image's AREA, U(0.20, 1.00), with aspect ratio (width / height)
+#: log-uniform in [3/4, 4/3], squished to `nominal_side` x `nominal_side` by
+#: squish's own two-step resize. So it differs from squish in one thing only:
+#: the field of view is drawn per view instead of being the whole frame.
+#: Applied identically to both classes (no label reaches this module).
+#:
+#: The draw follows torchvision's `RandomResizedCrop.get_params`: up to ten
+#: attempts to fit a window of the drawn area and aspect inside the image,
+#: then a fallback that takes the whole image with its aspect clamped into
+#: the range. With `rng is None` (every deterministic path) it returns the
+#: whole frame, i.e. exactly squish; Test 7 scores its arms through explicit
+#: test-time presentations instead (`scripts/ntire_crop_probe.py`).
+MODE_RRC = "rrc"
+RRC_AREA_RANGE = (0.20, 1.00)
+RRC_ASPECT_RANGE = (3.0 / 4.0, 4.0 / 3.0)
+RRC_ATTEMPTS = 10
+
+MODES = (MODE_BAND, MODE_CROP, MODE_SQUISH, MODE_RRC)
+
+#: Modes whose window is drawn PER VIEW from `canonical_rng`, so a training
+#: path must not hoist canonicalisation out of the view loop. Band and squish
+#: are pure functions of the pixels and can be computed once per image.
+RANDOM_WINDOW_MODES = (MODE_CROP, MODE_RRC)
 
 
 @dataclass(frozen=True)
@@ -328,10 +352,11 @@ class CanonPolicy:
                     "as an interpolation signature")
             if not 0.0 <= self.jitter < 1.0:
                 raise ValueError(f"jitter must be in [0, 1), got {self.jitter!r}")
-        elif self.mode == MODE_SQUISH:
+        elif self.mode in (MODE_SQUISH, MODE_RRC):
             # Reads nominal_side and nothing else. crop_side / crop_clamp are
             # deliberately NOT validated: every scorer rebuilds the policy
-            # from a checkpoint config that always carries them.
+            # from a checkpoint config that always carries them. The rrc
+            # ranges are module constants, fixed by the registration.
             if not (isinstance(self.nominal_side, int) and self.nominal_side > 0):
                 raise ValueError(
                     f"need nominal_side > 0, got {self.nominal_side!r}")
@@ -356,7 +381,7 @@ class CanonPolicy:
         rotation transposes a non-square image and every op downstream is
         shape-preserving.
         """
-        return self.mode in (MODE_CROP, MODE_SQUISH)
+        return self.mode in (MODE_CROP, MODE_SQUISH, MODE_RRC)
 
     def as_record(self) -> dict:
         """The blob written into the feature bank's config.
@@ -368,7 +393,7 @@ class CanonPolicy:
         rec = {"mode": self.mode, "nominal_side": self.nominal_side}
         if self.mode == MODE_BAND:
             rec.update(band_side=self.band_side, jitter=self.jitter)
-        elif self.mode == MODE_SQUISH:
+        elif self.mode in (MODE_SQUISH, MODE_RRC):
             pass
         else:
             rec.update(crop_side=self.crop_side)
@@ -470,6 +495,54 @@ def _random_square_crop(img: np.ndarray, side: int,
     return img[top:top + side, left:left + side]
 
 
+def _squish_to(img: np.ndarray, n: int) -> np.ndarray:
+    """Squish's two-step resize to n x n: short side to n if larger, then
+    the long side to n. One kernel throughout. Shared by squish and rrc so
+    the two modes resample identically."""
+    out = img
+    if min(out.shape[:2]) > n:
+        out = _resize_short_side(out, n, _DOWNSCALE_INTERP)
+    if out.shape[:2] != (n, n):
+        out = cv2.resize(out, (n, n), interpolation=_DOWNSCALE_INTERP)
+    return out.copy() if out is img else out
+
+
+def _random_resized_window(img: np.ndarray,
+                           rng: np.random.Generator) -> np.ndarray:
+    """The rrc window at NATIVE resolution (see `MODE_RRC`).
+
+    Mirrors torchvision's `RandomResizedCrop.get_params`, with numpy draws
+    so the window is reproducible from `canonical_rng(seed, row_id, view)`.
+    Each attempt draws an area fraction, then a log-aspect, then (on
+    success) top and left.
+    """
+    h, w = img.shape[:2]
+    image_area = h * w
+    log_aspect_lo = np.log(RRC_ASPECT_RANGE[0])
+    log_aspect_hi = np.log(RRC_ASPECT_RANGE[1])
+    for _ in range(RRC_ATTEMPTS):
+        area_fraction = float(rng.uniform(*RRC_AREA_RANGE))
+        aspect = float(np.exp(rng.uniform(log_aspect_lo, log_aspect_hi)))
+        target_area = image_area * area_fraction
+        window_w = int(round(np.sqrt(target_area * aspect)))
+        window_h = int(round(np.sqrt(target_area / aspect)))
+        if 0 < window_w <= w and 0 < window_h <= h:
+            top = int(rng.integers(0, h - window_h + 1))
+            left = int(rng.integers(0, w - window_w + 1))
+            return img[top:top + window_h, left:left + window_w]
+    # Fallback, as torchvision: the whole image, its aspect clamped into the
+    # allowed range by trimming the long axis, centred.
+    image_aspect = w / h
+    if image_aspect < RRC_ASPECT_RANGE[0]:
+        window_w, window_h = w, int(round(w / RRC_ASPECT_RANGE[0]))
+    elif image_aspect > RRC_ASPECT_RANGE[1]:
+        window_h, window_w = h, int(round(h * RRC_ASPECT_RANGE[1]))
+    else:
+        window_w, window_h = w, h
+    top, left = (h - window_h) // 2, (w - window_w) // 2
+    return img[top:top + window_h, left:left + window_w]
+
+
 def canonicalise(img: np.ndarray, *,
                  policy: CanonPolicy | None = None,
                  band_side: int = CANON_BAND_SIDE,
@@ -536,13 +609,14 @@ def canonicalise(img: np.ndarray, *,
         # unconditionally. The two steps are exactly `views_squish` in
         # scripts/ntire_crop_probe.py, whose test-time numbers this mode is
         # meant to carry into training; a test pins the pixels equal.
-        n = policy.nominal_side
-        out = img
-        if min(out.shape[:2]) > n:
-            out = _resize_short_side(out, n, _DOWNSCALE_INTERP)
-        if out.shape[:2] != (n, n):
-            out = cv2.resize(out, (n, n), interpolation=_DOWNSCALE_INTERP)
-        return out.copy() if out is img else out
+        return _squish_to(img, policy.nominal_side)
+
+    if policy.mode == MODE_RRC:
+        # A random window of the native image, then squish's resize. With no
+        # rng (deterministic paths) the window is the whole frame, so the
+        # result equals squish's.
+        window = img if rng is None else _random_resized_window(img, rng)
+        return _squish_to(window, policy.nominal_side)
 
     if policy.mode == MODE_CROP:
         # Step 1', the crop, replaces step 1, the band-limit. It removes no

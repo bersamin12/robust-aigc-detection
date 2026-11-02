@@ -55,7 +55,7 @@ from aigcdet.features.bank import (
 )
 from aigcdet.features.proxies import proxy_vector
 from aigcdet.augment.canonical import (
-    DEFAULT_POLICY, MODE_CROP, CanonPolicy, canonical_rng, canonicalise)
+    DEFAULT_POLICY, RANDOM_WINDOW_MODES, CanonPolicy, canonical_rng, canonicalise)
 from aigcdet.augment.geometric import dihedral, geometric_rng, sample_dihedral
 
 
@@ -243,13 +243,13 @@ def build_view(decoded: np.ndarray, view_idx: int, row_id: int, seed: int, *,
     if pre.ops:
         std = canonicalise(pre.apply_pre(decoded), policy=policy,
                            rng=canonical_rng(seed, row_id, wv)
-                           if policy.mode == MODE_CROP else None)
-    elif base is not None and policy.mode != MODE_CROP:
+                           if policy.mode in RANDOM_WINDOW_MODES else None)
+    elif base is not None and policy.mode not in RANDOM_WINDOW_MODES:
         std = base
     else:
         std = canonicalise(decoded, policy=policy,
                            rng=canonical_rng(seed, row_id, wv)
-                           if policy.mode == MODE_CROP else None)
+                           if policy.mode in RANDOM_WINDOW_MODES else None)
     if geometric:
         std = dihedral(std, sample_dihedral(geometric_rng(seed, row_id, view_idx)))
     return post.apply_post(std, np.random.default_rng([seed, row_id, view_idx])), r
@@ -288,7 +288,7 @@ def _prepare_image(task: PrepareTask) -> dict:
         # hoisted out of the view loop and computed once, exactly as before.
         # Under a CROP policy it draws a window per view and cannot be, which
         # is the point: 11 views give 11 different windows from one decode.
-        base = None if policy.mode == MODE_CROP else canonicalise(
+        base = None if policy.mode in RANDOM_WINDOW_MODES else canonicalise(
             decoded, policy=policy)
 
     # View 0 is always the clean view (bank invariant) -- no sampling.
