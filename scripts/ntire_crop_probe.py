@@ -246,11 +246,51 @@ def views_freqmatch(img, policy):
     return [canonicalise(back_to_native, policy=policy)]
 
 
+#: ImageNet mean colour in uint8 RGB. Filling with it BEFORE normalisation
+#: makes the masked region (close to) zero after the backbone's mean/std
+#: normalisation, i.e. "no signal" rather than a black or white patch.
+#: Rounded to the nearest integer: (123.675, 116.28, 103.53) -> (124, 116, 104).
+IMAGENET_MEAN_UINT8 = np.array([124, 116, 104], dtype=np.uint8)
+
+
+def _centred_square_bounds(n: int, side: int) -> tuple[int, int]:
+    """(start, stop) of a centred square of `side` inside an n x n image."""
+    start = (n - side) // 2
+    return start, start + side
+
+
+def views_mask_centre(img, policy):
+    """Amendment 5, Test 10: squish, then fill the centred square of side
+    n/2 (25% of the area) with the ImageNet mean colour."""
+    squished = views_squish(img, policy)[0].copy()
+    n = policy.nominal_side
+    side = n // 2
+    lo, hi = _centred_square_bounds(n, side)
+    squished[lo:hi, lo:hi] = IMAGENET_MEAN_UINT8
+    return [squished]
+
+
+def views_mask_periphery(img, policy):
+    """Amendment 5, Test 10: squish, then fill everything OUTSIDE the centred
+    square of side round(n * sqrt(0.75)) with the ImageNet mean colour, so
+    that the masked area is also ~25% of the frame."""
+    squished = views_squish(img, policy)[0]
+    n = policy.nominal_side
+    side = round(n * np.sqrt(0.75))
+    lo, hi = _centred_square_bounds(n, side)
+    masked = np.empty_like(squished)
+    masked[:] = IMAGENET_MEAN_UINT8
+    masked[lo:hi, lo:hi] = squished[lo:hi, lo:hi]
+    return [masked]
+
+
 ARMS = {"center": views_center, "grid9": views_grid9,
         "fov3": views_fov3, "squish": views_squish,
         "band_squish": views_band_squish,
         "short_center": views_short_center, "letterbox": views_letterbox,
-        "freqmatch": views_freqmatch}
+        "freqmatch": views_freqmatch,
+        "mask_centre": views_mask_centre,
+        "mask_periphery": views_mask_periphery}
 
 
 def score_arm(df, towers, specs, head, policy, arm, device, batch, workers,
