@@ -1,0 +1,815 @@
+{
+  "boundary": "Saved JSON/Markdown verification only; no inference, training, per-image scoring, or test evaluation.",
+  "n_checks": 157,
+  "checks": [
+    {
+      "check": "probe A2/center/robust_auc",
+      "printed": "0.8561",
+      "status": "pass"
+    },
+    {
+      "check": "probe A2/center/clean_auc",
+      "printed": "0.9912",
+      "status": "pass"
+    },
+    {
+      "check": "probe A2/grid9/robust_auc",
+      "printed": "0.8495",
+      "status": "pass"
+    },
+    {
+      "check": "probe A2/grid9/clean_auc",
+      "printed": "0.9978",
+      "status": "pass"
+    },
+    {
+      "check": "probe A2/fov3/robust_auc",
+      "printed": "0.8703",
+      "status": "pass"
+    },
+    {
+      "check": "probe A2/fov3/clean_auc",
+      "printed": "0.9977",
+      "status": "pass"
+    },
+    {
+      "check": "probe A2/squish/robust_auc",
+      "printed": "0.9482",
+      "status": "pass"
+    },
+    {
+      "check": "probe A2/squish/clean_auc",
+      "printed": "0.9906",
+      "status": "pass"
+    },
+    {
+      "check": "probe B2swa/center/robust_auc",
+      "printed": "0.8872",
+      "status": "pass"
+    },
+    {
+      "check": "probe B2swa/center/clean_auc",
+      "printed": "0.9801",
+      "status": "pass"
+    },
+    {
+      "check": "probe B2swa/grid9/robust_auc",
+      "printed": "0.9049",
+      "status": "pass"
+    },
+    {
+      "check": "probe B2swa/grid9/clean_auc",
+      "printed": "0.9931",
+      "status": "pass"
+    },
+    {
+      "check": "probe B2swa/fov3/robust_auc",
+      "printed": "0.9215",
+      "status": "pass"
+    },
+    {
+      "check": "probe B2swa/fov3/clean_auc",
+      "printed": "0.9942",
+      "status": "pass"
+    },
+    {
+      "check": "probe B2swa/squish/robust_auc",
+      "printed": "0.9599",
+      "status": "pass"
+    },
+    {
+      "check": "probe B2swa/squish/clean_auc",
+      "printed": "0.9886",
+      "status": "pass"
+    },
+    {
+      "check": "branch A/crop/robust_auc",
+      "printed": "0.8561",
+      "status": "pass"
+    },
+    {
+      "check": "branch A/crop/clean_auc",
+      "printed": "0.9913",
+      "status": "pass"
+    },
+    {
+      "check": "branch A/crop_testtime_squish/robust_auc",
+      "printed": "0.9482",
+      "status": "pass"
+    },
+    {
+      "check": "branch A/crop_testtime_squish/clean_auc",
+      "printed": "0.9906",
+      "status": "pass"
+    },
+    {
+      "check": "branch A/trained_squish/robust_auc",
+      "printed": "0.9425",
+      "status": "pass"
+    },
+    {
+      "check": "branch A/trained_squish/clean_auc",
+      "printed": "0.9934",
+      "status": "pass"
+    },
+    {
+      "check": "branch B/crop/robust_auc",
+      "printed": "0.8873",
+      "status": "pass"
+    },
+    {
+      "check": "branch B/crop/clean_auc",
+      "printed": "0.9801",
+      "status": "pass"
+    },
+    {
+      "check": "branch B/crop_testtime_squish/robust_auc",
+      "printed": "0.9599",
+      "status": "pass"
+    },
+    {
+      "check": "branch B/crop_testtime_squish/clean_auc",
+      "printed": "0.9886",
+      "status": "pass"
+    },
+    {
+      "check": "branch B/trained_squish/robust_auc",
+      "printed": "0.9589",
+      "status": "pass"
+    },
+    {
+      "check": "branch B/trained_squish/clean_auc",
+      "printed": "0.9898",
+      "status": "pass"
+    },
+    {
+      "check": "external aigi_socialrf/crop",
+      "printed": "0.9633",
+      "status": "pass"
+    },
+    {
+      "check": "external aigi_socialrf/squish",
+      "printed": "0.9776",
+      "status": "pass"
+    },
+    {
+      "check": "external aigi_socialrf_jpeg95/crop",
+      "printed": "0.9653",
+      "status": "pass"
+    },
+    {
+      "check": "external aigi_socialrf_jpeg95/squish",
+      "printed": "0.9778",
+      "status": "pass"
+    },
+    {
+      "check": "external interval aigi_socialrf",
+      "printed": "0.010",
+      "status": "pass"
+    },
+    {
+      "check": "external interval aigi_socialrf",
+      "printed": "0.018",
+      "status": "pass"
+    },
+    {
+      "check": "external interval aigi_socialrf_deg",
+      "printed": "0.077",
+      "status": "pass"
+    },
+    {
+      "check": "external interval aigi_socialrf_deg",
+      "printed": "0.092",
+      "status": "pass"
+    },
+    {
+      "check": "external interval aigi_socialrf_jpeg95",
+      "printed": "0.0084",
+      "status": "pass"
+    },
+    {
+      "check": "external interval aigi_socialrf_jpeg95",
+      "printed": "0.0166",
+      "status": "pass"
+    },
+    {
+      "check": "external aigi_community/crop",
+      "printed": "0.9809",
+      "status": "pass"
+    },
+    {
+      "check": "external aigi_community/squish",
+      "printed": "0.9920",
+      "status": "pass"
+    },
+    {
+      "check": "external aigi_community_jpeg95/crop",
+      "printed": "0.9802",
+      "status": "pass"
+    },
+    {
+      "check": "external aigi_community_jpeg95/squish",
+      "printed": "0.9920",
+      "status": "pass"
+    },
+    {
+      "check": "external interval aigi_community",
+      "printed": "0.009",
+      "status": "pass"
+    },
+    {
+      "check": "external interval aigi_community",
+      "printed": "0.013",
+      "status": "pass"
+    },
+    {
+      "check": "external interval aigi_community_deg",
+      "printed": "0.065",
+      "status": "pass"
+    },
+    {
+      "check": "external interval aigi_community_deg",
+      "printed": "0.075",
+      "status": "pass"
+    },
+    {
+      "check": "external interval aigi_community_jpeg95",
+      "printed": "0.0098",
+      "status": "pass"
+    },
+    {
+      "check": "external interval aigi_community_jpeg95",
+      "printed": "0.0139",
+      "status": "pass"
+    },
+    {
+      "check": "external synthbuster/crop",
+      "printed": "0.9995",
+      "status": "pass"
+    },
+    {
+      "check": "external synthbuster/squish",
+      "printed": "0.9984",
+      "status": "pass"
+    },
+    {
+      "check": "external synthbuster_jpeg95/crop",
+      "printed": "0.9993",
+      "status": "pass"
+    },
+    {
+      "check": "external synthbuster_jpeg95/squish",
+      "printed": "0.9986",
+      "status": "pass"
+    },
+    {
+      "check": "external interval synthbuster",
+      "printed": "0.002",
+      "status": "pass"
+    },
+    {
+      "check": "external interval synthbuster",
+      "printed": "0.001",
+      "status": "pass"
+    },
+    {
+      "check": "external interval synthbuster_deg",
+      "printed": "0.020",
+      "status": "pass"
+    },
+    {
+      "check": "external interval synthbuster_deg",
+      "printed": "0.028",
+      "status": "pass"
+    },
+    {
+      "check": "external interval synthbuster_jpeg95",
+      "printed": "0.0014",
+      "status": "pass"
+    },
+    {
+      "check": "external interval synthbuster_jpeg95",
+      "printed": "0.0002",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ntire_val_hard/robust_auc/native",
+      "printed": "0.636",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ntire_val_hard/robust_auc/train_fov",
+      "printed": "0.631",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ntire_val_hard/robust_auc/squish",
+      "printed": "0.618",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ntire_val_hard/clean_auc/native",
+      "printed": "0.909",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ntire_val_hard/clean_auc/train_fov",
+      "printed": "0.753",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ntire_val_hard/clean_auc/squish",
+      "printed": "0.722",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ntire_val/robust_auc/native",
+      "printed": "0.735",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ntire_val/robust_auc/train_fov",
+      "printed": "0.754",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ntire_val/robust_auc/squish",
+      "printed": "0.744",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ntire_val/clean_auc/native",
+      "printed": "0.920",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ntire_val/clean_auc/train_fov",
+      "printed": "0.848",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ntire_val/clean_auc/squish",
+      "printed": "0.825",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ext_aigi_socialrf/auc/native",
+      "printed": "0.922",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ext_aigi_socialrf/auc/train_fov",
+      "printed": "0.889",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ext_aigi_socialrf/auc/squish",
+      "printed": "0.871",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ext_aigi_socialrf_deg/auc/native",
+      "printed": "0.757",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ext_aigi_socialrf_deg/auc/train_fov",
+      "printed": "0.829",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ext_aigi_socialrf_deg/auc/squish",
+      "printed": "0.820",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ext_aigi_community/auc/native",
+      "printed": "0.891",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ext_aigi_community/auc/train_fov",
+      "printed": "0.742",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ext_aigi_community/auc/squish",
+      "printed": "0.703",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ext_aigi_community_deg/auc/native",
+      "printed": "0.683",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ext_aigi_community_deg/auc/train_fov",
+      "printed": "0.568",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ext_aigi_community_deg/auc/squish",
+      "printed": "0.539",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ext_synthbuster/auc/native",
+      "printed": "0.998",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ext_synthbuster/auc/train_fov",
+      "printed": "0.987",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ext_synthbuster/auc/squish",
+      "printed": "0.976",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ext_synthbuster_deg/auc/native",
+      "printed": "0.896",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ext_synthbuster_deg/auc/train_fov",
+      "printed": "0.893",
+      "status": "pass"
+    },
+    {
+      "check": "B-Free ext_synthbuster_deg/auc/squish",
+      "printed": "0.892",
+      "status": "pass"
+    },
+    {
+      "check": "A2 center",
+      "actual": 0.867656,
+      "expected": 0.867656,
+      "status": "pass"
+    },
+    {
+      "check": "A2 whole",
+      "actual": 0.9582,
+      "expected": 0.9582,
+      "status": "pass"
+    },
+    {
+      "check": "A2 early coverage in AUC points",
+      "actual": 5.336399999999997,
+      "expected": 5.3364,
+      "status": "pass"
+    },
+    {
+      "check": "A2 headline before",
+      "printed": "0.867656",
+      "status": "pass"
+    },
+    {
+      "check": "A2 headline after",
+      "printed": "0.958200",
+      "status": "pass"
+    },
+    {
+      "check": "A2 degraded n",
+      "actual": 1000,
+      "expected": 1000,
+      "status": "pass"
+    },
+    {
+      "check": "A2/robust_dF",
+      "printed": "0.004",
+      "status": "pass"
+    },
+    {
+      "check": "A2/robust_dK",
+      "printed": "0.050",
+      "status": "pass"
+    },
+    {
+      "check": "B2swa center",
+      "actual": 0.882892,
+      "expected": 0.882892,
+      "status": "pass"
+    },
+    {
+      "check": "B2swa whole",
+      "actual": 0.962304,
+      "expected": 0.962304,
+      "status": "pass"
+    },
+    {
+      "check": "B2swa early coverage in AUC points",
+      "actual": 5.096800000000002,
+      "expected": 5.0968,
+      "status": "pass"
+    },
+    {
+      "check": "B2swa headline before",
+      "printed": "0.882892",
+      "status": "pass"
+    },
+    {
+      "check": "B2swa headline after",
+      "printed": "0.962304",
+      "status": "pass"
+    },
+    {
+      "check": "B2swa degraded n",
+      "actual": 1000,
+      "expected": 1000,
+      "status": "pass"
+    },
+    {
+      "check": "B2swa/robust_dF",
+      "printed": "0.001",
+      "status": "pass"
+    },
+    {
+      "check": "B2swa/robust_dK",
+      "printed": "0.027",
+      "status": "pass"
+    },
+    {
+      "check": "ntire/A2/robust_dA",
+      "printed": "0.002",
+      "status": "pass"
+    },
+    {
+      "check": "ntire/A2/robust_dS",
+      "printed": "0.016",
+      "status": "pass"
+    },
+    {
+      "check": "ntire/B2swa/robust_dA",
+      "printed": "0.001",
+      "status": "pass"
+    },
+    {
+      "check": "ntire/B2swa/robust_dS",
+      "printed": "0.010",
+      "status": "pass"
+    },
+    {
+      "check": "socialrf/A2/robust_dA",
+      "printed": "0.001",
+      "status": "pass"
+    },
+    {
+      "check": "socialrf/A2/robust_dS",
+      "printed": "0.049",
+      "status": "pass"
+    },
+    {
+      "check": "socialrf/B2swa/robust_dA",
+      "printed": "0.004",
+      "status": "pass"
+    },
+    {
+      "check": "socialrf/B2swa/robust_dS",
+      "printed": "0.023",
+      "status": "pass"
+    },
+    {
+      "check": "A2 ordering source n",
+      "actual": 2833,
+      "expected": 2833,
+      "status": "pass"
+    },
+    {
+      "check": "A2/reduction_k2 interval",
+      "printed": "0.019",
+      "status": "pass"
+    },
+    {
+      "check": "A2/reduction_k2 interval",
+      "printed": "0.026",
+      "status": "pass"
+    },
+    {
+      "check": "A2/reduction_k4 interval",
+      "printed": "0.032",
+      "status": "pass"
+    },
+    {
+      "check": "A2/reduction_k4 interval",
+      "printed": "0.041",
+      "status": "pass"
+    },
+    {
+      "check": "B2swa ordering source n",
+      "actual": 2833,
+      "expected": 2833,
+      "status": "pass"
+    },
+    {
+      "check": "B2swa/reduction_k2 interval",
+      "printed": "0.005",
+      "status": "pass"
+    },
+    {
+      "check": "B2swa/reduction_k2 interval",
+      "printed": "0.008",
+      "status": "pass"
+    },
+    {
+      "check": "B2swa/reduction_k4 interval",
+      "printed": "0.010",
+      "status": "pass"
+    },
+    {
+      "check": "B2swa/reduction_k4 interval",
+      "printed": "0.015",
+      "status": "pass"
+    },
+    {
+      "check": "in-band n",
+      "actual": 171,
+      "expected": 171,
+      "status": "pass"
+    },
+    {
+      "check": "A in-band points",
+      "printed": "11.1",
+      "status": "pass"
+    },
+    {
+      "check": "A in-band interval points",
+      "printed": "5.9",
+      "status": "pass"
+    },
+    {
+      "check": "A in-band interval points",
+      "printed": "17.0",
+      "status": "pass"
+    },
+    {
+      "check": "B in-band points",
+      "printed": "7.9",
+      "status": "pass"
+    },
+    {
+      "check": "B in-band interval points",
+      "printed": "3.6",
+      "status": "pass"
+    },
+    {
+      "check": "B in-band interval points",
+      "printed": "12.9",
+      "status": "pass"
+    },
+    {
+      "check": "native control n",
+      "actual": 630,
+      "expected": 630,
+      "status": "pass"
+    },
+    {
+      "check": "native control real n",
+      "actual": 320,
+      "expected": 320,
+      "status": "pass"
+    },
+    {
+      "check": "native control fake n",
+      "actual": 310,
+      "expected": 310,
+      "status": "pass"
+    },
+    {
+      "check": "native contrast E",
+      "actual": 0.01148185483870967,
+      "expected": 0.01148185483870967,
+      "status": "pass"
+    },
+    {
+      "check": "native E",
+      "printed": "0.011",
+      "status": "pass"
+    },
+    {
+      "check": "native E",
+      "printed": "0.014",
+      "status": "pass"
+    },
+    {
+      "check": "native E",
+      "printed": "0.037",
+      "status": "pass"
+    },
+    {
+      "check": "native contrast V",
+      "actual": 0.0478326612903226,
+      "expected": 0.0478326612903226,
+      "status": "pass"
+    },
+    {
+      "check": "native V",
+      "printed": "0.048",
+      "status": "pass"
+    },
+    {
+      "check": "native V",
+      "printed": "0.022",
+      "status": "pass"
+    },
+    {
+      "check": "native V",
+      "printed": "0.072",
+      "status": "pass"
+    },
+    {
+      "check": "native contrast T",
+      "actual": 0.05931451612903227,
+      "expected": 0.05931451612903227,
+      "status": "pass"
+    },
+    {
+      "check": "native T",
+      "printed": "0.059",
+      "status": "pass"
+    },
+    {
+      "check": "native T",
+      "printed": "0.032",
+      "status": "pass"
+    },
+    {
+      "check": "native T",
+      "printed": "0.087",
+      "status": "pass"
+    },
+    {
+      "check": "native contrast identity",
+      "actual": 0.05931451612903227,
+      "expected": 0.05931451612903227,
+      "status": "pass"
+    },
+    {
+      "check": "docs/ntire/paper/fusion_crop.json weight",
+      "actual": 0.5,
+      "expected": 0.5,
+      "status": "pass"
+    },
+    {
+      "check": "docs/ntire/fusion_squish_valfit.json weight",
+      "actual": 0.5,
+      "expected": 0.5,
+      "status": "pass"
+    },
+    {
+      "check": "docs/ntire/paper/fusion_squish.json weight",
+      "actual": 0.55,
+      "expected": 0.55,
+      "status": "pass"
+    },
+    {
+      "check": "docs/ntire/fusion_ntire2_final.json weight",
+      "actual": 0.45,
+      "expected": 0.45,
+      "status": "pass"
+    },
+    {
+      "check": "docs/ntire/fusion_ntire2_final.json/robust_auc",
+      "printed": "0.7931",
+      "status": "pass"
+    },
+    {
+      "check": "docs/ntire/fusion_ntire2_final.json/clean_auc",
+      "printed": "0.9856",
+      "status": "pass"
+    },
+    {
+      "check": "docs/ntire/fusion_ntire2_final.json/auc",
+      "printed": "0.9108",
+      "status": "pass"
+    },
+    {
+      "check": "docs/ntire/fusion_ntire2_final.json distorted share",
+      "actual": 0.5,
+      "expected": 0.5,
+      "status": "pass"
+    },
+    {
+      "check": "docs/ntire/paper/fusion_squish_final.json/robust_auc",
+      "printed": "0.8547",
+      "status": "pass"
+    },
+    {
+      "check": "docs/ntire/paper/fusion_squish_final.json/clean_auc",
+      "printed": "0.9715",
+      "status": "pass"
+    },
+    {
+      "check": "docs/ntire/paper/fusion_squish_final.json/auc",
+      "printed": "0.9211",
+      "status": "pass"
+    },
+    {
+      "check": "docs/ntire/paper/fusion_squish_final.json distorted share",
+      "actual": 0.5,
+      "expected": 0.5,
+      "status": "pass"
+    }
+  ]
+}

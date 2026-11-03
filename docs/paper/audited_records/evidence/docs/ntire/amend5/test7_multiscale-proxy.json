@@ -1,0 +1,1801 @@
+{
+  "commit": "bbb1306ca202a9d179318def80cead0c66d1cc27",
+  "seed": 20260827,
+  "n_boot": 2000,
+  "presentation_choice": {
+    "1": {
+      "seed_index": 1,
+      "split": "ntire_val",
+      "objective": "mean(robust_auc, clean_auc)",
+      "per_presentation": {
+        "center": 0.9316572,
+        "short_center": 0.96855912,
+        "squish": 0.9703171199999999
+      },
+      "chosen": "squish",
+      "tie_rule": "earlier in (center, short_center, squish)",
+      "commit": "bbb1306ca202a9d179318def80cead0c66d1cc27"
+    },
+    "2": {
+      "seed_index": 2,
+      "split": "ntire_val",
+      "objective": "mean(robust_auc, clean_auc)",
+      "per_presentation": {
+        "center": 0.9341726399999999,
+        "short_center": 0.97051248,
+        "squish": 0.97164176
+      },
+      "chosen": "squish",
+      "tie_rule": "earlier in (center, short_center, squish)",
+      "commit": "bbb1306ca202a9d179318def80cead0c66d1cc27"
+    },
+    "3": {
+      "seed_index": 3,
+      "split": "ntire_val",
+      "objective": "mean(robust_auc, clean_auc)",
+      "per_presentation": {
+        "center": 0.93344824,
+        "short_center": 0.9693814399999999,
+        "squish": 0.9706812
+      },
+      "chosen": "squish",
+      "tie_rule": "earlier in (center, short_center, squish)",
+      "commit": "bbb1306ca202a9d179318def80cead0c66d1cc27"
+    }
+  },
+  "eval_split": "ntire_val_hard",
+  "note": "ntire_val_hard was used to choose squish: fit-split numbers",
+  "verdict": {
+    "squish_minus_multiscale_robust": [
+      0.022512639999999973,
+      0.019112960000000068,
+      0.01455104000000007
+    ],
+    "ci_low": [
+      0.012938751999999975,
+      0.009410176000000067,
+      0.00478137600000002
+    ],
+    "mean_diff": 0.018725546666666704,
+    "seeds_ci_above_zero": 3,
+    "reading": "PASS"
+  },
+  "ntire_val_hard": {
+    "1": {
+      "n": 2500,
+      "n_boot": 2000,
+      "seed": 20260827,
+      "alpha": 0.05,
+      "n_robust": 1250,
+      "n_clean": 1250,
+      "models": {
+        "multiscale": {
+          "auc": {
+            "value": 0.89897216,
+            "ci": [
+              0.886995424,
+              0.9109114079999999
+            ]
+          },
+          "robust_auc": {
+            "value": 0.86405376,
+            "ci": [
+              0.843530176,
+              0.8833758079999999
+            ]
+          },
+          "clean_auc": {
+            "value": 0.9339648,
+            "ci": [
+              0.919808704,
+              0.947580352
+            ]
+          }
+        },
+        "squish": {
+          "auc": {
+            "value": 0.91152256,
+            "ci": [
+              0.899904496,
+              0.9232296799999999
+            ]
+          },
+          "robust_auc": {
+            "value": 0.8865664,
+            "ci": [
+              0.867788352,
+              0.9045724159999999
+            ]
+          },
+          "clean_auc": {
+            "value": 0.93458176,
+            "ci": [
+              0.92010848,
+              0.9475149439999999
+            ]
+          }
+        },
+        "crop": {
+          "auc": {
+            "value": 0.8727648,
+            "ci": [
+              0.8588903520000001,
+              0.885812848
+            ]
+          },
+          "robust_auc": {
+            "value": 0.80373248,
+            "ci": [
+              0.779177408,
+              0.8267531519999999
+            ]
+          },
+          "clean_auc": {
+            "value": 0.92642816,
+            "ci": [
+              0.91244512,
+              0.93994464
+            ]
+          }
+        }
+      },
+      "vs_baseline": {
+        "squish": {
+          "auc": {
+            "diff": 0.012550399999999962,
+            "ci": [
+              0.007018207999999954,
+              0.018062975999999974
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "robust_auc": {
+            "diff": 0.022512639999999973,
+            "ci": [
+              0.012938751999999975,
+              0.03249670399999997
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "clean_auc": {
+            "diff": 0.0006169599999999997,
+            "ci": [
+              -0.005734592000000027,
+              0.007263359999999943
+            ],
+            "p": 0.811,
+            "excludes_zero": false
+          }
+        },
+        "crop": {
+          "auc": {
+            "diff": -0.026207360000000013,
+            "ci": [
+              -0.039725536,
+              -0.013726191999999974
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "robust_auc": {
+            "diff": -0.06032128000000003,
+            "ci": [
+              -0.08054752000000005,
+              -0.040551872000000086
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "clean_auc": {
+            "diff": -0.007536640000000094,
+            "ci": [
+              -0.02408198399999998,
+              0.007482047999999976
+            ],
+            "p": 0.358,
+            "excludes_zero": false
+          }
+        }
+      },
+      "paths": {
+        "multiscale": "/scratch/anonymous/dion_extensions/outputs/test7/abl_rrc_s1_squish_ntire_val_hard.parquet",
+        "squish": "outputs/scores/paper/abl_squish_s1_ntire_val_hard.parquet",
+        "crop": "outputs/scores/paper/abl_crop_s1_ntire_val_hard.parquet"
+      }
+    },
+    "2": {
+      "n": 2500,
+      "n_boot": 2000,
+      "seed": 20260827,
+      "alpha": 0.05,
+      "n_robust": 1250,
+      "n_clean": 1250,
+      "models": {
+        "multiscale": {
+          "auc": {
+            "value": 0.90237376,
+            "ci": [
+              0.89052592,
+              0.913848112
+            ]
+          },
+          "robust_auc": {
+            "value": 0.868992,
+            "ci": [
+              0.848502976,
+              0.888764224
+            ]
+          },
+          "clean_auc": {
+            "value": 0.93714432,
+            "ci": [
+              0.92340704,
+              0.949422848
+            ]
+          }
+        },
+        "squish": {
+          "auc": {
+            "value": 0.91391808,
+            "ci": [
+              0.90282712,
+              0.9249266079999999
+            ]
+          },
+          "robust_auc": {
+            "value": 0.88810496,
+            "ci": [
+              0.870161792,
+              0.90521504
+            ]
+          },
+          "clean_auc": {
+            "value": 0.93844992,
+            "ci": [
+              0.924849728,
+              0.951246528
+            ]
+          }
+        },
+        "crop": {
+          "auc": {
+            "value": 0.8693472,
+            "ci": [
+              0.85565848,
+              0.883294976
+            ]
+          },
+          "robust_auc": {
+            "value": 0.7951616,
+            "ci": [
+              0.770390528,
+              0.8183603199999999
+            ]
+          },
+          "clean_auc": {
+            "value": 0.92663296,
+            "ci": [
+              0.912108608,
+              0.940726144
+            ]
+          }
+        }
+      },
+      "vs_baseline": {
+        "squish": {
+          "auc": {
+            "diff": 0.011544319999999941,
+            "ci": [
+              0.0061050400000000424,
+              0.017221487999999976
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "robust_auc": {
+            "diff": 0.019112960000000068,
+            "ci": [
+              0.009410176000000067,
+              0.029000512000000075
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "clean_auc": {
+            "diff": 0.0013056000000000179,
+            "ci": [
+              -0.0044626560000000344,
+              0.007547391999999919
+            ],
+            "p": 0.644,
+            "excludes_zero": false
+          }
+        },
+        "crop": {
+          "auc": {
+            "diff": -0.03302656000000004,
+            "ci": [
+              -0.04644379199999996,
+              -0.02040172800000007
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "robust_auc": {
+            "diff": -0.07383039999999996,
+            "ci": [
+              -0.09483865600000001,
+              -0.05320057600000002
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "clean_auc": {
+            "diff": -0.01051136000000008,
+            "ci": [
+              -0.026547967999999995,
+              0.00443737599999996
+            ],
+            "p": 0.205,
+            "excludes_zero": false
+          }
+        }
+      },
+      "paths": {
+        "multiscale": "/scratch/anonymous/dion_extensions/outputs/test7/abl_rrc_s2_squish_ntire_val_hard.parquet",
+        "squish": "outputs/scores/paper/abl_squish_s2_ntire_val_hard.parquet",
+        "crop": "outputs/scores/paper/abl_crop_s2_ntire_val_hard.parquet"
+      }
+    },
+    "3": {
+      "n": 2500,
+      "n_boot": 2000,
+      "seed": 20260827,
+      "alpha": 0.05,
+      "n_robust": 1250,
+      "n_clean": 1250,
+      "models": {
+        "multiscale": {
+          "auc": {
+            "value": 0.89689664,
+            "ci": [
+              0.885218192,
+              0.908513008
+            ]
+          },
+          "robust_auc": {
+            "value": 0.86308864,
+            "ci": [
+              0.8423485439999999,
+              0.8822865919999999
+            ]
+          },
+          "clean_auc": {
+            "value": 0.93233664,
+            "ci": [
+              0.918381312,
+              0.9456690560000001
+            ]
+          }
+        },
+        "squish": {
+          "auc": {
+            "value": 0.90725568,
+            "ci": [
+              0.895811072,
+              0.918791408
+            ]
+          },
+          "robust_auc": {
+            "value": 0.87763968,
+            "ci": [
+              0.857754496,
+              0.895665152
+            ]
+          },
+          "clean_auc": {
+            "value": 0.93423616,
+            "ci": [
+              0.92069024,
+              0.94659872
+            ]
+          }
+        },
+        "crop": {
+          "auc": {
+            "value": 0.8680864,
+            "ci": [
+              0.8540749759999999,
+              0.881377824
+            ]
+          },
+          "robust_auc": {
+            "value": 0.7993472,
+            "ci": [
+              0.7745720960000001,
+              0.82235744
+            ]
+          },
+          "clean_auc": {
+            "value": 0.92336384,
+            "ci": [
+              0.909331904,
+              0.937531072
+            ]
+          }
+        }
+      },
+      "vs_baseline": {
+        "squish": {
+          "auc": {
+            "diff": 0.010359039999999986,
+            "ci": [
+              0.005062992000000016,
+              0.016012063999999944
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "robust_auc": {
+            "diff": 0.01455104000000007,
+            "ci": [
+              0.00478137600000002,
+              0.025047872000000016
+            ],
+            "p": 0.003,
+            "excludes_zero": true
+          },
+          "clean_auc": {
+            "diff": 0.0018995199999999324,
+            "ci": [
+              -0.004071231999999922,
+              0.008356416000000002
+            ],
+            "p": 0.556,
+            "excludes_zero": false
+          }
+        },
+        "crop": {
+          "auc": {
+            "diff": -0.028810239999999987,
+            "ci": [
+              -0.0415981440000001,
+              -0.01603143999999994
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "robust_auc": {
+            "diff": -0.06374143999999993,
+            "ci": [
+              -0.08510169599999999,
+              -0.04348870399999997
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "clean_auc": {
+            "diff": -0.008972800000000003,
+            "ci": [
+              -0.025685056000000008,
+              0.006494975999999956
+            ],
+            "p": 0.31,
+            "excludes_zero": false
+          }
+        }
+      },
+      "paths": {
+        "multiscale": "/scratch/anonymous/dion_extensions/outputs/test7/abl_rrc_s3_squish_ntire_val_hard.parquet",
+        "squish": "outputs/scores/paper/abl_squish_s3_ntire_val_hard.parquet",
+        "crop": "outputs/scores/paper/abl_crop_s3_ntire_val_hard.parquet"
+      }
+    }
+  },
+  "external_as_distributed": {
+    "ext_aigi_socialrf": {
+      "1": {
+        "n": 5994,
+        "n_boot": 2000,
+        "seed": 20260827,
+        "alpha": 0.05,
+        "n_robust": 0,
+        "n_clean": 5994,
+        "models": {
+          "multiscale": {
+            "auc": {
+              "value": 0.946623246492986,
+              "ci": [
+                0.9410471415052327,
+                0.9518991677800044
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.946623246492986,
+              "ci": [
+                0.9410471415052327,
+                0.9518991677800044
+              ]
+            }
+          },
+          "squish": {
+            "auc": {
+              "value": 0.939662547316856,
+              "ci": [
+                0.933576132821198,
+                0.9452473947895792
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.939662547316856,
+              "ci": [
+                0.933576132821198,
+                0.9452473947895792
+              ]
+            }
+          },
+          "crop": {
+            "auc": {
+              "value": 0.9284052549543531,
+              "ci": [
+                0.922002468826542,
+                0.9344606991761301
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.9284052549543531,
+              "ci": [
+                0.922002468826542,
+                0.9344606991761301
+              ]
+            }
+          }
+        },
+        "vs_baseline": {
+          "squish": {
+            "auc": {
+              "diff": -0.00696069917613007,
+              "ci": [
+                -0.009930243820975288,
+                -0.004167301269205039
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "robust_auc": {
+              "diff": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ],
+              "p": 0.0,
+              "excludes_zero": false
+            },
+            "clean_auc": {
+              "diff": -0.00696069917613007,
+              "ci": [
+                -0.009930243820975288,
+                -0.004167301269205039
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            }
+          },
+          "crop": {
+            "auc": {
+              "diff": -0.018217991538632905,
+              "ci": [
+                -0.024796721220218303,
+                -0.011647291805833912
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "robust_auc": {
+              "diff": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ],
+              "p": 0.0,
+              "excludes_zero": false
+            },
+            "clean_auc": {
+              "diff": -0.018217991538632905,
+              "ci": [
+                -0.024796721220218303,
+                -0.011647291805833912
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            }
+          }
+        },
+        "paths": {
+          "multiscale": "/scratch/anonymous/dion_extensions/outputs/test7/abl_rrc_s1_squish_ext_aigi_socialrf.parquet",
+          "squish": "/scratch/anonymous/dion_extensions/outputs/test7/abl_squish_s1_ext_aigi_socialrf.parquet",
+          "crop": "/scratch/anonymous/dion_extensions/outputs/test7/abl_crop_s1_ext_aigi_socialrf.parquet"
+        }
+      },
+      "2": {
+        "n": 5994,
+        "n_boot": 2000,
+        "seed": 20260827,
+        "alpha": 0.05,
+        "n_robust": 0,
+        "n_clean": 5994,
+        "models": {
+          "multiscale": {
+            "auc": {
+              "value": 0.9464609218436874,
+              "ci": [
+                0.9408492317969271,
+                0.9516791945001114
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.9464609218436874,
+              "ci": [
+                0.9408492317969271,
+                0.9516791945001114
+              ]
+            }
+          },
+          "squish": {
+            "auc": {
+              "value": 0.9369310843910043,
+              "ci": [
+                0.9306604458917835,
+                0.9428325539968826
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.9369310843910043,
+              "ci": [
+                0.9306604458917835,
+                0.9428325539968826
+              ]
+            }
+          },
+          "crop": {
+            "auc": {
+              "value": 0.9239246270318414,
+              "ci": [
+                0.9172493486973948,
+                0.9302709725005567
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.9239246270318414,
+              "ci": [
+                0.9172493486973948,
+                0.9302709725005567
+              ]
+            }
+          }
+        },
+        "vs_baseline": {
+          "squish": {
+            "auc": {
+              "diff": -0.009529837452683099,
+              "ci": [
+                -0.012326870407481686,
+                -0.007004776219104832
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "robust_auc": {
+              "diff": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ],
+              "p": 0.0,
+              "excludes_zero": false
+            },
+            "clean_auc": {
+              "diff": -0.009529837452683099,
+              "ci": [
+                -0.012326870407481686,
+                -0.007004776219104832
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            }
+          },
+          "crop": {
+            "auc": {
+              "diff": -0.022536294811845936,
+              "ci": [
+                -0.029016842017368122,
+                -0.016108903918949084
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "robust_auc": {
+              "diff": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ],
+              "p": 0.0,
+              "excludes_zero": false
+            },
+            "clean_auc": {
+              "diff": -0.022536294811845936,
+              "ci": [
+                -0.029016842017368122,
+                -0.016108903918949084
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            }
+          }
+        },
+        "paths": {
+          "multiscale": "/scratch/anonymous/dion_extensions/outputs/test7/abl_rrc_s2_squish_ext_aigi_socialrf.parquet",
+          "squish": "/scratch/anonymous/dion_extensions/outputs/test7/abl_squish_s2_ext_aigi_socialrf.parquet",
+          "crop": "/scratch/anonymous/dion_extensions/outputs/test7/abl_crop_s2_ext_aigi_socialrf.parquet"
+        }
+      },
+      "3": {
+        "n": 5994,
+        "n_boot": 2000,
+        "seed": 20260827,
+        "alpha": 0.05,
+        "n_robust": 0,
+        "n_clean": 5994,
+        "models": {
+          "multiscale": {
+            "auc": {
+              "value": 0.9475368514807393,
+              "ci": [
+                0.9416974560231575,
+                0.9529454547984859
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.9475368514807393,
+              "ci": [
+                0.9416974560231575,
+                0.9529454547984859
+              ]
+            }
+          },
+          "squish": {
+            "auc": {
+              "value": 0.9431626586506346,
+              "ci": [
+                0.9371080911823647,
+                0.9489552688710755
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.9431626586506346,
+              "ci": [
+                0.9371080911823647,
+                0.9489552688710755
+              ]
+            }
+          },
+          "crop": {
+            "auc": {
+              "value": 0.9263125139167223,
+              "ci": [
+                0.9198288521487419,
+                0.9325322895791583
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.9263125139167223,
+              "ci": [
+                0.9198288521487419,
+                0.9325322895791583
+              ]
+            }
+          }
+        },
+        "vs_baseline": {
+          "squish": {
+            "auc": {
+              "diff": -0.004374192830104651,
+              "ci": [
+                -0.006921092184368741,
+                -0.0018374638165219329
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "robust_auc": {
+              "diff": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ],
+              "p": 0.0,
+              "excludes_zero": false
+            },
+            "clean_auc": {
+              "diff": -0.004374192830104651,
+              "ci": [
+                -0.006921092184368741,
+                -0.0018374638165219329
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            }
+          },
+          "crop": {
+            "auc": {
+              "diff": -0.021224337564016982,
+              "ci": [
+                -0.027916229681585303,
+                -0.01462916666666667
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "robust_auc": {
+              "diff": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ],
+              "p": 0.0,
+              "excludes_zero": false
+            },
+            "clean_auc": {
+              "diff": -0.021224337564016982,
+              "ci": [
+                -0.027916229681585303,
+                -0.01462916666666667
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            }
+          }
+        },
+        "paths": {
+          "multiscale": "/scratch/anonymous/dion_extensions/outputs/test7/abl_rrc_s3_squish_ext_aigi_socialrf.parquet",
+          "squish": "/scratch/anonymous/dion_extensions/outputs/test7/abl_squish_s3_ext_aigi_socialrf.parquet",
+          "crop": "/scratch/anonymous/dion_extensions/outputs/test7/abl_crop_s3_ext_aigi_socialrf.parquet"
+        }
+      }
+    },
+    "ext_aigi_community": {
+      "1": {
+        "n": 12000,
+        "n_boot": 2000,
+        "seed": 20260827,
+        "alpha": 0.05,
+        "n_robust": 0,
+        "n_clean": 12000,
+        "models": {
+          "multiscale": {
+            "auc": {
+              "value": 0.9478996111111111,
+              "ci": [
+                0.94425799375,
+                0.9515486493055555
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.9478996111111111,
+              "ci": [
+                0.94425799375,
+                0.9515486493055555
+              ]
+            }
+          },
+          "squish": {
+            "auc": {
+              "value": 0.9554113888888889,
+              "ci": [
+                0.9518218326388889,
+                0.9586774576388889
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.9554113888888889,
+              "ci": [
+                0.9518218326388889,
+                0.9586774576388889
+              ]
+            }
+          },
+          "crop": {
+            "auc": {
+              "value": 0.9296058888888888,
+              "ci": [
+                0.9250165263888889,
+                0.9339146680555556
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.9296058888888888,
+              "ci": [
+                0.9250165263888889,
+                0.9339146680555556
+              ]
+            }
+          }
+        },
+        "vs_baseline": {
+          "squish": {
+            "auc": {
+              "diff": 0.007511777777777784,
+              "ci": [
+                0.005325195833333321,
+                0.009591783333333331
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "robust_auc": {
+              "diff": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ],
+              "p": 0.0,
+              "excludes_zero": false
+            },
+            "clean_auc": {
+              "diff": 0.007511777777777784,
+              "ci": [
+                0.005325195833333321,
+                0.009591783333333331
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            }
+          },
+          "crop": {
+            "auc": {
+              "diff": -0.018293722222222253,
+              "ci": [
+                -0.02300529166666667,
+                -0.013725444444444393
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "robust_auc": {
+              "diff": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ],
+              "p": 0.0,
+              "excludes_zero": false
+            },
+            "clean_auc": {
+              "diff": -0.018293722222222253,
+              "ci": [
+                -0.02300529166666667,
+                -0.013725444444444393
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            }
+          }
+        },
+        "paths": {
+          "multiscale": "/scratch/anonymous/dion_extensions/outputs/test7/abl_rrc_s1_squish_ext_aigi_community.parquet",
+          "squish": "/scratch/anonymous/dion_extensions/outputs/test7/abl_squish_s1_ext_aigi_community.parquet",
+          "crop": "/scratch/anonymous/dion_extensions/outputs/test7/abl_crop_s1_ext_aigi_community.parquet"
+        }
+      },
+      "2": {
+        "n": 12000,
+        "n_boot": 2000,
+        "seed": 20260827,
+        "alpha": 0.05,
+        "n_robust": 0,
+        "n_clean": 12000,
+        "models": {
+          "multiscale": {
+            "auc": {
+              "value": 0.9485033888888889,
+              "ci": [
+                0.9449658076388888,
+                0.9520722375
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.9485033888888889,
+              "ci": [
+                0.9449658076388888,
+                0.9520722375
+              ]
+            }
+          },
+          "squish": {
+            "auc": {
+              "value": 0.9548009444444444,
+              "ci": [
+                0.9512654625,
+                0.9580621576388889
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.9548009444444444,
+              "ci": [
+                0.9512654625,
+                0.9580621576388889
+              ]
+            }
+          },
+          "crop": {
+            "auc": {
+              "value": 0.9283702222222222,
+              "ci": [
+                0.9239006638888888,
+                0.9327338194444444
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.9283702222222222,
+              "ci": [
+                0.9239006638888888,
+                0.9327338194444444
+              ]
+            }
+          }
+        },
+        "vs_baseline": {
+          "squish": {
+            "auc": {
+              "diff": 0.006297555555555556,
+              "ci": [
+                0.004122354166666698,
+                0.008308522222222165
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "robust_auc": {
+              "diff": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ],
+              "p": 0.0,
+              "excludes_zero": false
+            },
+            "clean_auc": {
+              "diff": 0.006297555555555556,
+              "ci": [
+                0.004122354166666698,
+                0.008308522222222165
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            }
+          },
+          "crop": {
+            "auc": {
+              "diff": -0.020133166666666646,
+              "ci": [
+                -0.024672540277777797,
+                -0.015691263194444464
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "robust_auc": {
+              "diff": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ],
+              "p": 0.0,
+              "excludes_zero": false
+            },
+            "clean_auc": {
+              "diff": -0.020133166666666646,
+              "ci": [
+                -0.024672540277777797,
+                -0.015691263194444464
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            }
+          }
+        },
+        "paths": {
+          "multiscale": "/scratch/anonymous/dion_extensions/outputs/test7/abl_rrc_s2_squish_ext_aigi_community.parquet",
+          "squish": "/scratch/anonymous/dion_extensions/outputs/test7/abl_squish_s2_ext_aigi_community.parquet",
+          "crop": "/scratch/anonymous/dion_extensions/outputs/test7/abl_crop_s2_ext_aigi_community.parquet"
+        }
+      },
+      "3": {
+        "n": 12000,
+        "n_boot": 2000,
+        "seed": 20260827,
+        "alpha": 0.05,
+        "n_robust": 0,
+        "n_clean": 12000,
+        "models": {
+          "multiscale": {
+            "auc": {
+              "value": 0.9453764166666667,
+              "ci": [
+                0.9416666361111111,
+                0.9490911083333333
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.9453764166666667,
+              "ci": [
+                0.9416666361111111,
+                0.9490911083333333
+              ]
+            }
+          },
+          "squish": {
+            "auc": {
+              "value": 0.9571146388888889,
+              "ci": [
+                0.9537137645833333,
+                0.9602508187500001
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.9571146388888889,
+              "ci": [
+                0.9537137645833333,
+                0.9602508187500001
+              ]
+            }
+          },
+          "crop": {
+            "auc": {
+              "value": 0.9343640416666666,
+              "ci": [
+                0.9300283489583333,
+                0.9387109045138889
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.9343640416666666,
+              "ci": [
+                0.9300283489583333,
+                0.9387109045138889
+              ]
+            }
+          }
+        },
+        "vs_baseline": {
+          "squish": {
+            "auc": {
+              "diff": 0.011738222222222205,
+              "ci": [
+                0.009545977083333398,
+                0.013811127777777772
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "robust_auc": {
+              "diff": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ],
+              "p": 0.0,
+              "excludes_zero": false
+            },
+            "clean_auc": {
+              "diff": 0.011738222222222205,
+              "ci": [
+                0.009545977083333398,
+                0.013811127777777772
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            }
+          },
+          "crop": {
+            "auc": {
+              "diff": -0.011012375000000074,
+              "ci": [
+                -0.015607413888888944,
+                -0.006451871180555588
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "robust_auc": {
+              "diff": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ],
+              "p": 0.0,
+              "excludes_zero": false
+            },
+            "clean_auc": {
+              "diff": -0.011012375000000074,
+              "ci": [
+                -0.015607413888888944,
+                -0.006451871180555588
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            }
+          }
+        },
+        "paths": {
+          "multiscale": "/scratch/anonymous/dion_extensions/outputs/test7/abl_rrc_s3_squish_ext_aigi_community.parquet",
+          "squish": "/scratch/anonymous/dion_extensions/outputs/test7/abl_squish_s3_ext_aigi_community.parquet",
+          "crop": "/scratch/anonymous/dion_extensions/outputs/test7/abl_crop_s3_ext_aigi_community.parquet"
+        }
+      }
+    },
+    "ext_synthbuster": {
+      "1": {
+        "n": 9990,
+        "n_boot": 2000,
+        "seed": 20260827,
+        "alpha": 0.05,
+        "n_robust": 0,
+        "n_clean": 9990,
+        "models": {
+          "multiscale": {
+            "auc": {
+              "value": 0.9473727089079609,
+              "ci": [
+                0.9422704510186956,
+                0.9523641012370353
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.9473727089079609,
+              "ci": [
+                0.9422704510186956,
+                0.9523641012370353
+              ]
+            }
+          },
+          "squish": {
+            "auc": {
+              "value": 0.9516486983260166,
+              "ci": [
+                0.9465977277627525,
+                0.9564646717566404
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.9516486983260166,
+              "ci": [
+                0.9465977277627525,
+                0.9564646717566404
+              ]
+            }
+          },
+          "crop": {
+            "auc": {
+              "value": 0.9916616193380827,
+              "ci": [
+                0.990074366832386,
+                0.9931862462010839
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.9916616193380827,
+              "ci": [
+                0.990074366832386,
+                0.9931862462010839
+              ]
+            }
+          }
+        },
+        "vs_baseline": {
+          "squish": {
+            "auc": {
+              "diff": 0.004275989418055737,
+              "ci": [
+                0.001183771425797975,
+                0.007182648190163634
+              ],
+              "p": 0.006,
+              "excludes_zero": true
+            },
+            "robust_auc": {
+              "diff": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ],
+              "p": 0.0,
+              "excludes_zero": false
+            },
+            "clean_auc": {
+              "diff": 0.004275989418055737,
+              "ci": [
+                0.001183771425797975,
+                0.007182648190163634
+              ],
+              "p": 0.006,
+              "excludes_zero": true
+            }
+          },
+          "crop": {
+            "auc": {
+              "diff": 0.04428891043012184,
+              "ci": [
+                0.03916648233106951,
+                0.04922818788005938
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "robust_auc": {
+              "diff": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ],
+              "p": 0.0,
+              "excludes_zero": false
+            },
+            "clean_auc": {
+              "diff": 0.04428891043012184,
+              "ci": [
+                0.03916648233106951,
+                0.04922818788005938
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            }
+          }
+        },
+        "paths": {
+          "multiscale": "/scratch/anonymous/dion_extensions/outputs/test7/abl_rrc_s1_squish_ext_synthbuster.parquet",
+          "squish": "/scratch/anonymous/dion_extensions/outputs/test7/abl_squish_s1_ext_synthbuster.parquet",
+          "crop": "/scratch/anonymous/dion_extensions/outputs/test7/abl_crop_s1_ext_synthbuster.parquet"
+        }
+      },
+      "2": {
+        "n": 9990,
+        "n_boot": 2000,
+        "seed": 20260827,
+        "alpha": 0.05,
+        "n_robust": 0,
+        "n_clean": 9990,
+        "models": {
+          "multiscale": {
+            "auc": {
+              "value": 0.9564865851400086,
+              "ci": [
+                0.9518428070647093,
+                0.961016412503478
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.9564865851400086,
+              "ci": [
+                0.9518428070647093,
+                0.961016412503478
+              ]
+            }
+          },
+          "squish": {
+            "auc": {
+              "value": 0.9537993859108408,
+              "ci": [
+                0.948862930808506,
+                0.9586215436236808
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.9537993859108408,
+              "ci": [
+                0.948862930808506,
+                0.9586215436236808
+              ]
+            }
+          },
+          "crop": {
+            "auc": {
+              "value": 0.9926632941266988,
+              "ci": [
+                0.9907166962423719,
+                0.9942955308552068
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.9926632941266988,
+              "ci": [
+                0.9907166962423719,
+                0.9942955308552068
+              ]
+            }
+          }
+        },
+        "vs_baseline": {
+          "squish": {
+            "auc": {
+              "diff": -0.002687199229167825,
+              "ci": [
+                -0.0055179593568525035,
+                7.126183065490268e-05
+              ],
+              "p": 0.056,
+              "excludes_zero": false
+            },
+            "robust_auc": {
+              "diff": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ],
+              "p": 0.0,
+              "excludes_zero": false
+            },
+            "clean_auc": {
+              "diff": -0.002687199229167825,
+              "ci": [
+                -0.0055179593568525035,
+                7.126183065490268e-05
+              ],
+              "p": 0.056,
+              "excludes_zero": false
+            }
+          },
+          "crop": {
+            "auc": {
+              "diff": 0.03617670898669023,
+              "ci": [
+                0.031627271968851706,
+                0.04078450807110336
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "robust_auc": {
+              "diff": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ],
+              "p": 0.0,
+              "excludes_zero": false
+            },
+            "clean_auc": {
+              "diff": 0.03617670898669023,
+              "ci": [
+                0.031627271968851706,
+                0.04078450807110336
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            }
+          }
+        },
+        "paths": {
+          "multiscale": "/scratch/anonymous/dion_extensions/outputs/test7/abl_rrc_s2_squish_ext_synthbuster.parquet",
+          "squish": "/scratch/anonymous/dion_extensions/outputs/test7/abl_squish_s2_ext_synthbuster.parquet",
+          "crop": "/scratch/anonymous/dion_extensions/outputs/test7/abl_crop_s2_ext_synthbuster.parquet"
+        }
+      },
+      "3": {
+        "n": 9990,
+        "n_boot": 2000,
+        "seed": 20260827,
+        "alpha": 0.05,
+        "n_robust": 0,
+        "n_clean": 9990,
+        "models": {
+          "multiscale": {
+            "auc": {
+              "value": 0.9630952679169728,
+              "ci": [
+                0.958812968406258,
+                0.9671281636014397
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.9630952679169728,
+              "ci": [
+                0.958812968406258,
+                0.9671281636014397
+              ]
+            }
+          },
+          "squish": {
+            "auc": {
+              "value": 0.9589973701703328,
+              "ci": [
+                0.9543333002684851,
+                0.9635230653596993
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.9589973701703328,
+              "ci": [
+                0.9543333002684851,
+                0.9635230653596993
+              ]
+            }
+          },
+          "crop": {
+            "auc": {
+              "value": 0.9940996579745257,
+              "ci": [
+                0.9926991193492659,
+                0.9953188702020929
+              ]
+            },
+            "robust_auc": {
+              "value": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ]
+            },
+            "clean_auc": {
+              "value": 0.9940996579745257,
+              "ci": [
+                0.9926991193492659,
+                0.9953188702020929
+              ]
+            }
+          }
+        },
+        "vs_baseline": {
+          "squish": {
+            "auc": {
+              "diff": -0.0040978977466399336,
+              "ci": [
+                -0.006768716456140106,
+                -0.001433970653623854
+              ],
+              "p": 0.003,
+              "excludes_zero": true
+            },
+            "robust_auc": {
+              "diff": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ],
+              "p": 0.0,
+              "excludes_zero": false
+            },
+            "clean_auc": {
+              "diff": -0.0040978977466399336,
+              "ci": [
+                -0.006768716456140106,
+                -0.001433970653623854
+              ],
+              "p": 0.003,
+              "excludes_zero": true
+            }
+          },
+          "crop": {
+            "auc": {
+              "diff": 0.031004390057552955,
+              "ci": [
+                0.026876160811019935,
+                0.03529213576255218
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            },
+            "robust_auc": {
+              "diff": NaN,
+              "ci": [
+                NaN,
+                NaN
+              ],
+              "p": 0.0,
+              "excludes_zero": false
+            },
+            "clean_auc": {
+              "diff": 0.031004390057552955,
+              "ci": [
+                0.026876160811019935,
+                0.03529213576255218
+              ],
+              "p": 0.0,
+              "excludes_zero": true
+            }
+          }
+        },
+        "paths": {
+          "multiscale": "/scratch/anonymous/dion_extensions/outputs/test7/abl_rrc_s3_squish_ext_synthbuster.parquet",
+          "squish": "/scratch/anonymous/dion_extensions/outputs/test7/abl_squish_s3_ext_synthbuster.parquet",
+          "crop": "/scratch/anonymous/dion_extensions/outputs/test7/abl_crop_s3_ext_synthbuster.parquet"
+        }
+      }
+    }
+  }
+}

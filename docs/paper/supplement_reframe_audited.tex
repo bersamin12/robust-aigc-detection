@@ -1,0 +1,243 @@
+% Audited companion; existing supplement_reframe.tex is preserved.
+\documentclass[letterpaper]{article}
+\usepackage[submission]{aaai2027}
+\usepackage[hyphens]{url}
+\usepackage{graphicx}
+\urlstyle{rm}
+\def\UrlFont{\rm}
+\usepackage{natbib}
+\usepackage{caption}
+\frenchspacing
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\pdfinfo{/TemplateVersion (2027.1)}
+\setcounter{secnumdepth}{0}
+\title{Supplement: Equal Pixels, Unequal Views:\\Crop Field of View and Robust AI-Generated Image Detection}
+\author{Anonymous Submission}
+\affiliations{}
+\begin{document}
+\maketitle
+
+\section{S1. Scope and outcome inventory}
+
+This supplement accompanies \texttt{main\_reframe\_audited.pdf}. It distinguishes saved results, declared protocols, and verifiable provenance. No training, inference, or test-set evaluation was performed for this audit. One AUC point is 0.01 AUC. Unless noted, intervals are saved 95\% percentile paired-bootstrap intervals (2,000 resamples), unadjusted for multiple comparisons. A zero-containing interval does not establish equivalence. The hard validation split is a selection split throughout.
+
+The original registration and amendments describe prospective conditions, but not all pre-run dates can be independently established in the available history (S13). Outcome labels below summarize the saved results without adopting the original records' stronger causal labels. The full anonymized declarations are supplied as \path{audited_records/registration_anonymized.md}.
+
+\begin{table*}[t]
+\centering\footnotesize
+\begin{tabular}{p{.10\textwidth}p{.39\textwidth}p{.43\textwidth}}
+\toprule
+record & question & saved result / interpretation \\
+\midrule
+G1--G3 & training, full fusion, external transfer & Proxy and full-model gates pass; SocialRF supports transfer; CommunityAI confounded; Synthbuster fails. \\
+Am. 2--4 & aspect ratio, public detectors, CLIP & Aspect-preserving inputs retain most gain; UnivFD at chance; B-Free primary gate fails; CLIP training/test-time gains pass. \\
+Test 1 & frequency-matched small crop & Negative gain; blur and distribution mismatch confound the control (S8). \\
+Test 2 & gain versus degradation level & Gain rises; levels differ in physical strength (S9). \\
+Test 3 & shrink ratio versus field of view & Not identifiable; exact collinearity (S8). \\
+Test 4 & degradation-family differences & JPEG larger; exploratory headroom adjustment reduces excess (S8). \\
+Test 5 & training field-of-view distribution & Augmentation widens and narrows views; observed minimum about 0.195. \\
+Test 6 & routed fusion & Fails robust gate; proposed third test read canceled. \\
+Test 7 & multi-scale training & Closes 73--81\% of gap; whole-image training still ahead. \\
+Test 8 & native-224 proxy & Whole-image training remains ahead by 0.072--0.080 (S10). \\
+Test 9 & learned crop aggregation & Improves averaging; whole-image input still ahead (S11). \\
+Test 10 & periphery masking & Predicted ordering fails; unequal content distribution (S6). \\
+Test 11 & clean-cost localization & No single generator/size location explains the cost (S7). \\
+Test 12 & wording and numerical checks & Frozen in-band gains and retrospective TPRs; no pass gate. \\
+Test 13 & degradation after whole-image resize & A retains 86\% of severity rise; B 55\%; scale confounded (S5). \\
+Tests 14,16 & coverage $\times$ downscale & Both effects on NTIRE; little extra coverage gain at 25--100\% on degraded SocialRF. \\
+Test 15 & native-512 proxy & +0.0415 robust AUC on all distorted hard-val rows; confounded with view size. \\
+Test 17 & round trip & DINOv2 round-trip effects include zero; positive residual; interpolation/pooling remain confounded. \\
+Test 18 & degradation ordering & Before-minus-after contrast larger at 4$\times$ than 2$\times$; different source population. \\
+Test 19 & native-196 control & Three-way contrasts on 630 images; enlargement effect unresolved (S10). \\
+Tests 20,21 & CLIP and B-Free contrasts & Downscaling helps degraded SocialRF; CLIP round trip also helps clean inputs. \\
+\bottomrule
+\end{tabular}
+\caption{Inventory of the original declarations and saved outcomes. ``Pass'' refers to a recorded gate, not proof of a mechanism or proof that the declaration predates the run.}
+\end{table*}
+
+\section{S2. Resolution and aspect-ratio controls}
+
+The size-decile control on the selection split is available for branch B only: size-weighted robust AUC changes from 0.888 to 0.964, with gains in all ten deciles. We do not claim a branch-A decile result or invent an interval for the aggregate difference. The 416--496-pixel in-band control is separate: it contains 171 distorted images (86 real, 85 fake). Frozen branch A changes from 0.8512 to 0.9617, +0.111 [0.059, 0.170]; B changes from 0.8840 to 0.9633, +0.079 [0.036, 0.129]. This rules out native training-size mismatch as the sole explanation, while leaving context, content scale, and interpolation unresolved.
+
+Grouping the 1,250 distorted hard-validation rows by transformation shows positive whole-image-minus-center differences in every group (Table~\ref{tab:groups}). The photometric group has median short side 784 pixels, so geometric challenge transformations are not required for the gain.
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{lrrr}
+\toprule
+transforms & $n$ & A gain & B gain \\
+\midrule
+photometric only & 241 & +0.090 & +0.083 \\
+downscale, no crop & 740 & +0.095 & +0.065 \\
+crop / aspect crop & 191 & +0.059 & +0.063 \\
+perspective & 78 & +0.146 & +0.140 \\
+\bottomrule
+\end{tabular}
+\caption{Frozen whole-image-minus-center robust AUC. All eight saved intervals exclude zero; these subgroups are selected-data diagnostics.}
+\label{tab:groups}
+\end{table}
+
+\newpage
+Two aspect-preserving presentations retain most of the gain. Short-center resizes the short side to the canonical input size, then takes the center square. Letterbox resizes the long side and pads black to a square. Against the center crop, short-center gains 0.085 on A and 0.070 on B; letterbox gains 0.092 and 0.069. These recover 93--100\% of the whole-image gain. Letterbox costs about 0.004 clean AUC relative to whole-image resize on each branch. The evidence weakens aspect-ratio distortion as a necessary explanation, but does not isolate global context as the cause.
+
+\section{S3. Training draws and preprocessing}
+
+The bank stores one clean view and ten degraded recipe candidates per source. Training draws one clean and two degraded candidates per source, rather than eleven images at every step. Batches contain 64 source draws, half from each label; within a class, family weighting is proportional to family size, then an image is sampled uniformly within its family. Sources are sampled with replacement. An epoch contains $\max(1,\lfloor\min(N_+,N_-)/32\rfloor)$ batches, not one unique visit to every image. The selected proxy subset is 25\% of the training population and uses the same draw scheme. The degraded-view sampler defaults to independent draws from indices 1--10, allowing repeats; the run scripts do not enable distinct-only sampling.
+
+The three-seed DINOv2 and CLIP proxies each use one tower, a 224-pixel input, one epoch, and seeds 20260827--20260829. The full crop A branch uses 200-to-512 canonicalization followed by the tower's 512-to-518 resize; full B uses 200-to-224. The native-512 and native-196 controls instead use the A tower family at 518 and 196 inputs, respectively. All 24 transformer blocks are fine-tuned. Thus ``512'' names a canonicalization setting, not always the tower raster.
+
+Crop extraction occurs in native coordinates; the presentation resize uses OpenCV \texttt{INTER\_CUBIC}. Whole-image canonicalization first reduces the short side to $n$ when larger, then makes the image $n\times n$, using \texttt{INTER\_AREA} at both stages. Model-input adjustment to the configured tower size also uses area interpolation. Grid9 takes start/middle/end coordinates on each axis, removes duplicate coordinates, clamps to the largest fitting square when needed, and averages logits. Fov3 first uses area interpolation to reduce short sides above 600 to 600; at or below 600 it does not resize before grid9. Consequently its field of view is not universally $1/3$.
+
+Tiles$(k,f)$ extracts a centered source region of area fraction $f$ (both axes scaled by $\sqrt f$), area-downscales by $k$, and covers it with evenly spaced windows: $\lceil L/200\rceil$ on an axis of length $L$, from 0 to $L-200$. Windows are resized to canonical size and logits averaged. The factorial crosses $k=1,2$ with $f=0.25,0.5,1$; $k=4$ is evaluated only at full coverage. Round trips use area downscaling and cubic restoration before reusing the original grid. Window counts change under direct downscaling; the construction does not identify a pure context effect.
+
+B-Free's reference pipeline applies its patch projection to the native raster, then scores center/corner 36-by-36 patch-token windows (504 pixels), averaging five logits. Small token grids use the released pipeline's replicate-wrap behavior. It uses ImageNet normalization and the authors' released DINOv2-B-with-registers weights, distinct from our fine-tuned L branches. The local reimplementation is reported to match the reference demo within $3\times10^{-5}$ logits; this audit did not rerun that comparison. The train-FOV arm resizes the short side to 512 before a 504-pixel crop; whole-image input resizes to 504 square \cite{guillaro2025bfree}.
+
+\section{S4. Proxy training versus test-time input}
+
+Table~\ref{tab:proxy} separates training changes from frozen-model presentation changes. Whole-image training adds roughly 4--6 robust AUC points beyond the test-time input change at proxy scale. The DINOv2 test-time proxy comparison and CLIP trained-minus-test-time analysis are exploratory. Full trained branches do not show this same extra training gain. Length, number of views, losses, and branch structure differ between proxies and full models, so the reason remains unresolved.
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{llcc}
+\toprule
+backbone & configuration & robust & clean \\
+\midrule
+DINOv2 & crop-trained & 0.7995 & 0.9254 \\
+ & frozen, whole image & 0.8310 & 0.9087 \\
+ & whole-image-trained & 0.8841 & 0.9358 \\
+CLIP & crop-trained & 0.7482 & 0.9655 \\
+ & frozen, whole image & 0.8484 & 0.9324 \\
+ & whole-image-trained & 0.8924 & 0.9645 \\
+\bottomrule
+\end{tabular}
+\caption{Three-seed proxy means on the selection split, using the Test 12 summary pass. Earlier summaries differ by up to 0.0001 (S12).}
+\label{tab:proxy}
+\end{table}
+
+\section{S5. Earlier changes and post-resize degradation}
+
+Before whole-image training, feature distillation lost about one robust AUC point on a proxy; a shared-window control changed it by $-0.2$ points against a +1-point gate. FiLM conditioning scored 0.803 versus 0.804; severity-weighted fusion achieved an oracle gain of only +0.4 pooled points against a +0.5-point gate. These failures concern individual proxy configurations, not the impossibility of improving representations.
+
+For Test 13, applying degradation after whole-image resize instead of before retains 0.86 [0.83, 0.89] of A's degradation-level rise and 0.55 [0.47, 0.62] of B's. The original rule labeled A as supporting coverage and B unresolved. We retain the numerical outcome but weaken that mechanism reading: fixed pixel-scale degradation on the smaller resized view has different effective strength from native-image degradation. B's 224-pixel input is downscaled about 2.3 times more than A's canonical 512 input. The ordering experiment in the main text is also scale-confounded.
+
+\section{S6. Masking}
+
+The declared prediction that periphery masking would cost more than center masking fails on both branches. Masking the central quarter costs about twice as much as masking an equal-area rim: A $-0.013$ [$-0.021$, $-0.004$], B $-0.012$ [$-0.020$, $-0.003$] for center versus rim. The thin rim and central square differ in content distribution, limiting interpretation. Exploratorily, whole-image input with the center masked still beats the native center crop (A +0.069, B +0.055; point estimates).
+
+\section{S7. Exploratory clean-cost localization}
+
+The second test read loses clean AUC primarily for branch A above short side 1100 pixels: 0.974 to 0.880 on 366 images. This is an observed difference between complete systems, also changing final versus averaged weights, training round, and the 518 versus 512 run setting. The test set has no generator labels. The 1100-pixel localization follows the test outcome; its reuse in later declared analyses is not prospective confirmation of the original finding.
+
+On Synthbuster, branch A changes by at most 0.007 per generator; B loses at DALL-E 2 ($-0.110$, 1024 pixels) and Firefly ($-0.040$, the bucket above 1100). The later declared rule sought a single location and finds none. With logits normalized against each model's own reals, large fakes gain less than small ones (A $-5.1$, B $-10.7$ real SDs); retrospective TPR at 1\% FPR on Firefly falls by 0.062 and 0.259. Near-ceiling AUC on A limits the power to locate a clean cost. Validation data do not reproduce a comparable large-image loss. Spectral trace loss, semantic changes, and generator-pipeline differences remain hypotheses.
+
+The routed-fusion comparison fails its robust gate: $-0.005$ [$-0.010$, $-0.001$] against whole-image input. The conditional third test read was canceled. The $>1100$ subgroup was explicitly declared for that later control; we preserve the declaration while distinguishing it from post-hoc discovery.
+
+\section{S8. Superseded or unidentifiable controls}
+
+The earlier frequency-matching control resizes the whole image to the model input and back to native dimensions before taking the small center crop. It loses 0.009 robust AUC on A and 0.014 on B relative to the center crop. The original rule calls this coverage evidence, but the extreme round trip can leave heavily blurred, unfamiliar small crops and also reduces clean AUC. We do not use it to identify a mechanism. The later 2$\times$ round trip is milder but still changes interpolation and cannot identify pure field of view.
+
+Regressing gains simultaneously on shrink ratio and field of view cannot separate them because the predictors are algebraically coupled. No identified coefficient is reported. JPEG degradation-family rows gain 2--5 times more than others; an exploratory adjustment for AUC headroom reduces that excess to 1.2--1.6 times. Neither result ranks intrinsic degradation difficulty.
+
+\section{S9. Degradation grid and ordering}
+
+Table~\ref{tab:grid} reports pooled whole-image-minus-native differences averaged over JPEG, blur, and noise at each level.
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{lrrr}
+\toprule
+level & A & B & B-Free \\
+\midrule
+none & $-0.0011$ & +0.0043 & $-0.1139$ \\
+light & +0.0011 & +0.0076 & $-0.1080$ \\
+medium & +0.0075 & +0.0141 & $-0.0884$ \\
+heavy & +0.0285 & +0.0271 & $-0.0346$ \\
+\bottomrule
+\end{tabular}
+\caption{Level-averaged AUC differences on originally clean NTIRE validation images. Operation strengths are not matched.}
+\label{tab:grid}
+\end{table}
+
+JPEG uses quality 90/70/30, blur $\sigma=0.5/1/2$, and noise $\sigma=0.02/0.05/0.10$. The levels are not strength-matched (heavy pixel RMSE: JPEG 5.7, blur 11.1, noise 23.6); the declared JPEG-largest-rise prediction cannot establish an ordering by comparable degradation strength. On Synthbuster, whole-image input loses at every level.
+
+The ordering control uses 2,833 originally undistorted NTIRE validation images with short side $\geq800$ (1,520 real, 1,313 fake), separate from the 1,235 distorted rows in the factorial analysis. $R(k)$ averages operation-specific before-minus-after AUC differences, not AUC from concatenating three views per source. At 2$\times$, A is +0.022 [0.019, 0.026] and B +0.007 [0.005, 0.008]. At 4$\times$, A is +0.036 [0.032, 0.041] and B +0.013 [0.010, 0.015]. Changes from 2$\times$ to 4$\times$ are A +0.014 [0.010, 0.017], B +0.006 [0.004, 0.008]. This supports a degradation-ordering effect, but effective degradation scale differs between arms. These values are not additional rows of the mixed-dataset factorial table.
+
+\section{S10. Native-crop and 512/196 comparisons}
+
+Native-224 proxies use a 224-pixel native window at a 224-pixel input, clamping smaller images. Their robust AUCs on hard validation are 0.8093, 0.8083, and 0.8052. Whole-image training exceeds them by +0.0773 [0.0572, 0.0991], +0.0798 [0.0596, 0.1015], and +0.0724 [0.0529, 0.0941]. Native-224 exceeds enlarged-200 by 0.0055, 0.0131, and 0.0059; only seed 2's interval excludes zero. ``Within 0.013'' in earlier prose rounds a 0.0131 difference.
+
+For the A-tower single-seed proxy, enlarged-200 means a 200-pixel native window canonicalized at 512 then resized to 518; native-512 means a 512-pixel native window canonicalized at 512 then resized to 518. Thus native-512 is not wholly interpolation-free. Across all 1,250 distorted hard-validation rows, native-512 improves AUC by +0.0415 [0.0252, 0.0576]. It clamps 682 of the 2,500 total rows; this population mixes crops with images taken whole.
+
+The matched comparison in Table~\ref{tab:native} is narrower: exactly 630 distorted hard-validation images with short side $\geq512$ (320 real, 310 fake), so no arm clamps. Native-196 uses a 196-pixel window at a 196-pixel input. The three proxy models have the same single seed, 20260827, one epoch on 25\% of training, and otherwise matched training settings. The enlarged-200 and native-512 scores are reused from Test 15, not new evaluations. All three differences share a saved paired bootstrap; their point estimates satisfy $T=V+E$ algebraically, without identifying causal components.
+
+\begin{table*}[t]
+\centering\small
+\begin{tabular}{lccc}
+\toprule
+ & enlarged-200 (518 input) & native-512 (518 input) & native-196 (196 input) \\
+\midrule
+robust AUC, 630 images & 0.770877 & 0.830192 & 0.782359 \\
+clean AUC, 1,188 images & 0.969273 & 0.961168 & 0.910423 \\
+patch tokens & 1,369 & 1,369 & 196 \\
+\midrule
+contrast & \multicolumn{3}{l}{robust difference [95\% CI], 630 images} \\
+$T$: native-512 minus enlarged-200 & \multicolumn{3}{l}{+0.0593 [0.0323, 0.0874]} \\
+$V$: native-512 minus native-196 & \multicolumn{3}{l}{+0.0478 [0.0217, 0.0725]} \\
+$E$: native-196 minus enlarged-200 & \multicolumn{3}{l}{+0.0115 [$-0.0139$, +0.0365]} \\
+\bottomrule
+\end{tabular}
+\caption{Single-seed proxy comparison on short-side-$\geq512$ hard-validation subsets. The clean row has a distinct 1,188-image population (625 real, 563 fake); robust intervals cannot be transferred to it. The 512 arms still resize to 518.}
+\label{tab:native}
+\end{table*}
+
+The unresolved $E$ interval does not establish absence of an enlargement penalty. The small window is 2\% smaller per side, token count changes by a factor of 6.98, positional embeddings are interpolated, and fixed pixel-scale augmentations act on different rasters. Training native-512 also sees many entire small images because training short sides are at most 512. Hence $V$ is not a pure context effect. On the separate 1,188 clean-image subset, $E=-0.0589$ [$-0.0725$, $-0.0463$], $V=+0.0507$ [0.0375, 0.0659], and $T=-0.0081$ [$-0.0165$, +0.0006]. These are observed system differences, not evidence identifying spectral or generator-pipeline causes.
+
+\section{S11. Attention combiner}
+
+The nine native-window features come from frozen crop-trained branches. A 128-hidden-unit attention combiner (dropout 0.1, learning rate 0.001, weight decay 0.0001, 64 bags per batch) is fitted using 9,000 \texttt{ntire\_val} images and stopped on the remaining 1,000, with at most 50 epochs and patience 5. It uses no hard-validation images for fitting. The nine-window pool retains the same per-window field of view, although its learned aggregation differs from simple averaging.
+
+On hard validation, grid9/MIL/whole-image robust AUCs are A 0.8495/0.8792/0.9482 and B 0.9048/0.9369/0.9599. Whole-image minus MIL is A +0.069 [0.052, 0.087] and B +0.023 [0.011, 0.036]. B's small-image subgroup below 336 pixels does not resolve a difference. These results weaken an explanation based solely on mean-pooling dilution, but do not establish that no crop aggregator could close the gap.
+
+\section{S12. Numerical reconciliation and thresholds}
+
+The center arms scored by the crop probe and by the as-trained pass differ slightly: A robust 0.85614592 versus 0.85612800, A clean 0.99124736 versus 0.99134208; B robust 0.88722176 versus 0.88730880. Main tables preserve each pass and its recorded population instead of silently replacing one. The largest difference is A clean at 0.00009472, consistent with the earlier statement ``at most 0.0001''. No saved record establishes the cause.
+
+External standalone fusion and paired-bootstrap point differences agree to numerical precision; their intervals and populations are retained together. The proxy means in S4 use the Test 12 pass; older summaries differ by up to 0.0001. The crop-probe versus as-trained drift above is unexplained by the saved records. We do not attribute it to numerical precision, decoder differences, or another cause without evidence.
+
+TPR at 1\% FPR is computed independently on the evaluated population's reals, at the lowest threshold whose empirical FPR does not exceed 0.01. Robust and clean subgroup TPRs therefore use different real subsets; pooled external TPRs use all reals. The main diagnosis's fused 0.516-to-0.752 TPR is pooled over the hard-validation split, although it appears beside robust AUC. It is not robust-only TPR. Branch robust TPRs are A 0.158 to 0.485 and B 0.307 to 0.674. Main test-table TPRs are likewise pooled ROC operating points, not validation-frozen deployment thresholds. No saved TPR confidence intervals are supplied, and none is fabricated. Strict operating-point changes can oppose AUC changes: SocialRF as distributed is crop 0.538 versus whole-image 0.482; JPEG 95 is 0.560 versus 0.490.
+
+\section{S13. Anonymized registration appendix}
+
+\paragraph{Evidence boundary.} The companion Markdown record is an anonymized transcription of the existing registration file, packaged for review on November 2, 2026. Personal names and scratch-account paths are replaced by role labels. Original records are preserved in the repository. This package is not an external registration service and supplies no new independent proof of historical preregistration. Commit timestamps establish only what the available local Git history records; they are not trusted third-party run timestamps. Pre-run execution logs for the late amendments are unavailable in this audit.
+
+\begin{table*}[t]
+\centering\small
+\begin{tabular}{llll}
+\toprule
+record & date reported by text & first available commit & commit date (UTC+8) \\
+\midrule
+initial declaration & October 8 & \texttt{5deaf9f} & October 8, 23:12 \\
+amendment 1 & October 8 & \texttt{110ecc2} & October 8, 23:17 \\
+amendment 2 & October 12 & \texttt{42bf71c} & October 12, 20:43 \\
+amendment 3 & October 12 & \texttt{66c0178} & October 12, 21:20 \\
+amendment 4 & October 14 & \texttt{5ecff8f} & October 14, 16:12 \\
+amendment 5 & October 19 & \texttt{991dc37} & October 19, 18:44 \\
+amendment 6 & October 19 & \texttt{bbb1306} & October 19, 19:07 \\
+amendments 7--8 & October 20 & \texttt{745fdc7} & November 2, 19:59 \\
+amendment 9 & October 24 & \texttt{745fdc7} & November 2, 19:59 \\
+amendments 10--12 & November 1 & \texttt{745fdc7} & November 2, 19:59 \\
+\bottomrule
+\end{tabular}
+\caption{Reported declaration dates versus first appearance in available Git history. No author names or contact details are included. Late amendment dates cannot independently establish pre-run ordering. The accompanying ledger records full commit identifiers and content hashes.}
+\end{table*}
+
+\paragraph{Test-read chronology.} The saved record reports that the crop configuration froze September 23 and was evaluated October 4, 12:00 UTC. The October 8 declaration permits a second read after non-test gates and fusion selection; the saved result reports October 11, 16:45 UTC. The second configuration was fitted before that read, but an independently timestamped exact freeze record is missing. Amendment 5 conditionally reopens a third read for routed fusion; amendment 11 reports cancellation on November 1. We report two completed reads and do not claim that the original one-read policy was never amended.
+
+\paragraph{Prospective and exploratory status.} The initial whole-image training study follows a frozen-model effect already seen on the selection split, not a blind hypothesis test of that effect. The initial record declares proxies, full-model fusion, external gates, and a final test read. Amendment 1 declares size-matched external reporting. Later declarations cover aspect-preserving inputs, public detectors, CLIP, masking, native crops, factorial tests, and round trips. DINOv2 proxy test-time analysis, CLIP trained-minus-test-time analysis, degradation-family headroom, and the initial test clean-cost localization are exploratory. The later $>1100$ subgroup declarations remain declarations, but do not retroactively preregister the initial clean-cost finding.
+
+\paragraph{Review and remaining gaps.} Contribution: empirical diagnosis, with resizing itself established. Clarity: input sizes, populations, and configurations are explicit. Experimental strength: large gains coexist with clean costs and dataset failures. Evaluation completeness: no branch-A decile control, TPR intervals, or additional independent tests are invented. Design soundness: interpolation, aggregation, tokens, and effective degradation scale remain confounded; context is an interpretation. Missing pre-run logs and unexplained numerical drift remain limitations of the supplied evidence.
+
+\bibliography{refs_reframe_audited}
+\end{document}

@@ -1,0 +1,984 @@
+{
+  "detector": "univfd",
+  "splits": {
+    "ntire_val_hard": {
+      "native": {
+        "n": 2500,
+        "auc": 0.49129791999999994,
+        "tpr_at_1pct_fpr": 0.004,
+        "robust_auc": 0.48861952000000003,
+        "clean_auc": 0.49283328000000004,
+        "by_bucket": {
+          "80-336": {
+            "n": 314,
+            "robust_auc": 0.5385458531238583,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 416,
+            "robust_auc": 0.5299473453268978,
+            "clean_auc": 0.6407692307692309
+          },
+          "528-736": {
+            "n": 741,
+            "robust_auc": 0.4866202774015785,
+            "clean_auc": 0.6258725613030248
+          },
+          "752-4016": {
+            "n": 1029,
+            "robust_auc": 0.4109921365233395,
+            "clean_auc": 0.3865137955863619
+          }
+        }
+      },
+      "train_fov": {
+        "n": 2500,
+        "auc": 0.50168128,
+        "tpr_at_1pct_fpr": 0.008,
+        "robust_auc": 0.51148288,
+        "clean_auc": 0.48827392000000003,
+        "by_bucket": {
+          "80-336": {
+            "n": 314,
+            "robust_auc": 0.5369220151828847,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 416,
+            "robust_auc": 0.5549217493052507,
+            "clean_auc": 0.6176923076923078
+          },
+          "528-736": {
+            "n": 741,
+            "robust_auc": 0.5239340587493578,
+            "clean_auc": 0.5887998926078396
+          },
+          "752-4016": {
+            "n": 1029,
+            "robust_auc": 0.4336205454241258,
+            "clean_auc": 0.4336332201834136
+          }
+        }
+      },
+      "squish": {
+        "n": 2500,
+        "auc": 0.51293952,
+        "tpr_at_1pct_fpr": 0.0088,
+        "robust_auc": 0.51217664,
+        "clean_auc": 0.51237376,
+        "by_bucket": {
+          "80-336": {
+            "n": 314,
+            "robust_auc": 0.5335119555068404,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 416,
+            "robust_auc": 0.5575179172151528,
+            "clean_auc": 0.6046153846153846
+          },
+          "528-736": {
+            "n": 741,
+            "robust_auc": 0.497548218372017,
+            "clean_auc": 0.6266332557723286
+          },
+          "752-4016": {
+            "n": 1029,
+            "robust_auc": 0.4525263510122135,
+            "clean_auc": 0.45556689692279695
+          }
+        }
+      }
+    },
+    "ntire_val": {
+      "native": {
+        "n": 10000,
+        "auc": 0.43717854000000006,
+        "tpr_at_1pct_fpr": 0.0054,
+        "robust_auc": 0.42539768,
+        "clean_auc": 0.44894048,
+        "by_bucket": {
+          "80-336": {
+            "n": 1543,
+            "robust_auc": 0.48315766359244616,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 1361,
+            "robust_auc": 0.4647013813378439,
+            "clean_auc": 0.5545918367346939
+          },
+          "528-736": {
+            "n": 3328,
+            "robust_auc": 0.45266065817189827,
+            "clean_auc": 0.5488497684954023
+          },
+          "752-4016": {
+            "n": 3762,
+            "robust_auc": 0.37019675775340044,
+            "clean_auc": 0.3631239849228047
+          }
+        }
+      },
+      "train_fov": {
+        "n": 10000,
+        "auc": 0.49127764000000007,
+        "tpr_at_1pct_fpr": 0.008,
+        "robust_auc": 0.47963968,
+        "clean_auc": 0.49833088000000003,
+        "by_bucket": {
+          "80-336": {
+            "n": 1543,
+            "robust_auc": 0.4788790919225702,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 1361,
+            "robust_auc": 0.46834098505899885,
+            "clean_auc": 0.5352040816326531
+          },
+          "528-736": {
+            "n": 3328,
+            "robust_auc": 0.4716254014296074,
+            "clean_auc": 0.5422406728454062
+          },
+          "752-4016": {
+            "n": 3762,
+            "robust_auc": 0.46705896784889833,
+            "clean_auc": 0.45979348736068354
+          }
+        }
+      },
+      "squish": {
+        "n": 10000,
+        "auc": 0.50848456,
+        "tpr_at_1pct_fpr": 0.0074,
+        "robust_auc": 0.49010256,
+        "clean_auc": 0.52439584,
+        "by_bucket": {
+          "80-336": {
+            "n": 1543,
+            "robust_auc": 0.49223168136211615,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 1361,
+            "robust_auc": 0.47413515363859693,
+            "clean_auc": 0.5816326530612245
+          },
+          "528-736": {
+            "n": 3328,
+            "robust_auc": 0.4845229462343313,
+            "clean_auc": 0.5730289614549997
+          },
+          "752-4016": {
+            "n": 3762,
+            "robust_auc": 0.475244506730208,
+            "clean_auc": 0.48010039420418793
+          }
+        }
+      }
+    },
+    "ext_aigi_socialrf": {
+      "native": {
+        "n": 5994,
+        "auc": 0.5343249832999332,
+        "tpr_at_1pct_fpr": 0.048666666666666664,
+        "robust_auc": null,
+        "clean_auc": 0.5343249832999332,
+        "by_bucket": {
+          "80-336": {
+            "n": 4,
+            "robust_auc": null,
+            "clean_auc": 1.0
+          },
+          "352-512": {
+            "n": 234,
+            "robust_auc": null,
+            "clean_auc": 0.7050423353974473
+          },
+          "528-736": {
+            "n": 443,
+            "robust_auc": null,
+            "clean_auc": 0.529666876178504
+          },
+          "752-4016": {
+            "n": 5236,
+            "robust_auc": null,
+            "clean_auc": 0.5318953889555049
+          }
+        }
+      },
+      "train_fov": {
+        "n": 5994,
+        "auc": 0.5184751169004675,
+        "tpr_at_1pct_fpr": 0.017666666666666667,
+        "robust_auc": null,
+        "clean_auc": 0.5184751169004675,
+        "by_bucket": {
+          "80-336": {
+            "n": 4,
+            "robust_auc": null,
+            "clean_auc": 1.0
+          },
+          "352-512": {
+            "n": 234,
+            "robust_auc": null,
+            "clean_auc": 0.5422722102868697
+          },
+          "528-736": {
+            "n": 443,
+            "robust_auc": null,
+            "clean_auc": 0.4950974230043998
+          },
+          "752-4016": {
+            "n": 5236,
+            "robust_auc": null,
+            "clean_auc": 0.5161656742839573
+          }
+        }
+      },
+      "squish": {
+        "n": 5994,
+        "auc": 0.5186549766199064,
+        "tpr_at_1pct_fpr": 0.012,
+        "robust_auc": null,
+        "clean_auc": 0.5186549766199064,
+        "by_bucket": {
+          "80-336": {
+            "n": 4,
+            "robust_auc": null,
+            "clean_auc": 1.0
+          },
+          "352-512": {
+            "n": 234,
+            "robust_auc": null,
+            "clean_auc": 0.5479590547200809
+          },
+          "528-736": {
+            "n": 443,
+            "robust_auc": null,
+            "clean_auc": 0.530232558139535
+          },
+          "752-4016": {
+            "n": 5236,
+            "robust_auc": null,
+            "clean_auc": 0.512686898986808
+          }
+        }
+      }
+    },
+    "ext_aigi_socialrf_deg": {
+      "native": {
+        "n": 5994,
+        "auc": 0.5005770429748386,
+        "tpr_at_1pct_fpr": 0.018666666666666668,
+        "robust_auc": 0.5005770429748386,
+        "clean_auc": null,
+        "by_bucket": {
+          "80-336": {
+            "n": 4,
+            "robust_auc": 1.0,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 234,
+            "robust_auc": 0.4736509541261215,
+            "clean_auc": null
+          },
+          "528-736": {
+            "n": 443,
+            "robust_auc": 0.4664781060129897,
+            "clean_auc": null
+          },
+          "752-4016": {
+            "n": 5236,
+            "robust_auc": 0.5084364569347055,
+            "clean_auc": null
+          }
+        }
+      },
+      "train_fov": {
+        "n": 5994,
+        "auc": 0.4891814183923402,
+        "tpr_at_1pct_fpr": 0.011666666666666667,
+        "robust_auc": 0.4891814183923402,
+        "clean_auc": null,
+        "by_bucket": {
+          "80-336": {
+            "n": 4,
+            "robust_auc": 1.0,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 234,
+            "robust_auc": 0.4688487299380765,
+            "clean_auc": null
+          },
+          "528-736": {
+            "n": 443,
+            "robust_auc": 0.43216006704378795,
+            "clean_auc": null
+          },
+          "752-4016": {
+            "n": 5236,
+            "robust_auc": 0.4878519397977351,
+            "clean_auc": null
+          }
+        }
+      },
+      "squish": {
+        "n": 5994,
+        "auc": 0.48126196838120683,
+        "tpr_at_1pct_fpr": 0.009,
+        "robust_auc": 0.48126196838120683,
+        "clean_auc": null,
+        "by_bucket": {
+          "80-336": {
+            "n": 4,
+            "robust_auc": 1.0,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 234,
+            "robust_auc": 0.533678756476684,
+            "clean_auc": null
+          },
+          "528-736": {
+            "n": 443,
+            "robust_auc": 0.4631259166142887,
+            "clean_auc": null
+          },
+          "752-4016": {
+            "n": 5236,
+            "robust_auc": 0.4746728259916275,
+            "clean_auc": null
+          }
+        }
+      }
+    },
+    "ext_aigi_socialrf_jpeg95": {
+      "native": {
+        "n": 5994,
+        "auc": 0.5137857938098419,
+        "tpr_at_1pct_fpr": 0.037333333333333336,
+        "robust_auc": null,
+        "clean_auc": 0.5137857938098419,
+        "by_bucket": {
+          "80-336": {
+            "n": 4,
+            "robust_auc": null,
+            "clean_auc": 1.0
+          },
+          "352-512": {
+            "n": 234,
+            "robust_auc": null,
+            "clean_auc": 0.6437507898395045
+          },
+          "528-736": {
+            "n": 443,
+            "robust_auc": null,
+            "clean_auc": 0.5038340666247643
+          },
+          "752-4016": {
+            "n": 5236,
+            "robust_auc": null,
+            "clean_auc": 0.5151577502528566
+          }
+        }
+      },
+      "train_fov": {
+        "n": 5994,
+        "auc": 0.5105629035849477,
+        "tpr_at_1pct_fpr": 0.015333333333333332,
+        "robust_auc": null,
+        "clean_auc": 0.5105629035849477,
+        "by_bucket": {
+          "80-336": {
+            "n": 4,
+            "robust_auc": null,
+            "clean_auc": 1.0
+          },
+          "352-512": {
+            "n": 234,
+            "robust_auc": null,
+            "clean_auc": 0.514596234045242
+          },
+          "528-736": {
+            "n": 443,
+            "robust_auc": null,
+            "clean_auc": 0.4899853341713807
+          },
+          "752-4016": {
+            "n": 5236,
+            "robust_auc": null,
+            "clean_auc": 0.5096947932486163
+          }
+        }
+      },
+      "squish": {
+        "n": 5994,
+        "auc": 0.5136042084168337,
+        "tpr_at_1pct_fpr": 0.011333333333333334,
+        "robust_auc": null,
+        "clean_auc": 0.5136042084168337,
+        "by_bucket": {
+          "80-336": {
+            "n": 4,
+            "robust_auc": null,
+            "clean_auc": 1.0
+          },
+          "352-512": {
+            "n": 234,
+            "robust_auc": null,
+            "clean_auc": 0.5394919752306331
+          },
+          "528-736": {
+            "n": 443,
+            "robust_auc": null,
+            "clean_auc": 0.5275927089880579
+          },
+          "752-4016": {
+            "n": 5236,
+            "robust_auc": null,
+            "clean_auc": 0.5078466163478069
+          }
+        }
+      }
+    },
+    "ext_aigi_community": {
+      "native": {
+        "n": 12000,
+        "auc": 0.5849534027777777,
+        "tpr_at_1pct_fpr": 0.024333333333333332,
+        "robust_auc": null,
+        "clean_auc": 0.5849534027777777,
+        "by_bucket": {
+          "80-336": {
+            "n": 1183,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 5701,
+            "robust_auc": null,
+            "clean_auc": 0.49203602407861746
+          },
+          "528-736": {
+            "n": 814,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "752-4016": {
+            "n": 4220,
+            "robust_auc": null,
+            "clean_auc": null
+          }
+        }
+      },
+      "train_fov": {
+        "n": 12000,
+        "auc": 0.4514901388888889,
+        "tpr_at_1pct_fpr": 0.0013333333333333333,
+        "robust_auc": null,
+        "clean_auc": 0.4514901388888889,
+        "by_bucket": {
+          "80-336": {
+            "n": 1183,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 5701,
+            "robust_auc": null,
+            "clean_auc": 0.49402481152269995
+          },
+          "528-736": {
+            "n": 814,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "752-4016": {
+            "n": 4220,
+            "robust_auc": null,
+            "clean_auc": null
+          }
+        }
+      },
+      "squish": {
+        "n": 12000,
+        "auc": 0.5345961805555556,
+        "tpr_at_1pct_fpr": 0.006333333333333333,
+        "robust_auc": null,
+        "clean_auc": 0.5345961805555556,
+        "by_bucket": {
+          "80-336": {
+            "n": 1183,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 5701,
+            "robust_auc": null,
+            "clean_auc": 0.5672789106525984
+          },
+          "528-736": {
+            "n": 814,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "752-4016": {
+            "n": 4220,
+            "robust_auc": null,
+            "clean_auc": null
+          }
+        }
+      }
+    },
+    "ext_aigi_community_deg": {
+      "native": {
+        "n": 12000,
+        "auc": 0.49040283333333334,
+        "tpr_at_1pct_fpr": 0.007666666666666666,
+        "robust_auc": 0.49040283333333334,
+        "clean_auc": null,
+        "by_bucket": {
+          "80-336": {
+            "n": 1183,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 5701,
+            "robust_auc": 0.4565655346856328,
+            "clean_auc": null
+          },
+          "528-736": {
+            "n": 814,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "752-4016": {
+            "n": 4220,
+            "robust_auc": null,
+            "clean_auc": null
+          }
+        }
+      },
+      "train_fov": {
+        "n": 12000,
+        "auc": 0.3587515694444445,
+        "tpr_at_1pct_fpr": 0.0011666666666666668,
+        "robust_auc": 0.3587515694444445,
+        "clean_auc": null,
+        "by_bucket": {
+          "80-336": {
+            "n": 1183,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 5701,
+            "robust_auc": 0.4474732646011253,
+            "clean_auc": null
+          },
+          "528-736": {
+            "n": 814,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "752-4016": {
+            "n": 4220,
+            "robust_auc": null,
+            "clean_auc": null
+          }
+        }
+      },
+      "squish": {
+        "n": 12000,
+        "auc": 0.39639468055555555,
+        "tpr_at_1pct_fpr": 0.0005,
+        "robust_auc": 0.39639468055555555,
+        "clean_auc": null,
+        "by_bucket": {
+          "80-336": {
+            "n": 1183,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 5701,
+            "robust_auc": 0.4698262031488111,
+            "clean_auc": null
+          },
+          "528-736": {
+            "n": 814,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "752-4016": {
+            "n": 4220,
+            "robust_auc": null,
+            "clean_auc": null
+          }
+        }
+      }
+    },
+    "ext_aigi_community_jpeg95": {
+      "native": {
+        "n": 12000,
+        "auc": 0.5897362916666666,
+        "tpr_at_1pct_fpr": 0.021666666666666667,
+        "robust_auc": null,
+        "clean_auc": 0.5897362916666666,
+        "by_bucket": {
+          "80-336": {
+            "n": 1183,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 5701,
+            "robust_auc": null,
+            "clean_auc": 0.506182435301005
+          },
+          "528-736": {
+            "n": 814,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "752-4016": {
+            "n": 4220,
+            "robust_auc": null,
+            "clean_auc": null
+          }
+        }
+      },
+      "train_fov": {
+        "n": 12000,
+        "auc": 0.4574056111111111,
+        "tpr_at_1pct_fpr": 0.0013333333333333333,
+        "robust_auc": null,
+        "clean_auc": 0.4574056111111111,
+        "by_bucket": {
+          "80-336": {
+            "n": 1183,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 5701,
+            "robust_auc": null,
+            "clean_auc": 0.483413550702293
+          },
+          "528-736": {
+            "n": 814,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "752-4016": {
+            "n": 4220,
+            "robust_auc": null,
+            "clean_auc": null
+          }
+        }
+      },
+      "squish": {
+        "n": 12000,
+        "auc": 0.5385931805555556,
+        "tpr_at_1pct_fpr": 0.0065,
+        "robust_auc": null,
+        "clean_auc": 0.5385931805555556,
+        "by_bucket": {
+          "80-336": {
+            "n": 1183,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 5701,
+            "robust_auc": null,
+            "clean_auc": 0.555314456555256
+          },
+          "528-736": {
+            "n": 814,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "752-4016": {
+            "n": 4220,
+            "robust_auc": null,
+            "clean_auc": null
+          }
+        }
+      }
+    },
+    "ext_synthbuster": {
+      "native": {
+        "n": 9990,
+        "auc": 0.7957378553222403,
+        "tpr_at_1pct_fpr": 0.24232992441084927,
+        "robust_auc": null,
+        "clean_auc": 0.7957378553222403,
+        "by_bucket": {
+          "80-336": {
+            "n": 1000,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 2000,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "528-736": {
+            "n": 712,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "752-4016": {
+            "n": 6278,
+            "robust_auc": null,
+            "clean_auc": 0.770125484169209
+          }
+        }
+      },
+      "train_fov": {
+        "n": 9990,
+        "auc": 0.6379879991375554,
+        "tpr_at_1pct_fpr": 0.0821476211649622,
+        "robust_auc": null,
+        "clean_auc": 0.6379879991375554,
+        "by_bucket": {
+          "80-336": {
+            "n": 1000,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 2000,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "528-736": {
+            "n": 712,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "752-4016": {
+            "n": 6278,
+            "robust_auc": null,
+            "clean_auc": 0.5651954878399846
+          }
+        }
+      },
+      "squish": {
+        "n": 9990,
+        "auc": 0.6284191364281733,
+        "tpr_at_1pct_fpr": 0.07536682970208981,
+        "robust_auc": null,
+        "clean_auc": 0.6284191364281733,
+        "by_bucket": {
+          "80-336": {
+            "n": 1000,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 2000,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "528-736": {
+            "n": 712,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "752-4016": {
+            "n": 6278,
+            "robust_auc": null,
+            "clean_auc": 0.5591830696518246
+          }
+        }
+      }
+    },
+    "ext_synthbuster_deg": {
+      "native": {
+        "n": 9990,
+        "auc": 0.609669130836598,
+        "tpr_at_1pct_fpr": 0.030791462872387727,
+        "robust_auc": 0.609669130836598,
+        "clean_auc": null,
+        "by_bucket": {
+          "80-336": {
+            "n": 1000,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 2000,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "528-736": {
+            "n": 712,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "752-4016": {
+            "n": 6278,
+            "robust_auc": 0.6411344676689966,
+            "clean_auc": null
+          }
+        }
+      },
+      "train_fov": {
+        "n": 9990,
+        "auc": 0.569092579040271,
+        "tpr_at_1pct_fpr": 0.03201422854602046,
+        "robust_auc": 0.569092579040271,
+        "clean_auc": null,
+        "by_bucket": {
+          "80-336": {
+            "n": 1000,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 2000,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "528-736": {
+            "n": 712,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "752-4016": {
+            "n": 6278,
+            "robust_auc": 0.494930693167331,
+            "clean_auc": null
+          }
+        }
+      },
+      "squish": {
+        "n": 9990,
+        "auc": 0.5655247626264479,
+        "tpr_at_1pct_fpr": 0.05202312138728324,
+        "robust_auc": 0.5655247626264479,
+        "clean_auc": null,
+        "by_bucket": {
+          "80-336": {
+            "n": 1000,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 2000,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "528-736": {
+            "n": 712,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "752-4016": {
+            "n": 6278,
+            "robust_auc": 0.48256952768846234,
+            "clean_auc": null
+          }
+        }
+      }
+    },
+    "ext_synthbuster_jpeg95": {
+      "native": {
+        "n": 9990,
+        "auc": 0.7834451685658639,
+        "tpr_at_1pct_fpr": 0.19386393952867942,
+        "robust_auc": null,
+        "clean_auc": 0.7834451685658639,
+        "by_bucket": {
+          "80-336": {
+            "n": 1000,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 2000,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "528-736": {
+            "n": 712,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "752-4016": {
+            "n": 6278,
+            "robust_auc": null,
+            "clean_auc": 0.7838134027480553
+          }
+        }
+      },
+      "train_fov": {
+        "n": 9990,
+        "auc": 0.6404180977371566,
+        "tpr_at_1pct_fpr": 0.07847932414406403,
+        "robust_auc": null,
+        "clean_auc": 0.6404180977371566,
+        "by_bucket": {
+          "80-336": {
+            "n": 1000,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 2000,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "528-736": {
+            "n": 712,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "752-4016": {
+            "n": 6278,
+            "robust_auc": null,
+            "clean_auc": 0.5726628887633142
+          }
+        }
+      },
+      "squish": {
+        "n": 9990,
+        "auc": 0.616493424754843,
+        "tpr_at_1pct_fpr": 0.0773677189862161,
+        "robust_auc": null,
+        "clean_auc": 0.616493424754843,
+        "by_bucket": {
+          "80-336": {
+            "n": 1000,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "352-512": {
+            "n": 2000,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "528-736": {
+            "n": 712,
+            "robust_auc": null,
+            "clean_auc": null
+          },
+          "752-4016": {
+            "n": 6278,
+            "robust_auc": null,
+            "clean_auc": 0.5480252826573369
+          }
+        }
+      }
+    }
+  }
+}

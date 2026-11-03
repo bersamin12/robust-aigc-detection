@@ -1,0 +1,16 @@
+# Validation record
+
+Checked November 2, 2026. Scientific validation reads saved JSON/Markdown reports and static code only. No training, inference, image-dataset loading, per-image metric recomputation, or test-set evaluation was run.
+
+- Main built with pdfLaTeX 1.40.29 / TeX Live2026 and BibTeX0.99e using the unchanged checked-in AAAI2027 style and bibliography style. Ten PDF pages total: content ends on page8, References begins on page9.
+- Supplement built with the same tools and unchanged AAAI style: five pages, references on page5.
+- Final logs: zero overfull horizontal/vertical boxes; zero unresolved citations or references; no rerun-needed label warnings. Normal underfull warnings remain and were checked visually; no margins or font sizes were altered to force the page limit.
+- `pdffonts`: every font embedded and subset; no Type3 fonts. Both PDFs use letter paper. PDF Author metadata is empty; the visible author is Anonymous submission. No personal names, contact details, scratch-account paths, or host/workspace names were found in packaged records. Bibliography names and public original-source URLs remain intentionally.
+- All ten main pages and five supplement pages rendered and visually inspected, including title/copyright areas, table alignment, interval signs, footnotes, references, and schematic. The full-width schematic appears on page3 in Setup. The factorial plot distinguishes the full-coverage-only4× marker. The trained-system plot is described as such and sourced under Training; ordinary LaTeX float placement puts it above that heading on page6.
+- `verify_saved_evidence.py`: 157 numeric/presentation checks pass, plus SHA-256 validation of121 anonymized saved-report snapshots. It checks frozen/trained/external/public tables, exact SocialRF values, in-band results, ordering intervals, native-crop contrasts/populations, fusion configurations and test distortion share. The claim map records additional manual source inspection and unsupported/unverifiable requests.
+- SHA-256 comparison confirms all19 paper files present at task start remain byte-identical, including untracked revised drafts and the already-modified README. Original registration sources were never edited. The unchanged style hashes are checked separately.
+- The standalone source archive is extracted to a fresh directory and rebuilt using its included script, both TeX files, isolated bibliography, assets and unchanged style files. Text extracted from both rebuilt PDFs matches the delivered PDFs; all157 saved-evidence checks pass in the extracted archive. No repository-relative paths, original figure dependencies, or external model/data files are needed to compile.
+
+Machine-readable details: `pdf_validation.json`, `numeric_verification.json`, `evidence_ledger.json`, and `preserved_artifacts.json`. Build intermediates are kept outside the source delivery; the script can regenerate them. The source ZIP includes anonymized reports and registration snapshots, not model weights or per-image score/data artifacts.
+
+The public OpenReview invitation exposes only a main-PDF file field. Supplement and source archive are separate local files, not submitted attachments. See submission_requirements.md.

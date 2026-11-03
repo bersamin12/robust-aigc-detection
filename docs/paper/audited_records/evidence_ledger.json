@@ -1,0 +1,849 @@
+[
+  {
+    "source": "docs/ntire/paper/abl_trained_vs_testtime_s3.md",
+    "source_sha256": "8922f1e94a835d76076757dc64a51a291f498be343b1d7f8bf6ec10a2cfb4745",
+    "packaged": "audited_records/evidence/docs/ntire/paper/abl_trained_vs_testtime_s3.md",
+    "packaged_sha256": "8922f1e94a835d76076757dc64a51a291f498be343b1d7f8bf6ec10a2cfb4745",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/aspect_probe_B2swa_ntire_val_hard.json",
+    "source_sha256": "96aed64f064167519c182103d537f84532cb585334a5227144b3ba3279e94a53",
+    "packaged": "audited_records/evidence/docs/ntire/paper/aspect_probe_B2swa_ntire_val_hard.json",
+    "packaged_sha256": "530cb9e1a429c7d432b43cee3b324cc6cf2c79644a7b76cf17db057721a9efde",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/clip_testtime.json",
+    "source_sha256": "a1131687c85d31ec0d54d18885b1a7f854ff6323a9f1854b1e279dfebd792547",
+    "packaged": "audited_records/evidence/docs/ntire/paper/clip_testtime.json",
+    "packaged_sha256": "a1131687c85d31ec0d54d18885b1a7f854ff6323a9f1854b1e279dfebd792547",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/aspect_probe_A2_ntire_val_hard.json",
+    "source_sha256": "8298e33bda8fd4655d09c39849b60329d3a72c24139f6dc54f03257205403403",
+    "packaged": "audited_records/evidence/docs/ntire/paper/aspect_probe_A2_ntire_val_hard.json",
+    "packaged_sha256": "77dc17556826f61ded1c7ca63fb989b202da08ee611346e28db38ba1f829e029",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/abl_testtime.md",
+    "source_sha256": "98dda8aaef1720a604070ba49b6d689a864471291a887703404f41b9515b2805",
+    "packaged": "audited_records/evidence/docs/ntire/paper/abl_testtime.md",
+    "packaged_sha256": "98dda8aaef1720a604070ba49b6d689a864471291a887703404f41b9515b2805",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/clip_probe_s1.json",
+    "source_sha256": "bd01961bb6af3e3b404388e7ab3bf90f23cf577523813b4ec2a7b9199f22f222",
+    "packaged": "audited_records/evidence/docs/ntire/paper/clip_probe_s1.json",
+    "packaged_sha256": "d69114032bb52bbdaeb898edd406f64b15d174b80a3148f376c6c372621c73ce",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/aspect_boot_A2_vs_center.md",
+    "source_sha256": "52a9e9e16966d6d32464bdf7071ec2d58928b0d529333ced26fc6c5793682eab",
+    "packaged": "audited_records/evidence/docs/ntire/paper/aspect_boot_A2_vs_center.md",
+    "packaged_sha256": "52a9e9e16966d6d32464bdf7071ec2d58928b0d529333ced26fc6c5793682eab",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/clip_proxy_gate.json",
+    "source_sha256": "6cdb6bfbf6128681573e53aa6b411367a9080e41f592f2b32b31caac00441d72",
+    "packaged": "audited_records/evidence/docs/ntire/paper/clip_proxy_gate.json",
+    "packaged_sha256": "6cdb6bfbf6128681573e53aa6b411367a9080e41f592f2b32b31caac00441d72",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/abl_trained_vs_testtime_s2.json",
+    "source_sha256": "7dd89b69209e09c0b43052b1f8149de25b7e4b58e53d8100aa50ac71735d0cb8",
+    "packaged": "audited_records/evidence/docs/ntire/paper/abl_trained_vs_testtime_s2.json",
+    "packaged_sha256": "7dd89b69209e09c0b43052b1f8149de25b7e4b58e53d8100aa50ac71735d0cb8",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/clip_probe_s2.json",
+    "source_sha256": "14ce10690f8f9be6f7e8d5a0a192377462cb0521c66b5108b43a358b8c7d38ae",
+    "packaged": "audited_records/evidence/docs/ntire/paper/clip_probe_s2.json",
+    "packaged_sha256": "c888e7a61281abd63d5105722c1cce799e33a64e8ea4005ff234359f35038375",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/public_univfd.json",
+    "source_sha256": "bf121683fd491beab66656fa3a8769248cc683268791615770cd16f987c1ee71",
+    "packaged": "audited_records/evidence/docs/ntire/paper/public_univfd.json",
+    "packaged_sha256": "bf121683fd491beab66656fa3a8769248cc683268791615770cd16f987c1ee71",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/clip_trained_vs_testtime_s2.json",
+    "source_sha256": "e3e13555471ad20f377f707a319ed2a5546a13a44360a7cf7bbe734ce2313b6b",
+    "packaged": "audited_records/evidence/docs/ntire/paper/clip_trained_vs_testtime_s2.json",
+    "packaged_sha256": "e3e13555471ad20f377f707a319ed2a5546a13a44360a7cf7bbe734ce2313b6b",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/analysis_testsize.md",
+    "source_sha256": "db570dc4e8d40ad6dbb28861d5f9cf65dfb023fa62ecdeb1d22aecc0358274fb",
+    "packaged": "audited_records/evidence/docs/ntire/paper/analysis_testsize.md",
+    "packaged_sha256": "db570dc4e8d40ad6dbb28861d5f9cf65dfb023fa62ecdeb1d22aecc0358274fb",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/analysis_figsize.md",
+    "source_sha256": "bb201cd439450c21b8de682dd3af52cc1730a9017f9b63da0da7560f188cc373",
+    "packaged": "audited_records/evidence/docs/ntire/paper/analysis_figsize.md",
+    "packaged_sha256": "bb201cd439450c21b8de682dd3af52cc1730a9017f9b63da0da7560f188cc373",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/read2_vs_read1.json",
+    "source_sha256": "9c114f42c5f4543d6aa61b6c4e3f790ce3ccd31326f7830f61f88bf957a26409",
+    "packaged": "audited_records/evidence/docs/ntire/paper/read2_vs_read1.json",
+    "packaged_sha256": "9c114f42c5f4543d6aa61b6c4e3f790ce3ccd31326f7830f61f88bf957a26409",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/clip_probe_s3.json",
+    "source_sha256": "0ab611057f66fdbffa2b5818794f5ef3195b81d2de847480420a29a9cc428ceb",
+    "packaged": "audited_records/evidence/docs/ntire/paper/clip_probe_s3.json",
+    "packaged_sha256": "71a9f581eb3e07593a65fd8627958a1b785118d2694c75d8b4f97c704092254a",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/analysis_groups.md",
+    "source_sha256": "ab63f85752ffdac263c7298cd872584d55be91bae6a87e36b46afb917216dce0",
+    "packaged": "audited_records/evidence/docs/ntire/paper/analysis_groups.md",
+    "packaged_sha256": "ab63f85752ffdac263c7298cd872584d55be91bae6a87e36b46afb917216dce0",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/abl_probe_s3.json",
+    "source_sha256": "dd5e5fd361ecbef8acb194859a659b8956fc2859b3bef1083de614c6619e1cde",
+    "packaged": "audited_records/evidence/docs/ntire/paper/abl_probe_s3.json",
+    "packaged_sha256": "328a4627765420c72f5d3eb93350438a9b346d903987f0faa8a7e99f630152a7",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/squish_proxy.md",
+    "source_sha256": "9c636c7ff0434827a0076b27e0ab86cf7bbd2f39ff3df4c5765712e526e95666",
+    "packaged": "audited_records/evidence/docs/ntire/paper/squish_proxy.md",
+    "packaged_sha256": "9c636c7ff0434827a0076b27e0ab86cf7bbd2f39ff3df4c5765712e526e95666",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/external_sets.json",
+    "source_sha256": "92e04dbb8ff3f88a50010904bd3fe1096baf164031777620d0fc8bcbc48efeba",
+    "packaged": "audited_records/evidence/docs/ntire/paper/external_sets.json",
+    "packaged_sha256": "734e3f08424f8a3efe23c679b2e003256b8a7f07af0a012bb00fd01129d67930",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/squish_proxy_gate.md",
+    "source_sha256": "085146b5d29be6f20dab5ab0a948e6b85d4f5b303dd2d3b42ad1cc4a68625688",
+    "packaged": "audited_records/evidence/docs/ntire/paper/squish_proxy_gate.md",
+    "packaged_sha256": "085146b5d29be6f20dab5ab0a948e6b85d4f5b303dd2d3b42ad1cc4a68625688",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/analysis_valsize.md",
+    "source_sha256": "fcc5e1022cfe30f38680d8ecbdd790f04fb491514b35afe52595619e712fed45",
+    "packaged": "audited_records/evidence/docs/ntire/paper/analysis_valsize.md",
+    "packaged_sha256": "fcc5e1022cfe30f38680d8ecbdd790f04fb491514b35afe52595619e712fed45",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/fusion_squish_final.json",
+    "source_sha256": "d549ffa98569d12fda98af5024e5d91d68ba36516cbf17a0b137305d0064661e",
+    "packaged": "audited_records/evidence/docs/ntire/paper/fusion_squish_final.json",
+    "packaged_sha256": "645362ae04726cf277996dc79aed36e15246fc50e5b64a22878ca68956d41c7a",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/aspect_boot_A2_vs_squish.md",
+    "source_sha256": "fe2321d5a0abb2e38a347b472377ba6aae4df472014c34d1904ad679c95b2c40",
+    "packaged": "audited_records/evidence/docs/ntire/paper/aspect_boot_A2_vs_squish.md",
+    "packaged_sha256": "fe2321d5a0abb2e38a347b472377ba6aae4df472014c34d1904ad679c95b2c40",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/probe_B2swa_ext_synthbuster.json",
+    "source_sha256": "5f233ff2b05b0ad9db9920c626120345fe9e09162d7e21444efb5d86382a7783",
+    "packaged": "audited_records/evidence/docs/ntire/paper/probe_B2swa_ext_synthbuster.json",
+    "packaged_sha256": "f093829ad05f2e053183e914780684cc75754a49bf76d5e05454ebb0b6aa5c38",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/clip_proxy_gate.md",
+    "source_sha256": "4975abc6cb101f01bab20a460753fe1bdd22bab4564152a5cfd80997fe7edb12",
+    "packaged": "audited_records/evidence/docs/ntire/paper/clip_proxy_gate.md",
+    "packaged_sha256": "4975abc6cb101f01bab20a460753fe1bdd22bab4564152a5cfd80997fe7edb12",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/public_bfree.json",
+    "source_sha256": "e29760e5b3579b6ff685728d59216fbad15d36822f70f76e8ae9851913f9a3bc",
+    "packaged": "audited_records/evidence/docs/ntire/paper/public_bfree.json",
+    "packaged_sha256": "e29760e5b3579b6ff685728d59216fbad15d36822f70f76e8ae9851913f9a3bc",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/abl_trained_vs_testtime_s3.json",
+    "source_sha256": "3a611d9eb0b9e1743edab4ec30c2f455c77dd24ea5a20ba0d6736d51e544ba84",
+    "packaged": "audited_records/evidence/docs/ntire/paper/abl_trained_vs_testtime_s3.json",
+    "packaged_sha256": "3a611d9eb0b9e1743edab4ec30c2f455c77dd24ea5a20ba0d6736d51e544ba84",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/aspect_probe_A2_ntire_val.json",
+    "source_sha256": "0d9e0c5ee51924fbe65d3c2c41b181fb28de4f23ee95eb78ba38d30bdd1ba702",
+    "packaged": "audited_records/evidence/docs/ntire/paper/aspect_probe_A2_ntire_val.json",
+    "packaged_sha256": "838394997dbe1658041fafc6eec3791b36e2425b22fa55ab28b8708c64d8131f",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/aspect_boot_B2swa_vs_center.json",
+    "source_sha256": "61801fb22a656fb6630fab3142e667a43723e71b7c5df21290466b730a584a40",
+    "packaged": "audited_records/evidence/docs/ntire/paper/aspect_boot_B2swa_vs_center.json",
+    "packaged_sha256": "61801fb22a656fb6630fab3142e667a43723e71b7c5df21290466b730a584a40",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/aspect_boot_A2_vs_squish.json",
+    "source_sha256": "0aabd5d9d333b043e6f31ef09f31cfd0e4bbbfd926b582572d1136679b050cd0",
+    "packaged": "audited_records/evidence/docs/ntire/paper/aspect_boot_A2_vs_squish.json",
+    "packaged_sha256": "0aabd5d9d333b043e6f31ef09f31cfd0e4bbbfd926b582572d1136679b050cd0",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/read2_vs_read1.md",
+    "source_sha256": "09108fcca83726099eaea6f8918c0a2592d033ccffd895ddbe01eeacc942417f",
+    "packaged": "audited_records/evidence/docs/ntire/paper/read2_vs_read1.md",
+    "packaged_sha256": "09108fcca83726099eaea6f8918c0a2592d033ccffd895ddbe01eeacc942417f",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/abl_probe_s2.json",
+    "source_sha256": "db665ef1a08ac2d28b6afa96cf681bbb6c413821c169d71917f9f05eb27659ee",
+    "packaged": "audited_records/evidence/docs/ntire/paper/abl_probe_s2.json",
+    "packaged_sha256": "ceec1a9a540ea9d8bec1f2c8a8c0518f8f210bfc8e9c5c93c54ae071bd004f0b",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/analysis_testsize.json",
+    "source_sha256": "3c3ebc9341ec945450d2a4579980dbd2e50e847694df5e4bcf7c6907dde5960a",
+    "packaged": "audited_records/evidence/docs/ntire/paper/analysis_testsize.json",
+    "packaged_sha256": "3c3ebc9341ec945450d2a4579980dbd2e50e847694df5e4bcf7c6907dde5960a",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/picks.json",
+    "source_sha256": "252bfeabcac62118aa801370beafb6daff53c82a348a1bab4645d025c466be35",
+    "packaged": "audited_records/evidence/docs/ntire/paper/picks.json",
+    "packaged_sha256": "252bfeabcac62118aa801370beafb6daff53c82a348a1bab4645d025c466be35",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/clip_trained_vs_testtime_s1.json",
+    "source_sha256": "46cb41c1e1fc1931dba87447b098d9ebc0d62aa041cd11cb3b55343849cdcaec",
+    "packaged": "audited_records/evidence/docs/ntire/paper/clip_trained_vs_testtime_s1.json",
+    "packaged_sha256": "46cb41c1e1fc1931dba87447b098d9ebc0d62aa041cd11cb3b55343849cdcaec",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/probe_B2swa_ext_aigi_community.json",
+    "source_sha256": "b9b208a1eeaf0a5e36de0b818b141c436d1abd61d5d7aa0db90e3d61b55f8f5f",
+    "packaged": "audited_records/evidence/docs/ntire/paper/probe_B2swa_ext_aigi_community.json",
+    "packaged_sha256": "a50389656ae186550e936a774d58a7dc85ca258826bf157b2bb9af3a2d553cdb",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/aspect_boot_B2swa_vs_squish.json",
+    "source_sha256": "143f94fb83a37332dc2540e3217df4d49afc5fb28455da2a88b6ff96f17b75f6",
+    "packaged": "audited_records/evidence/docs/ntire/paper/aspect_boot_B2swa_vs_squish.json",
+    "packaged_sha256": "143f94fb83a37332dc2540e3217df4d49afc5fb28455da2a88b6ff96f17b75f6",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/paper_results.md",
+    "source_sha256": "4d25e8c0f9cda156e5ea6e655ad34777f1908c8495d66d4a5194ec738ae02876",
+    "packaged": "audited_records/evidence/docs/ntire/paper/paper_results.md",
+    "packaged_sha256": "4d25e8c0f9cda156e5ea6e655ad34777f1908c8495d66d4a5194ec738ae02876",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/aspect_boot_A2_vs_center.json",
+    "source_sha256": "b9a5ef9df209565a046e6d52ab433ffc3b9c6cfd4dc9d6620007004ea3ff0286",
+    "packaged": "audited_records/evidence/docs/ntire/paper/aspect_boot_A2_vs_center.json",
+    "packaged_sha256": "b9a5ef9df209565a046e6d52ab433ffc3b9c6cfd4dc9d6620007004ea3ff0286",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/abl_trained_vs_testtime_s1.json",
+    "source_sha256": "fb3a5dbc3728b206534dd6b5b0208841f04966f0597a65f563f113efc60c38f5",
+    "packaged": "audited_records/evidence/docs/ntire/paper/abl_trained_vs_testtime_s1.json",
+    "packaged_sha256": "fb3a5dbc3728b206534dd6b5b0208841f04966f0597a65f563f113efc60c38f5",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/aspect_boot_B2swa_vs_center.md",
+    "source_sha256": "01faa0c298027010f92d3299e0f79c15c9a2a12bfc68c98c541def50796338c0",
+    "packaged": "audited_records/evidence/docs/ntire/paper/aspect_boot_B2swa_vs_center.md",
+    "packaged_sha256": "01faa0c298027010f92d3299e0f79c15c9a2a12bfc68c98c541def50796338c0",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/abl_trained_vs_testtime_s2.md",
+    "source_sha256": "cf8f581e6d7a6b6174ba632a79eeec2a41aed957ba4ab830ef3970f63dc07a25",
+    "packaged": "audited_records/evidence/docs/ntire/paper/abl_trained_vs_testtime_s2.md",
+    "packaged_sha256": "cf8f581e6d7a6b6174ba632a79eeec2a41aed957ba4ab830ef3970f63dc07a25",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/public_detectors.json",
+    "source_sha256": "48ccefb4dc62ce17e7ec36ff73d5802006c54edbf6d35e6bcb0d09b3b7a8d531",
+    "packaged": "audited_records/evidence/docs/ntire/paper/public_detectors.json",
+    "packaged_sha256": "48ccefb4dc62ce17e7ec36ff73d5802006c54edbf6d35e6bcb0d09b3b7a8d531",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/analysis_valsize.json",
+    "source_sha256": "36c850b6837c444e4498d38e1b48734aea8f100625afb4ac059f4d23283c12b2",
+    "packaged": "audited_records/evidence/docs/ntire/paper/analysis_valsize.json",
+    "packaged_sha256": "36c850b6837c444e4498d38e1b48734aea8f100625afb4ac059f4d23283c12b2",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/clip_trained_vs_testtime_s3.json",
+    "source_sha256": "6c158f14f9f924a983f1f7da1605a669c49c72fca077f87e5e9aa546a19e41a4",
+    "packaged": "audited_records/evidence/docs/ntire/paper/clip_trained_vs_testtime_s3.json",
+    "packaged_sha256": "6c158f14f9f924a983f1f7da1605a669c49c72fca077f87e5e9aa546a19e41a4",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/paper_results.json",
+    "source_sha256": "54b3d28ba03840a08d2b3904790d31da037078fb02c3f03324b26dae3de31ad4",
+    "packaged": "audited_records/evidence/docs/ntire/paper/paper_results.json",
+    "packaged_sha256": "99e10f8eaab63cbf748cca1f1186471d632e75f7614b49da6b0f5475b447c56b",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/probe_A2_ext_aigi_socialrf.json",
+    "source_sha256": "b4eee3a7afa7b251b939ce22c3da6aed975bff04bce03b0a749bf7abc1fadfdd",
+    "packaged": "audited_records/evidence/docs/ntire/paper/probe_A2_ext_aigi_socialrf.json",
+    "packaged_sha256": "cad79ccc410c6c706c98ea3d2ccb054afa95cb0a6d1d4a5eae041ab606fd1636",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/squish_proxy_gate.json",
+    "source_sha256": "64d3fc8828871d40c5bb39db561fe26eb3611b97bd49f2149706a6f87b068d51",
+    "packaged": "audited_records/evidence/docs/ntire/paper/squish_proxy_gate.json",
+    "packaged_sha256": "64d3fc8828871d40c5bb39db561fe26eb3611b97bd49f2149706a6f87b068d51",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/abl_trained_vs_testtime_s1.md",
+    "source_sha256": "ec5777081d310de5937505206871ef8690acf8aa85ec37f33dce6caae9d5ac07",
+    "packaged": "audited_records/evidence/docs/ntire/paper/abl_trained_vs_testtime_s1.md",
+    "packaged_sha256": "ec5777081d310de5937505206871ef8690acf8aa85ec37f33dce6caae9d5ac07",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/analysis_groups.json",
+    "source_sha256": "483a2862eb0dcbee03063c41ff570822d1deebbd507061102567f9a35d75c639",
+    "packaged": "audited_records/evidence/docs/ntire/paper/analysis_groups.json",
+    "packaged_sha256": "483a2862eb0dcbee03063c41ff570822d1deebbd507061102567f9a35d75c639",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/probe_A2_ext_synthbuster.json",
+    "source_sha256": "0abf3c753b2aff3878c39ac2ea89baf8d5709537dbd918d13bd76f2d290a2815",
+    "packaged": "audited_records/evidence/docs/ntire/paper/probe_A2_ext_synthbuster.json",
+    "packaged_sha256": "fa06254e24c100d85e1518c48323f5226d132194aae336142ad810dd868970ec",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/public_detectors.md",
+    "source_sha256": "3b644c28947a82634646670fa6d275d8975045a3929fcf78a325188adf08ce98",
+    "packaged": "audited_records/evidence/docs/ntire/paper/public_detectors.md",
+    "packaged_sha256": "3b644c28947a82634646670fa6d275d8975045a3929fcf78a325188adf08ce98",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/probe_B2swa_ext_aigi_socialrf.json",
+    "source_sha256": "84e95178fff88383b75b7ece4e9f56114e7d4fb241cff05a90cb14a9543f9342",
+    "packaged": "audited_records/evidence/docs/ntire/paper/probe_B2swa_ext_aigi_socialrf.json",
+    "packaged_sha256": "ee3860d50e4e7d5281c4802ca432b8ad0e14bd8f9868a15484f0f7180c1ac45c",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/analysis_figsize.json",
+    "source_sha256": "6a97de6c8b0c0bcac0555faf3a220dad4d141df695b847488abec7d561c013dc",
+    "packaged": "audited_records/evidence/docs/ntire/paper/analysis_figsize.json",
+    "packaged_sha256": "6a97de6c8b0c0bcac0555faf3a220dad4d141df695b847488abec7d561c013dc",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/clip_testtime.md",
+    "source_sha256": "ba81293d46e41e8dec282dff13399c7ee9926695c8779a1b7ae4edf94e520140",
+    "packaged": "audited_records/evidence/docs/ntire/paper/clip_testtime.md",
+    "packaged_sha256": "ba81293d46e41e8dec282dff13399c7ee9926695c8779a1b7ae4edf94e520140",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/abl_testtime.json",
+    "source_sha256": "b84a62fc9b42936b21269e50ab4a7745c3e9b0fed71add535106cbcfe47478d0",
+    "packaged": "audited_records/evidence/docs/ntire/paper/abl_testtime.json",
+    "packaged_sha256": "b84a62fc9b42936b21269e50ab4a7745c3e9b0fed71add535106cbcfe47478d0",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/clip_trained_vs_testtime_s2.md",
+    "source_sha256": "7decf1e4dd4856f76447fb6cc87d7c7754de90393168cf1e787fdec5e38e3ff6",
+    "packaged": "audited_records/evidence/docs/ntire/paper/clip_trained_vs_testtime_s2.md",
+    "packaged_sha256": "7decf1e4dd4856f76447fb6cc87d7c7754de90393168cf1e787fdec5e38e3ff6",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/fusion_crop.json",
+    "source_sha256": "e669bf039d4a6df3df7df3c95ebcb59d0c91e66738be4ddf11f948ae3addd9f2",
+    "packaged": "audited_records/evidence/docs/ntire/paper/fusion_crop.json",
+    "packaged_sha256": "c5b006fc731df5f2366113c16707408e42a8cada96906add84f247e32445b74d",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/aspect_probe_B2swa_ntire_val.json",
+    "source_sha256": "1a177735c8977352c7b3da2da209278bd28b70be55d778d4ffc855b8f8d9de6c",
+    "packaged": "audited_records/evidence/docs/ntire/paper/aspect_probe_B2swa_ntire_val.json",
+    "packaged_sha256": "ba048dcde19990225570feb7b6944f2f0968d5725b28fdb883be45d78d0f8d77",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/aspect_boot_B2swa_vs_squish.md",
+    "source_sha256": "ef7eb71175f31e466f9f38d706ad314d343100aed5f7526fd91f554d97659511",
+    "packaged": "audited_records/evidence/docs/ntire/paper/aspect_boot_B2swa_vs_squish.md",
+    "packaged_sha256": "ef7eb71175f31e466f9f38d706ad314d343100aed5f7526fd91f554d97659511",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/fusion_squish.json",
+    "source_sha256": "475e23ade60cf3dbe7101f40ead1b8b427e2279eb292bc0de5ba1532b1be3131",
+    "packaged": "audited_records/evidence/docs/ntire/paper/fusion_squish.json",
+    "packaged_sha256": "e542038a3ff966226bd0e05add17707cb20a544342731164b49c2f231022b84a",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/probe_A2_ext_aigi_community.json",
+    "source_sha256": "85d81c2f592b333397c363b5ed71a7551b98bce33bc0ecc9d99a4ecc10f1ac4a",
+    "packaged": "audited_records/evidence/docs/ntire/paper/probe_A2_ext_aigi_community.json",
+    "packaged_sha256": "4e744e082f63a22bd8fc7c42515213ca3495862553fb9186cda2bacb7a63a4e7",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/clip_trained_vs_testtime_s1.md",
+    "source_sha256": "80a456f3fe9ae3ed80ac014b60af85bcce2b0fa2a0568eaf74684e254b1b211a",
+    "packaged": "audited_records/evidence/docs/ntire/paper/clip_trained_vs_testtime_s1.md",
+    "packaged_sha256": "80a456f3fe9ae3ed80ac014b60af85bcce2b0fa2a0568eaf74684e254b1b211a",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/abl_probe_s1.json",
+    "source_sha256": "146046076f1a21ab146b09846a07bd9cfb17eccacbef0fe2abfb08ca35cb02cf",
+    "packaged": "audited_records/evidence/docs/ntire/paper/abl_probe_s1.json",
+    "packaged_sha256": "35a1d571a6aa8526fbee48f42415bcdf70300a3531d5000ea0f61f1b67bceaa5",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper/clip_trained_vs_testtime_s3.md",
+    "source_sha256": "1bd67d3ffebee8b6267207c0e655f5f3611bc6f944a19a83a161fca23d16fd1c",
+    "packaged": "audited_records/evidence/docs/ntire/paper/clip_trained_vs_testtime_s3.md",
+    "packaged_sha256": "1bd67d3ffebee8b6267207c0e655f5f3611bc6f944a19a83a161fca23d16fd1c",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test9_supp_a7.json",
+    "source_sha256": "f9cdd6aad00a495f7fcb65768c069bcfb5a0af32d7d4e86d6f6000322c317cdf",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test9_supp_a7.json",
+    "packaged_sha256": "a3f313a804fb22621fe130e7a9b034fa392f12fa643f2fe5bd51c5db0033c5e3",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test1_freqmatch.md",
+    "source_sha256": "0bcde6e3826a48d09b6aef22df9321efc9a09ba431b473580d67169b755cc568",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test1_freqmatch.md",
+    "packaged_sha256": "466307f5d28f077aea2c1dae1e35cd25ef265c8bb040f856f81c7fef0bc2b57c",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test10_masking.md",
+    "source_sha256": "8f91c1cc202f7d50fe7ba0b86a179c1644dbd3c97ccc080f46c3d2e60157defe",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test10_masking.md",
+    "packaged_sha256": "1dd683162f304f67637af7eb43dea07abb54f7a26c4ff538c24ca7756052895f",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test5_train-fov.md",
+    "source_sha256": "525e05854049fdb990234337aea1da2eac22d41596571c07e97c036a2b8703d6",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test5_train-fov.md",
+    "packaged_sha256": "6a352d2dd0a2a03b4faff255834cb12813d7a3a2414da14f22fa9e587dca49ce",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test19_stretch.json",
+    "source_sha256": "3c96330672e8a953bd446631f2cebb7913aaee74f4ada9e3705aecf3f1af97b8",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test19_stretch.json",
+    "packaged_sha256": "3c96330672e8a953bd446631f2cebb7913aaee74f4ada9e3705aecf3f1af97b8",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test20_clip-decomp.json",
+    "source_sha256": "22be4dc5e1528413d86bef3a462af556cf28ce77a11d4d09af541152de85858c",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test20_clip-decomp.json",
+    "packaged_sha256": "22be4dc5e1528413d86bef3a462af556cf28ce77a11d4d09af541152de85858c",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test9_mil-combiner.json",
+    "source_sha256": "1271f2736d2bac9f084a12eca57ca1266d30a1b4e930c77e7a527e756e2c7bd9",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test9_mil-combiner.json",
+    "packaged_sha256": "1271f2736d2bac9f084a12eca57ca1266d30a1b4e930c77e7a527e756e2c7bd9",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test14_tile-factorial.json",
+    "source_sha256": "3167703cc4cc48696a5a1a178ab47a7ab8a1b9d6c02cac90cf6c4a78853ab849",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test14_tile-factorial.json",
+    "packaged_sha256": "3167703cc4cc48696a5a1a178ab47a7ab8a1b9d6c02cac90cf6c4a78853ab849",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test9_supp_a7.md",
+    "source_sha256": "0d0556d96293b28456d2e3abb27f15c2624d0fda87c5938bfde017c51df5d89b",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test9_supp_a7.md",
+    "packaged_sha256": "0d0556d96293b28456d2e3abb27f15c2624d0fda87c5938bfde017c51df5d89b",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test7_multiscale-proxy.md",
+    "source_sha256": "41ecb1d4385584ffdd47a17c5e3e55d3c213a0c780ad21e984a918abefd62f97",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test7_multiscale-proxy.md",
+    "packaged_sha256": "41ecb1d4385584ffdd47a17c5e3e55d3c213a0c780ad21e984a918abefd62f97",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test4_damage-family.json",
+    "source_sha256": "d4b0afc19295034a0d466eeaf7a19fa84464ad4d3017414f980bc63dc4062e6a",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test4_damage-family.json",
+    "packaged_sha256": "d4b0afc19295034a0d466eeaf7a19fa84464ad4d3017414f980bc63dc4062e6a",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test12_writing.json",
+    "source_sha256": "d8970aa5df1fc54ed453f6d2513f3a8b7632f646e85d7a402f5a520b36f121c4",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test12_writing.json",
+    "packaged_sha256": "d8970aa5df1fc54ed453f6d2513f3a8b7632f646e85d7a402f5a520b36f121c4",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test13_postsquish.json",
+    "source_sha256": "5d32f2c720c4568a875492e74fe55526e21c4da0102b5bb9c77ba44a62a249b3",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test13_postsquish.json",
+    "packaged_sha256": "5d32f2c720c4568a875492e74fe55526e21c4da0102b5bb9c77ba44a62a249b3",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test7_multiscale-proxy_supp.json",
+    "source_sha256": "a0f5af6a6020634dd54c54b158b5b9036dac5d57ba52c513c19e4419903cbfdc",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test7_multiscale-proxy_supp.json",
+    "packaged_sha256": "978f20566dfa005e224e1479352cdf481ee86812ffce62aab201e1bdadca2cf7",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test12_writing.md",
+    "source_sha256": "51b76d709de45b3f5a4f1aa5128ed86c660df325a1b124b5d8e248b33ec1c7ef",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test12_writing.md",
+    "packaged_sha256": "4c4781969141b59a1b17bec96f49cdb3b3636489fd7efe08a5afd6e62259d35a",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test2_regime-grid.md",
+    "source_sha256": "990dc6c373c665acecc22f9e538f9f76d0ec71b304e77718e7a4722359ec0688",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test2_regime-grid.md",
+    "packaged_sha256": "072a18de7d50310eabc69f63c479c67b11530abeac2c69f4bae62ccba0b91f63",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test5_train-fov.json",
+    "source_sha256": "20587c8688b1224aab11bd12d6ff76660ef041f007ce9b09144de08bc626ead6",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test5_train-fov.json",
+    "packaged_sha256": "20587c8688b1224aab11bd12d6ff76660ef041f007ce9b09144de08bc626ead6",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test6_routed-fusion_val.md",
+    "source_sha256": "0e93f0c83157d67a73397b305eb8278536f40b405b53ba9284956acd98823b55",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test6_routed-fusion_val.md",
+    "packaged_sha256": "568a4c0ac23859bcedc23d9836e35f9b036a499b146200aeea788232f10b1754",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test11_supp_a7.md",
+    "source_sha256": "5d79e59b48046aa52b0a3874883c95f07ae8e6ccd9b671a4ebe16ea11f6772d6",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test11_supp_a7.md",
+    "packaged_sha256": "5d79e59b48046aa52b0a3874883c95f07ae8e6ccd9b671a4ebe16ea11f6772d6",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test4_supp_a7.md",
+    "source_sha256": "8123b512f8d95608ca173f0f6c54e469e9e31c8bd629633d00c2594c7436a278",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test4_supp_a7.md",
+    "packaged_sha256": "f2e088cddb9497587933dc66f9adfd46203e49517df6b9d9eee4c698368956ee",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test6_frozen.json",
+    "source_sha256": "3eb24ce04ca36661214e59e1296309d0106db5c66b32be8a71e418c52eacde85",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test6_frozen.json",
+    "packaged_sha256": "ee3a4515e43d43279082b6a42dd4475c03dccb0b9ee53f04c710230a971262a1",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test2_supp_a7.json",
+    "source_sha256": "7f81e6c4aec645770d54a6d88784f3f2aa20821222e0d506501bac127135e4dc",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test2_supp_a7.json",
+    "packaged_sha256": "8eeedc4835be34ab1c1223f8140a74bf873052ea19fc105ba0c45f257d4ec501",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test8_native-crop-proxy.md",
+    "source_sha256": "6272f5cb41dee878e209d4638698fc7d5566e907475b718d4177d9f5c84b3baa",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test8_native-crop-proxy.md",
+    "packaged_sha256": "6272f5cb41dee878e209d4638698fc7d5566e907475b718d4177d9f5c84b3baa",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test8_native-crop-proxy.json",
+    "source_sha256": "fc44f34bf378940501c5e7f710e82ae1049d91c3f78739c2e3b6c564bc7dab5a",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test8_native-crop-proxy.json",
+    "packaged_sha256": "6045a64be65a71fd3f8f7d9654b8e85ac657687fa2eb7076ed24ff37a7d2e4a7",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test9_mil-combiner.md",
+    "source_sha256": "78e8ff5660c2671cea29464c3a8f202063fdec13a3a00d9a752bb8715974e04d",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test9_mil-combiner.md",
+    "packaged_sha256": "2d9353a7bc6cea97c3d6cb2f75ee6dd7b6d3ec53e3cf67509498444edf9bc543",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test6_val.json",
+    "source_sha256": "b63764e80800dc4e6a67a216397858d87747e046ff35ccb67a8b3cdf36c2abb0",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test6_val.json",
+    "packaged_sha256": "b63764e80800dc4e6a67a216397858d87747e046ff35ccb67a8b3cdf36c2abb0",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test16_tile-factorial-socialrf.json",
+    "source_sha256": "c3c3bce4337e8af923b519621b38121d8ac023726c02986a9700151312c02f09",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test16_tile-factorial-socialrf.json",
+    "packaged_sha256": "c3c3bce4337e8af923b519621b38121d8ac023726c02986a9700151312c02f09",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test10_masking.json",
+    "source_sha256": "a2a3885e41805541bc4e31197013fbd2f35216fb4b1169796dc020a713a36195",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test10_masking.json",
+    "packaged_sha256": "a2a3885e41805541bc4e31197013fbd2f35216fb4b1169796dc020a713a36195",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test1_freqmatch.json",
+    "source_sha256": "a2ace1d746aeab0b4f1e18698dd973c8f0f9b81743114c6bfb1f52b43418fd74",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test1_freqmatch.json",
+    "packaged_sha256": "a2ace1d746aeab0b4f1e18698dd973c8f0f9b81743114c6bfb1f52b43418fd74",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test11_supp_a7.json",
+    "source_sha256": "ff9d132b4ccfd32f5318d79cb4b692766c643f6f4f554a071b8ea90310d6d0fe",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test11_supp_a7.json",
+    "packaged_sha256": "d0a4bb95d7bf170330eb64b6443101c5798985fa421988f2ac383812f9500529",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test2_supp_a7.md",
+    "source_sha256": "43612c0285cd082482d79efb1ca48b42de56f989163df7c21f3ebe933f4a2eec",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test2_supp_a7.md",
+    "packaged_sha256": "43612c0285cd082482d79efb1ca48b42de56f989163df7c21f3ebe933f4a2eec",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test3_shrink-ratio.md",
+    "source_sha256": "736eb115cd687830641c9022a61a8ae11177da36ea6f1c5ef9b211447fc2a859",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test3_shrink-ratio.md",
+    "packaged_sha256": "dc42ab2297fb78be2fe1ecb5af7f226dfade7e8da5cef587562a9e3adea703b5",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test7_multiscale-proxy.json",
+    "source_sha256": "f100034b739aa2fd6c56e9d993ba1da24c903753753914074fe690b8ae9ce011",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test7_multiscale-proxy.json",
+    "packaged_sha256": "c56b1d5fe988096f205b80cd3075092760ada4cf5f6b2f1817140ac7e651e7ad",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test21_bfree-tiles.json",
+    "source_sha256": "8e7feae05f0dee3f72911ab6c3efa8e87063ff57e5d3d2f104a12904c92059e1",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test21_bfree-tiles.json",
+    "packaged_sha256": "8e7feae05f0dee3f72911ab6c3efa8e87063ff57e5d3d2f104a12904c92059e1",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test4_damage-family.md",
+    "source_sha256": "652aaa29331de3ae7b86ac5b5347934ce4764867a25059bab3c9b23577782544",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test4_damage-family.md",
+    "packaged_sha256": "2a9c80b4ad1b52944fba45e2c8159298db1946773fe61992e73560d3d6656df8",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test2_regime-grid.json",
+    "source_sha256": "dc8c18628e27ad693064fcd6e9ca0d1c64083516b14262f73d2b71c35b247869",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test2_regime-grid.json",
+    "packaged_sha256": "97dd3ced7382d5ed6c5ff2b56f077d279ff7f45a2b4205c4030b86786d090836",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test3_shrink-ratio.json",
+    "source_sha256": "640d0cb9f0c36c329f03c155bc7088fefc62be78b5a7f552f437a0988ada4205",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test3_shrink-ratio.json",
+    "packaged_sha256": "640d0cb9f0c36c329f03c155bc7088fefc62be78b5a7f552f437a0988ada4205",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test4_supp_a7.json",
+    "source_sha256": "03c492ae1f0ae512e771266e31b007b53bd36388d1e80a2cff0c0fa29c57a714",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test4_supp_a7.json",
+    "packaged_sha256": "03c492ae1f0ae512e771266e31b007b53bd36388d1e80a2cff0c0fa29c57a714",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test15_native512-proxy.json",
+    "source_sha256": "f2f7d1a409c331584aa22d05f011a831fc2e2486ffb9167d0a65ad4680e8caf3",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test15_native512-proxy.json",
+    "packaged_sha256": "f2f7d1a409c331584aa22d05f011a831fc2e2486ffb9167d0a65ad4680e8caf3",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test11_clean-cost.md",
+    "source_sha256": "3b9eb04af2b759834e35c5cff1e95164ab576a911d74717db31dba075a787500",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test11_clean-cost.md",
+    "packaged_sha256": "5d7b5f8494ffed1d94d49fe9b48303debf4453f80ffd1216f4b455944abd98b0",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test17_roundtrip.json",
+    "source_sha256": "fe9073caa862cacf2f9618658f51b0d5601af75457ef698844df0455e0807129",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test17_roundtrip.json",
+    "packaged_sha256": "fe9073caa862cacf2f9618658f51b0d5601af75457ef698844df0455e0807129",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test18_shrinkorder.json",
+    "source_sha256": "3c2dd207064b59a8321294086c4dc8b1ac0fa0da51fe04daf68dd594b7ad24f3",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test18_shrinkorder.json",
+    "packaged_sha256": "3c2dd207064b59a8321294086c4dc8b1ac0fa0da51fe04daf68dd594b7ad24f3",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test11_clean-cost.json",
+    "source_sha256": "895f3e4014cc8d3322a0c089f6822e8ae016ca738b60b7e6fce16ad752db433a",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test11_clean-cost.json",
+    "packaged_sha256": "895f3e4014cc8d3322a0c089f6822e8ae016ca738b60b7e6fce16ad752db433a",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test12_supp_a7.md",
+    "source_sha256": "633ad869e146e714bc248319382b5e52ac6524c941bf47f5b7cbd7b57384f0f1",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test12_supp_a7.md",
+    "packaged_sha256": "6be8c4b1e2f85705a47b9ddde5122525ba9883c78299360a5617918962f6d526",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/amend5/test12_supp_a7.json",
+    "source_sha256": "444b6a1d463f2aab1c60f371938207fcc20df7e89b0bd8972ed7708893fbc977",
+    "packaged": "audited_records/evidence/docs/ntire/amend5/test12_supp_a7.json",
+    "packaged_sha256": "444b6a1d463f2aab1c60f371938207fcc20df7e89b0bd8972ed7708893fbc977",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/paper_prereg.md",
+    "source_sha256": "d1ad322fc0661fd9784186f75daba1fa1edbf3236616bb2cdb2e57dcc74f9c9c",
+    "packaged": "audited_records/evidence/docs/ntire/paper_prereg.md",
+    "packaged_sha256": "d4b0285e28f4114f873ef744293a8cd5c5a2f3a317352aa950e382af756b0f64",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/results.md",
+    "source_sha256": "aa5a55eadf1ac3ff27466136f8e1e09abcccfcb309162dfb02959b9dd235f54e",
+    "packaged": "audited_records/evidence/docs/ntire/results.md",
+    "packaged_sha256": "aa5a55eadf1ac3ff27466136f8e1e09abcccfcb309162dfb02959b9dd235f54e",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/README.md",
+    "source_sha256": "8d927b43c3cb6a216c15641699fc9a2a7e375422cc94b3844f9f4067dd306dbe",
+    "packaged": "audited_records/evidence/docs/ntire/README.md",
+    "packaged_sha256": "b3834292059b71bb85c3e87016a0b7daa07a71a9e0f79610e60592bb9f6e4641",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/crop_probe.md",
+    "source_sha256": "e9a28bb2375cf84f99bca539a9995609ca4487b9fd618e7b729a270ce9217e1f",
+    "packaged": "audited_records/evidence/docs/ntire/crop_probe.md",
+    "packaged_sha256": "e9a28bb2375cf84f99bca539a9995609ca4487b9fd618e7b729a270ce9217e1f",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/crop_probe_A2.json",
+    "source_sha256": "b87df2448672ba29623d6b5fca06f79117a47ea22c5d322a13a4d4271f74d62c",
+    "packaged": "audited_records/evidence/docs/ntire/crop_probe_A2.json",
+    "packaged_sha256": "05d5c6b0ea739e1419b1f1e2330742fc9b1fd11bbb55ef8d2152b6481c62e928",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/crop_probe_B2swa.json",
+    "source_sha256": "52c1e4d3b7b7a688271bfc6ce31307a9656cccd6037716a18306c9d17cb48db6",
+    "packaged": "audited_records/evidence/docs/ntire/crop_probe_B2swa.json",
+    "packaged_sha256": "8b6558602cc0bef019b6cf252f7ccf1353f19383f4252cb8a7130b07b8b803dc",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/fusion_ntire2_final.json",
+    "source_sha256": "7dd49bf7ee8c45f32202dd71f102c6c39f6783ce9a60b6d64632a0dbd3b03b75",
+    "packaged": "audited_records/evidence/docs/ntire/fusion_ntire2_final.json",
+    "packaged_sha256": "0dfacbecd57c951ad617397adfa3fb6f11b038f0b697b7a5c20f3f19cab16dcf",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/fusion_squish_valfit.json",
+    "source_sha256": "af51304b05614def2c266fa64b3c785f7b4035a69f46a6225b25fe05a4688762",
+    "packaged": "audited_records/evidence/docs/ntire/fusion_squish_valfit.json",
+    "packaged_sha256": "af51304b05614def2c266fa64b3c785f7b4035a69f46a6225b25fe05a4688762",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/ntire/fusion_center_valfit.json",
+    "source_sha256": "88a981bd08949f47cd61c80bc0c516d8691d5d31723175a58903bc3fe02bdd0a",
+    "packaged": "audited_records/evidence/docs/ntire/fusion_center_valfit.json",
+    "packaged_sha256": "d08f0ea6bb83dc47e3a5728bc3aa4f471fce60af799425d5985896daea8277e0",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  },
+  {
+    "source": "docs/resolution_shortcut.md",
+    "source_sha256": "545e7101d186ed0cd62da774d1f17ff8aa413e6fb3adb3aa260ae9b661c477de",
+    "packaged": "audited_records/evidence/docs/resolution_shortcut.md",
+    "packaged_sha256": "545e7101d186ed0cd62da774d1f17ff8aa413e6fb3adb3aa260ae9b661c477de",
+    "transformation": "personal names and scratch-account paths redacted; numeric content retained"
+  }
+]

@@ -15,12 +15,22 @@
   group, so `main.tex` is unchanged. Uses `fig_tiles.pdf`.
 - `preview_reframe.pdf`, `preview_reframe_supplement.pdf`: tectonic builds of
   the reframe, for reading only. `preview.pdf` is still the old `main.tex`.
+- `main_reframe_revised.tex`, `main_reframe_revised.pdf`: the revised reframe
+  (2026-11-02), with narrower mechanism claims, explicit comparison types,
+  corrected protocol and split descriptions, and revised opening/conclusion.
+  The PDF uses pdfLaTeX and the unchanged AAAI-27 style. The original drafts
+  and supplement are retained.
+- `fig_size_revised.pdf`, `fig_tiles_revised.pdf`: revised plot labels, drawn
+  from the saved `analysis_figsize.json` and Tests 14/16 JSON reports; no
+  model evaluations were rerun. These are dependencies of the revised source.
 
 ## Building
 
 `aaai2027.sty` requires pdfLaTeX:
 
     pdflatex main && bibtex main && pdflatex main && pdflatex main
+
+For the revised reframe, use `main_reframe_revised` in place of `main`.
 
 Overleaf works. For a quick length check on a machine with only tectonic
 (XeTeX), compile a COPY of this folder with the style's `\RequirePDFTeX` line

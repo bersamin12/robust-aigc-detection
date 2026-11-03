@@ -1,0 +1,271 @@
+{
+  "invitations": [
+    {
+      "content": {
+        "submission_email_template": {
+          "value": "Your submission to SAFE 2027 has been {{action}}.\n\nSubmission Number: {{note_number}}\n\nTitle: {{note_title}} {{note_abstract}}\n\nTo view your submission, click here: https://openreview.net/forum?id={{note_forum}}"
+        },
+        "users_to_notify": {
+          "value": [
+            "submission_authors"
+          ]
+        }
+      },
+      "id": "AAAI.org/2027/Workshop/SAFE/-/Submission",
+      "type": "note",
+      "instructions": "Configure the contents of the article submission form, the email notification sent for when a new submission is posted, and the time when the article submission will open (activation) and the article submission due date. By default, the expiration date is set to 30 minutes after the due date.",
+      "humanVerificationRequired": {
+        "limit": 15,
+        "windowMs": 3600000
+      },
+      "cdate": 1790672400000,
+      "expdate": 1793856540000,
+      "duedate": 1793854740000,
+      "signatures": [
+        "AAAI.org/2027/Workshop/SAFE"
+      ],
+      "readers": [
+        "everyone"
+      ],
+      "writers": [
+        "AAAI.org/2027/Workshop/SAFE"
+      ],
+      "invitees": [
+        "~"
+      ],
+      "edit": {
+        "signatures": {
+          "param": {
+            "items": [
+              {
+                "prefix": "~.*",
+                "optional": true
+              },
+              {
+                "value": "AAAI.org/2027/Workshop/SAFE/Program_Chairs",
+                "optional": true
+              }
+            ]
+          }
+        },
+        "readers": [
+          "AAAI.org/2027/Workshop/SAFE",
+          "${2/note/content/authors/value/*/username}"
+        ],
+        "writers": [
+          "AAAI.org/2027/Workshop/SAFE",
+          "${2/note/content/authors/value/*/username}"
+        ],
+        "ddate": {
+          "param": {
+            "range": [
+              0,
+              9999999999999
+            ],
+            "optional": true,
+            "deletable": true
+          }
+        },
+        "note": {
+          "content": {
+            "title": {
+              "order": 1,
+              "description": "Title of paper. Add TeX formulas using the following formats: $In-line Formula$ or $$Block Formula$$.",
+              "value": {
+                "param": {
+                  "type": "string",
+                  "regex": "^.{1,250}$"
+                }
+              }
+            },
+            "authors": {
+              "order": 2,
+              "description": "Search author profile by name or profile ID. All authors must have an OpenReview profile prior to submitting a paper.",
+              "value": {
+                "param": {
+                  "type": "author{}",
+                  "properties": {
+                    "fullname": {
+                      "param": {
+                        "type": "string"
+                      }
+                    },
+                    "username": {
+                      "param": {
+                        "type": "string",
+                        "regex": "^~\\S+$",
+                        "mismatchError": "must be a valid profile ID"
+                      }
+                    },
+                    "institutions": {
+                      "param": {
+                        "type": "object{}",
+                        "properties": {
+                          "name": {
+                            "param": {
+                              "type": "string"
+                            }
+                          },
+                          "domain": {
+                            "param": {
+                              "type": "string"
+                            }
+                          },
+                          "country": {
+                            "param": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "optional": true
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "keywords": {
+              "description": "Comma separated list of keywords.",
+              "order": 4,
+              "value": {
+                "param": {
+                  "type": "string[]",
+                  "regex": ".+"
+                }
+              }
+            },
+            "TLDR": {
+              "order": 5,
+              "description": "\"Too Long; Didn't Read\": a short sentence describing your paper",
+              "value": {
+                "param": {
+                  "fieldName": "TL;DR",
+                  "type": "string",
+                  "maxLength": 250,
+                  "optional": true,
+                  "deletable": true
+                }
+              }
+            },
+            "abstract": {
+              "order": 6,
+              "description": "Abstract of paper. Add TeX formulas using the following formats: $In-line Formula$ or $$Block Formula$$.",
+              "value": {
+                "param": {
+                  "type": "string",
+                  "maxLength": 5000,
+                  "markdown": true,
+                  "input": "textarea"
+                }
+              }
+            },
+            "pdf": {
+              "order": 7,
+              "description": "Upload a PDF file that ends with .pdf.",
+              "value": {
+                "param": {
+                  "type": "file",
+                  "maxSize": 50,
+                  "extensions": [
+                    "pdf"
+                  ]
+                }
+              }
+            },
+            "email_sharing": {
+              "order": 50,
+              "description": "Please confirm you are aware that all author emails will be shared with Program Chairs.",
+              "value": {
+                "param": {
+                  "type": "string",
+                  "enum": [
+                    "We authorize the sharing of all author emails with Program Chairs."
+                  ],
+                  "input": "radio"
+                }
+              }
+            },
+            "data_release": {
+              "order": 51,
+              "description": "Please confirm you are aware that accepted submissions, along with their author names, will be released to the public after the conference is over.",
+              "value": {
+                "param": {
+                  "type": "string",
+                  "enum": [
+                    "We authorize the release of our submission and author names to the public in the event of acceptance."
+                  ],
+                  "input": "radio"
+                }
+              }
+            },
+            "venue": {
+              "value": {
+                "param": {
+                  "const": "AAAI 2027 Workshop SAFE Submission",
+                  "hidden": true
+                }
+              }
+            },
+            "venueid": {
+              "value": {
+                "param": {
+                  "const": "AAAI.org/2027/Workshop/SAFE/Submission",
+                  "hidden": true
+                }
+              }
+            }
+          },
+          "id": {
+            "param": {
+              "withVenueid": "AAAI.org/2027/Workshop/SAFE/Submission",
+              "optional": true
+            }
+          },
+          "ddate": {
+            "param": {
+              "range": [
+                0,
+                9999999999999
+              ],
+              "optional": true,
+              "deletable": true
+            }
+          },
+          "signatures": [
+            "${3/signatures}"
+          ],
+          "readers": [
+            "AAAI.org/2027/Workshop/SAFE",
+            "${2/content/authors/value/*/username}"
+          ],
+          "writers": [
+            "AAAI.org/2027/Workshop/SAFE",
+            "${2/content/authors/value/*/username}"
+          ],
+          "license": {
+            "param": {
+              "enum": [
+                {
+                  "value": "CC BY 4.0",
+                  "description": "CC BY 4.0"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "invitations": [
+        "AAAI.org/2027/Workshop/SAFE/-/Edit",
+        "AAAI.org/2027/Workshop/SAFE/-/Submission/Dates"
+      ],
+      "domain": "AAAI.org/2027/Workshop/SAFE",
+      "tcdate": 1790710852144,
+      "tmdate": 1793582750903,
+      "mdate": 1793582750903,
+      "details": {
+        "writable": false
+      }
+    }
+  ],
+  "count": 1
+}

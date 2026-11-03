@@ -1,0 +1,315 @@
+{
+  "test": "T",
+  "commit": "9b8b08ebea1988f64f9ae50f5421ab3c602a8e7d",
+  "prefix": "clip",
+  "interpretable": true,
+  "mean_crop_robust": 0.7481642666666667,
+  "passed": true,
+  "mean_robust_diff": 0.10028373333333329,
+  "n_seed_ci_above_zero": 3,
+  "mechanism_testtime": {
+    "gain_small": 0.05730794733352277,
+    "gain_large": 0.1680469577826111,
+    "per_seed_small": [
+      0.05362724800064955,
+      0.05423618722851453,
+      0.06406040677140423
+    ],
+    "per_seed_large": [
+      0.18249121632926224,
+      0.1687719591768445,
+      0.15287769784172656
+    ],
+    "passed": true
+  },
+  "mechanism_trained": {
+    "gain_small": 0.09124616029986876,
+    "gain_large": 0.20612347331437172,
+    "per_seed_small": [
+      0.08780903665814155,
+      0.1004343766492104,
+      0.08549506759225434
+    ],
+    "per_seed_large": [
+      0.21816965032625057,
+      0.20516145223356197,
+      0.1950393173833026
+    ],
+    "passed": true
+  },
+  "per_seed": {
+    "s1": {
+      "n": 2500,
+      "n_boot": 2000,
+      "seed": 20260827,
+      "alpha": 0.05,
+      "n_robust": 1250,
+      "n_clean": 1250,
+      "models": {
+        "center": {
+          "auc": {
+            "value": 0.87306816,
+            "ci": [
+              0.860480512,
+              0.8849428159999999
+            ]
+          },
+          "robust_auc": {
+            "value": 0.7492992,
+            "ci": [
+              0.722506048,
+              0.774794048
+            ]
+          },
+          "clean_auc": {
+            "value": 0.96519424,
+            "ci": [
+              0.956383936,
+              0.973437888
+            ]
+          }
+        },
+        "squish": {
+          "auc": {
+            "value": 0.8887104,
+            "ci": [
+              0.8756892479999999,
+              0.901157856
+            ]
+          },
+          "robust_auc": {
+            "value": 0.84496384,
+            "ci": [
+              0.8233509760000001,
+              0.865513856
+            ]
+          },
+          "clean_auc": {
+            "value": 0.92463104,
+            "ci": [
+              0.909788032,
+              0.939031232
+            ]
+          }
+        }
+      },
+      "vs_baseline": {
+        "squish": {
+          "auc": {
+            "diff": 0.01564224000000003,
+            "ci": [
+              0.0021285440000000126,
+              0.030594207999999942
+            ],
+            "p": 0.018,
+            "excludes_zero": true
+          },
+          "robust_auc": {
+            "diff": 0.09566463999999997,
+            "ci": [
+              0.070415808,
+              0.12246860799999999
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "clean_auc": {
+            "diff": -0.04056320000000002,
+            "ci": [
+              -0.055779904000000026,
+              -0.025368128
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          }
+        }
+      },
+      "inputs": {
+        "center": "outputs/scores/paper/clip_probe_s1_center_ntire_val_hard.parquet",
+        "squish": "outputs/scores/paper/clip_probe_s1_squish_ntire_val_hard.parquet"
+      }
+    },
+    "s2": {
+      "n": 2500,
+      "n_boot": 2000,
+      "seed": 20260827,
+      "alpha": 0.05,
+      "n_robust": 1250,
+      "n_clean": 1250,
+      "models": {
+        "center": {
+          "auc": {
+            "value": 0.8722784,
+            "ci": [
+              0.859446464,
+              0.884804768
+            ]
+          },
+          "robust_auc": {
+            "value": 0.75200768,
+            "ci": [
+              0.725474432,
+              0.778910208
+            ]
+          },
+          "clean_auc": {
+            "value": 0.9621504,
+            "ci": [
+              0.95264448,
+              0.970821248
+            ]
+          }
+        },
+        "squish": {
+          "auc": {
+            "value": 0.90611008,
+            "ci": [
+              0.894494464,
+              0.916993248
+            ]
+          },
+          "robust_auc": {
+            "value": 0.8634624,
+            "ci": [
+              0.843132032,
+              0.8832271359999999
+            ]
+          },
+          "clean_auc": {
+            "value": 0.93963264,
+            "ci": [
+              0.9268379520000001,
+              0.952022592
+            ]
+          }
+        }
+      },
+      "vs_baseline": {
+        "squish": {
+          "auc": {
+            "diff": 0.03383168000000003,
+            "ci": [
+              0.02030855999999995,
+              0.048030831999999975
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "robust_auc": {
+            "diff": 0.11145472000000001,
+            "ci": [
+              0.08657625599999998,
+              0.13638188800000006
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "clean_auc": {
+            "diff": -0.022517759999999942,
+            "ci": [
+              -0.03668851199999995,
+              -0.008467904000000004
+            ],
+            "p": 0.001,
+            "excludes_zero": true
+          }
+        }
+      },
+      "inputs": {
+        "center": "outputs/scores/paper/clip_probe_s2_center_ntire_val_hard.parquet",
+        "squish": "outputs/scores/paper/clip_probe_s2_squish_ntire_val_hard.parquet"
+      }
+    },
+    "s3": {
+      "n": 2500,
+      "n_boot": 2000,
+      "seed": 20260827,
+      "alpha": 0.05,
+      "n_robust": 1250,
+      "n_clean": 1250,
+      "models": {
+        "center": {
+          "auc": {
+            "value": 0.8762336,
+            "ci": [
+              0.863533408,
+              0.888190576
+            ]
+          },
+          "robust_auc": {
+            "value": 0.74318592,
+            "ci": [
+              0.71658784,
+              0.769730112
+            ]
+          },
+          "clean_auc": {
+            "value": 0.96924672,
+            "ci": [
+              0.961038528,
+              0.976688256
+            ]
+          }
+        },
+        "squish": {
+          "auc": {
+            "value": 0.89035776,
+            "ci": [
+              0.878036864,
+              0.90282256
+            ]
+          },
+          "robust_auc": {
+            "value": 0.83691776,
+            "ci": [
+              0.8150117760000001,
+              0.8588517760000001
+            ]
+          },
+          "clean_auc": {
+            "value": 0.93289216,
+            "ci": [
+              0.919403264,
+              0.946263488
+            ]
+          }
+        }
+      },
+      "vs_baseline": {
+        "squish": {
+          "auc": {
+            "diff": 0.014124160000000052,
+            "ci": [
+              0.0010831840000000037,
+              0.028485695999999918
+            ],
+            "p": 0.035,
+            "excludes_zero": true
+          },
+          "robust_auc": {
+            "diff": 0.0937318399999999,
+            "ci": [
+              0.06926022400000001,
+              0.11942483199999997
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          },
+          "clean_auc": {
+            "diff": -0.036354560000000036,
+            "ci": [
+              -0.05094016000000002,
+              -0.021951423999999976
+            ],
+            "p": 0.0,
+            "excludes_zero": true
+          }
+        }
+      },
+      "inputs": {
+        "center": "outputs/scores/paper/clip_probe_s3_center_ntire_val_hard.parquet",
+        "squish": "outputs/scores/paper/clip_probe_s3_squish_ntire_val_hard.parquet"
+      }
+    }
+  }
+}

@@ -1,0 +1,814 @@
+% Revised reading draft for SAFE @ AAAI 2027 (2026-11-02).
+% Based on main_reframe.tex; the original reframe and submission draft are unchanged.
+% Outline: preprocessing challenge -> frozen intervention -> controls ->
+% coverage/downscale contrasts -> training baselines -> held-out trade-offs.
+% Revision: qualify mechanism claims, distinguish frozen and trained systems,
+% correct protocol/split descriptions, and retain all measured results.
+% The companion supplement remains supplement_reframe.tex; its original
+% mechanism labels are qualified by the interpretation in this revision.
+% Build with the unmodified AAAI-27 author kit using pdfLaTeX and BibTeX.
+\documentclass[letterpaper]{article} % DO NOT CHANGE THIS
+\usepackage[submission]{aaai2027}  % DO NOT CHANGE THIS
+\usepackage[hyphens]{url}  % DO NOT CHANGE THIS
+\usepackage{graphicx} % DO NOT CHANGE THIS
+\urlstyle{rm} % DO NOT CHANGE THIS
+\def\UrlFont{\rm}  % DO NOT CHANGE THIS
+\usepackage{natbib}  % DO NOT CHANGE THIS AND DO NOT ADD ANY OPTIONS TO IT
+\usepackage{caption} % DO NOT CHANGE THIS AND DO NOT ADD ANY OPTIONS TO IT
+\frenchspacing  % DO NOT CHANGE THIS
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+\pdfinfo{
+/TemplateVersion (2027.1)
+}
+
+\setcounter{secnumdepth}{1} % the template allows 1 or 2
+
+\newcommand{\fov}{\mathrm{FOV}}
+
+\title{Equal Pixels, Unequal Views:\\Field of View Limits Robust AI-Generated Image Detection}
+\author{Anonymous Submission}
+\affiliations{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Fixed-size crops at native resolution preserve local image traces, but their
+field of view shrinks as image size increases. We study how this
+preprocessing choice affects AI-generated image detection under degradation,
+distinguishing each crop's field of view from the total image area covered
+by multiple crops. With frozen, crop-trained DINOv2 detectors, replacing a
+central crop with a resized whole image raises robust ROC AUC from 0.886 to
+0.963 on the NTIRE 2026 hard validation split used for policy selection. On
+large held-out SocialRF images with synthetic degradations, whole-image
+input improves AUC by 7.9--9.1 percentage points. Factorial experiments show
+that downscaling before cropping benefits DINOv2, CLIP, and B-Free on this
+benchmark, while increasing coverage at fixed scale provides little
+additional gain. Resizing controls support a role for wider per-crop context,
+although interpolation and changes in crop count limit causal attribution.
+A separately trained whole-image system improves NTIRE test robust AUC by
+0.062 while reducing clean AUC by 0.014. Benefits therefore depend on the
+detector, dataset, and degradation. We additionally identify format and size
+confounds in two evaluated benchmark configurations. These findings motivate
+reporting crop field of view and resize factors alongside detector input
+resolution.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+
+Deployed detectors of AI-generated images see what social platforms deliver:
+images that have been recompressed, resized and filtered, at every size. A
+detector must turn each one into a fixed-size input. Forensic work argues
+that this step should not resize: ``Most of all, it is important
+to avoid resizing'' because interpolation ``may erase the subtle
+high-frequency traces left by the generation process''
+\cite{corvi2023detection}. The usual answer is a fixed-size crop at native
+resolution, which we call a \emph{window}, scored once or several times with
+the scores averaged
+\cite{corvi2023detection,li2025safe,guillaro2025bfree,konstantinidou2025texturecrop}.
+
+A fixed input resolution does not fix how much of the source image a
+detector observes. We call each square input a \emph{view}, and define a
+crop's field of view as its side length $s$ divided by the source image's
+short side $h$: $\fov = s/h$. A 200-pixel crop spans 39\% of a 512-pixel
+image's short side but only 5\% of a 4000-pixel image's. Scoring additional
+native crops increases total image \emph{coverage} while retaining this
+narrow field of view in each input. Downscaling before cropping instead
+widens each input's field of view, while also changing resampling and
+aggregation. Which aspects of input presentation account for robustness
+gains on degraded images?
+
+We investigate this question using detectors trained for the NTIRE 2026
+Robust AI-Generated Image Detection challenge \cite{gushchin2026ntire}.
+All 407k training images have a short side of at most 512 pixels.
+Augmentation changes the field of view, but no sampled training view spans
+less than approximately 20\% of the short side. On the hard validation
+split, a native window can span only 5\%, and robust AUC falls as image
+size grows. Presenting the whole image to the frozen crop-trained models
+improves robust AUC by 7 to 9 points per branch. We examine this effect
+through controlled changes to coverage and downscale factor, and evaluate
+its transfer and clean-image cost on held-out data.
+
+\paragraph{Contributions.}
+\begin{itemize}
+\item \textbf{Preprocessing diagnosis.} Whole-image presentation substantially
+  improves robust AUC for frozen, crop-trained DINOv2 detectors, exceeding
+  the gain from averaging nine native crops while requiring only one view
+  (Sec.~\ref{sec:diagnosis}).
+\item \textbf{Controlled analysis.} We vary coverage and downscale factor
+  independently within a tiled protocol and use resizing controls to
+  examine competing explanations. On degraded SocialRF, downscaling
+  benefits DINOv2, CLIP, and B-Free, while additional coverage contributes
+  little (Secs.~\ref{sec:controls}, \ref{sec:decomp}, and \ref{sec:heldout}).
+\item \textbf{Transfer and limitations.} We report external evaluations, a
+  declared second NTIRE test evaluation, clean-image losses, and
+  unsuccessful comparisons. We also identify format and size confounds in
+  the evaluated CommunityAI and Synthbuster/RAISE configurations
+  (Secs.~\ref{sec:heldout} and \ref{sec:leaks}).
+\end{itemize}
+
+Whole-image resizing already appears in detection pipelines. The NTIRE
+2026 winner resizes at inference to preserve global spatial context, the
+fifth-placed team uses \emph{squish} \cite{gushchin2026ntire}, and AI-GenBench
+\cite{pellegrini2025aigenbench} finds resizing often preferable to multi-crop
+evaluation for CLIP and DINOv2. We investigate the explanations behind these
+observations by varying per-crop field of view and total coverage, and by
+testing resizing controls. The contribution is an empirical analysis of
+when these choices help and where they fail.
+
+\section{Related work}
+\label{sec:related}
+
+\paragraph{Crop, don't resize.} \citet{corvi2023detection} recommend
+training on native patches cropped without resizing and deciding on the whole
+image by fusion. SAFE \cite{li2025safe} replaces
+down-sampling with a crop and reports that the resize ``indeed diminishes the
+subtle artifact features''. B-Free \cite{guillaro2025bfree} trains on
+504-pixel crops and averages native-resolution crops at test time.
+SPAI \cite{karageorgiou2025spai} learns a spectral model so that any
+resolution can be scored without resizing. TextureCrop \cite{konstantinidou2025texturecrop}
+selects textured native crops and notes that preprocessing loss grows with
+native resolution. HiDA-Net \cite{mu2026hidanet} tiles the full image and
+reports 84.2\% accuracy from its global view alone against 96.1\% with tiles.
+All of these reason about high-frequency traces. SAFE's own ablation is
+useful context for us: its CNN scores a centre crop and the full native image
+about equally in that setting; field-of-view sensitivity therefore need
+not transfer to every detector.
+
+\paragraph{Resize can win.} AI-GenBench \cite{pellegrini2025aigenbench}
+reports resize at least as good as five-crop for fine-tuned DINOv2 ViT-L/14
+(94.24 against 93.44 AUROC) and clearly better for CLIP (92.04 against 87.66).
+In AIGIBench's test-time comparison \cite{li2025aigibench}, the one CLIP-based
+detector does better with resize while all five low-level detectors do better
+with crops. \citet{cozzolino2024raising} resize the short side
+before a centre crop.\footnote{In their released code,
+\url{https://github.com/grip-unina/ClipBased-SyntheticImageDetection}.} WaRPAD \cite{choi2025warpad} rescales the whole image to
+a fixed square before tiling it, which holds each tile's field of view
+constant, although the paper motivates it differently. GlobalForge \cite{cui2026globalforge}
+reports the opposite of our test-time result on clean data: a UnivFD probe
+trained with centre crops loses about 9 balanced-accuracy points (67.9 to
+58.7, their Fig.~2) when tested with resize. We return to this in Sec.~\ref{sec:heldout}.
+
+\paragraph{Scale and size as confounds.} \citet{grommelt2024fakeorjpeg}
+show that JPEG quality and image size
+separate real from fake in GenImage, and note in one sentence that
+``detectors employing cropping to achieve a uniform input size are still
+subject to bias in terms of object size''. Their concern is a size shortcut
+correlated with the label. In our training set, native size has a near-chance
+monotone size-label AUC, yet performance varies with size at test time. \citet{rajan2025aligned}
+show that random resized crops inject
+resampling signals when real and fake sizes differ, and BIAS-ID \cite{ricker2026biasid}
+measures detector score shifts under such transformations. FixRes \cite{touvron2019fixres}
+provides a related account of train-test differences in apparent object
+scale. We examine a possible mismatch in per-crop field of view, while
+retaining content scale and resampling as alternative explanations
+(Sec.~\ref{sec:decomp}).
+
+\section{Setup}
+\label{sec:setup}
+
+\paragraph{Data.} We train on 407,223 images: the NTIRE 2026 training shards,
+COCO and Open Images reals, and paired real and generated images from several
+open and commercial generators. Every training image has a short side of 200 to
+512 pixels (median 512, and 384 or more for 95\% of images). We evaluate on the organisers' labelled splits:
+\texttt{ntire\_val} (10,000 images, half distorted), \texttt{ntire\_val\_hard}
+(2,500, half distorted) and the public test split \texttt{ntire\_test}
+(2,500). Robust AUC is the ROC AUC over distorted images, and clean AUC is
+over undistorted ones, following the challenge \cite{gushchin2026ntire}.
+
+\paragraph{Models.} Two branches built on DINOv2-L/14 with
+registers \cite{oquab2024dinov2,darcet2024registers}, all 24 blocks
+fine-tuned, mean-pooled patch tokens, 0.91B parameters in total. Branch A is
+one tower at a 512-pixel input, trained for 2 epochs. Branch B concatenates
+two towers at 224 pixels, trained for 3 epochs. Each source image yields one
+clean view and ten degraded views drawn from a pool of 26 operations in six
+families, chained up to five deep, including a neural codec \cite{balle2018hyperprior}
+and a downscale applied before the window is taken. The loss is
+class-balanced cross-entropy plus a degradation-prediction term (weight 0.3)
+and clean-degraded consistency terms on the outputs (KL) and hidden
+features (MSE), each at unit weight. The schedule is cosine with 3\% warm-up, with weight
+averaging \cite{izmailov2018swa} over the last quarter. On one RTX 4090 the
+squish-trained branches took about 19 hours (B) and 29 hours (A).
+
+\paragraph{Views, field of view and coverage.} A \emph{view} is one
+square input to the model: a region of the image resized to the branch's input
+size. A detector may score several views of one image and average their
+logits. The \emph{field of view} of a view is the share of the image's short
+side it shows. \emph{Coverage} is the share of the image area that all views
+of one image show together. A 200-pixel window cut after the image is
+downscaled by a factor $k$ has $\fov = 200k/h$, provided the window fits.
+For a fixed-size window, downscaling widens its field of view and increases
+the source area it covers. In our fully tiled construction below, total
+coverage is held fixed while the downscale factor varies.
+
+The \emph{crop} policy takes one 200-pixel window at native resolution (the
+centre window at test time) and resizes it to the branch's input size. Images
+with a short side under 200 pixels are taken whole. The \emph{squish} policy
+resizes the whole image to the input size, discarding aspect ratio: area
+interpolation on the short side down to the input size when the image is
+larger, then area interpolation to the square. Both policies give every image
+the same number of input pixels. Under squish, field of view and coverage are
+both 1. To vary the two one at a time, \emph{tiles}$(k, f)$ takes the centred
+region holding a fraction $f$ of the image area, downscales it by $k$ with
+area interpolation, covers it with 200-pixel windows, resizes each window to
+the input size and averages the logits. $f$ sets coverage and $k$ sets each
+view's field of view. Downscaling also changes interpolation and the
+number of windows averaged, so these are experimental contrasts rather
+than isolated causal effects.
+
+\paragraph{Comparison types.} Frozen-model comparisons change presentation
+at test time while retaining branch checkpoints. Training comparisons use
+separately crop-trained and squish-trained models. The final test read
+compares complete systems, including their checkpoints and fitted fusion
+settings. We distinguish these throughout.
+
+\paragraph{Fusion and selection.} The two branches' logits are z-scored and
+combined as $w z_A + (1-w) z_B$. The z-score parameters and the weight $w$ are
+fitted on \texttt{ntire\_val} alone, by the mean of robust and clean AUC. For
+the squish models the choice between final and averaged weights is made the
+same way. For the crop models we kept the choice made earlier on both
+validation splits. The fitted weights were $w = 0.50$ for crop and $w = 0.55$
+for squish.
+
+\paragraph{Statistics.} All intervals are 95\% percentile intervals from 2,000
+paired bootstrap resamples, stratified by label and distortion status, with
+the same resample indices for every model being compared.
+
+\paragraph{Protocol.} The test split was first read with the crop fusion
+(2026-10-04). Before training any squish model, we committed a registration
+of the squish study that allowed one further test read. Registered
+experiments and exploratory analyses are distinguished throughout.
+Amendments were recorded before the corresponding results existed; the
+supplement lists their outcomes, including failed or unidentifiable tests.
+The later diagnostic experiments did not evaluate the test split again.
+We chose squish after observing its effect on \texttt{ntire\_val\_hard},
+which we label the \emph{selection split}. External evaluations and the
+declared second test read provide evidence beyond policy selection. Code,
+registrations, and per-image scores will be released with the paper.
+
+\section{Equal pixels, unequal views}
+\label{sec:diagnosis}
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lrrrr}
+\toprule
+split & n & p5 & p50 & p95 \\
+\midrule
+train, native & 407,223 & 0.391 & 0.391 & 0.521 \\
+train, window taken & 220,000 & 0.391 & 0.468 & 1.000 \\
+train, after second crop & 220,000 & 0.296 & 0.415 & 0.942 \\
+\texttt{ntire\_val} & 10,000 & 0.100 & 0.312 & 0.893 \\
+\texttt{ntire\_val\_hard} & 2,500 & 0.112 & 0.298 & 0.784 \\
+\bottomrule
+\end{tabular}
+\caption{Field of view of the 200-pixel window ($200/$short side).
+\emph{Window taken} is the window as the trainer cuts it, on 20,000 seeded
+training images with 11 views each. A downscale before the window widens the
+field of view: 24.9\% of views exceed 0.521 and 6.3\% show the whole short
+side. A crop after the window narrows 18\% of views below 0.391, to no less
+than 0.195, and enlarges them back. On \texttt{ntire\_val\_hard}, 70.8\% of
+images fall below 0.391, and the smallest views (0.05) are about 4 times
+narrower than any training view.}
+\label{tab:fov}
+\end{table}
+
+Table~\ref{tab:fov} shows how much of each image the window covers. The
+central 90\% of native training field-of-view values lie between 39 and
+52\% of the short side. Augmentation widens some views and narrows others;
+the minimum observed after the second crop is approximately 20\%. On \texttt{ntire\_val\_hard} the median
+is 30\%, and one image in twenty gets 11\% or less. Under the crop policy,
+fused robust AUC on \texttt{ntire\_val\_hard} falls from 0.911 for images
+with a short side of 80 to 336 pixels to 0.865 for images above 752 pixels.
+Figure~\ref{fig:size} shows the same fall in eight equal-count bins.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig_size_revised}
+\caption{Fused robust AUC on the distorted rows of \texttt{ntire\_val\_hard}
+(selection split) in eight equal-count bins of native short side, with 95\%
+bootstrap bands. Red: the crop-trained fusion under its 200-pixel window.
+Blue: the separately squish-trained fusion. This is a comparison of
+trained systems, not the frozen-checkpoint intervention in
+Table~\ref{tab:probe}. Grey: the 384--512-pixel band containing at least
+95\% of native training short sides.}
+\label{fig:size}
+\end{figure}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{fig_tiles_revised}
+\caption{Robust AUC of \emph{tiles}$(k, f)$ for the frozen crop-trained
+branches on images with a short side of at least 800 pixels. Moving right
+tiles more of the image with same-size windows (coverage). Different lines vary the downscale factor, also changing field of view
+and window count. NTIRE pools both validation splits. On held-out SocialRF,
+coverage contributes little additional gain under our degradation chains. Dashed: squish. Dotted: the
+centre window.}
+\label{fig:tiles}
+\end{figure*}
+
+To test whether additional native crops recover the gain, we scored the two frozen
+crop-trained branches under four test-time presentations
+(Table~\ref{tab:probe}). \emph{grid9} averages nine 200-pixel native windows,
+nine times the pixels at the same field of view. \emph{fov3} first downscales
+the short side to 600 pixels and then takes the nine windows, which sets the
+field of view to $1/3$. \emph{squish} shows the whole image once.
+
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llrrr}
+\toprule
+branch & presentation & views & robust & clean \\
+\midrule
+A (512) & centre window & 1 & 0.8561 & 0.9912 \\
+        & grid9 & 8.9 & 0.8495 & 0.9978 \\
+        & fov3 & 8.9 & 0.8703 & 0.9977 \\
+        & squish & 1 & \textbf{0.9482} & 0.9906 \\
+\midrule
+B (224) & centre window & 1 & 0.8872 & 0.9801 \\
+        & grid9 & 8.9 & 0.9049 & 0.9931 \\
+        & fov3 & 8.9 & 0.9215 & 0.9942 \\
+        & squish & 1 & \textbf{0.9599} & 0.9886 \\
+\bottomrule
+\end{tabular}
+\caption{Frozen crop-trained branches under four test-time presentations
+on the hard validation split (selection split). Averaging additional native windows
+(grid9) helps B by 1.8 points and costs A 0.7. Whole-image input gives
+the largest robust AUC for both branches.}
+\label{tab:probe}
+\end{table}
+
+Additional native windows yield smaller changes than whole-image input: grid9 gains 1.8 robust
+points on B and loses 0.7 on A. The intermediate fov3 presentation gains 1.4
+and 3.4 points, and squish gains 9.2 and 7.3. Squish uses one view and the
+same pixel count as the centre window. On B the paired interval for the
+squish gain is [+0.057, +0.090]. With z-scores and weight fitted on
+\texttt{ntire\_val}, the fused robust AUC rises from 0.886 to 0.963 and the
+true positive rate at 1\% false positive rate from 0.516 to 0.752. Clean AUC
+moves by $-0.001$ on A and $+0.009$ on B.
+
+Squish changes three things at once. It raises coverage to the whole
+image, widens the field of view of its one view, and resamples local image
+traces and degradations. Figure~\ref{fig:tiles} previews the coverage/downscale contrasts of
+Sec.~\ref{sec:decomp}, following controls for resolution cues and aspect ratio.
+
+
+
+\section{Controls for resolution and aspect ratio}
+\label{sec:controls}
+
+Resizing can leave cues about native resolution: small images are enlarged
+and large images reduced. Four controls test whether such cues explain the
+gain. First, native short side has a monotone size-label AUC of 0.528 in
+training. This weakens a simple size-shortcut account but does not exclude
+nonlinear cues. Second, within native-size deciles, where resize factors
+vary less, squish beats the centre window in all ten deciles on branch B
+(size-weighted robust AUC 0.888 to 0.964). Third, band-limiting the squished
+input to 160 pixels reduces available resolution cues, yet B retains +7.2
+of its +7.3 points and A retains +5.7 of +9.2. This control also removes
+image detail and cannot guarantee that all size cues disappear. Fourth,
+on rows with only photometric transforms (median short side 784 pixels),
+the gain is +9.0 points on A and +8.3 on B, with intervals above zero.
+The effect therefore does not require the challenge's geometric
+transforms \cite{gushchin2026ntire}.
+
+Squish also stretches non-square images, potentially introducing frequency
+artefacts along one axis \cite{grommelt2024fakeorjpeg}. Two
+aspect-preserving presentations, a centre square after resizing the short
+side and a padded letterbox, retain 93 to 100\% of its robust gain.
+Aspect-ratio distortion is therefore unnecessary for most of the measured
+improvement.
+
+\section{Coverage and downscale contrasts}
+\label{sec:decomp}
+
+This section uses frozen crop-trained checkpoints throughout. The NTIRE
+analyses pool both validation splits; SocialRF provides external data with
+our synthetic degradation chains.
+
+\paragraph{Degradation and size.} We took the 6,250 undistorted images of the
+two validation splits and applied JPEG (quality 90, 70, 30), Gaussian blur
+($\sigma$ 0.5, 1, 2) or Gaussian noise ($\sigma$ 0.02, 0.05, 0.10) at native
+resolution. The robust gain of squish over the centre window, averaged over
+the three operations, rises from $-0.001$ with no degradation to $+0.029$ at
+the heaviest level on branch A, and from $+0.004$ to $+0.027$ on B. Every
+rise from none to heavy has an interval above zero, pooled and in every size
+bucket. The rise is largest above 752 pixels ($+0.049$ on both branches). On
+undistorted images up to 736 pixels the two policies differ by at most
+0.002. The levels are not matched in strength across operations, so we do
+not rank the operations.
+
+\paragraph{Coverage against downscale.} The images used here have a short
+side of at least 800 pixels. We scored \emph{tiles}$(k, f)$ at
+$k \in \{1, 2\}$ and $f \in \{0.25, 0.5, 1\}$, so every window is a
+200-pixel window like those in training. The coverage effect $d_F$ is the
+gain from $f = 0.25$ to $f = 1$ averaged over $k$. The downscale effect $d_K$
+is the gain from $k = 1$ to $k = 2$ averaged over $f$. On NTIRE (4,068 images,
+1,235 distorted, pooled validation splits) both effects are above zero on both branches
+(Table~\ref{tab:decomp}). On large degraded SocialRF images, which no model
+was trained or selected on, increasing coverage provides little additional
+gain: at a fixed downscale,
+showing the whole image instead of its central quarter changes robust AUC by
+less than 0.01. The downscale helps by 2.3 to 5.5 points at every coverage
+level, more than on NTIRE. Covering the whole image after a 4x downscale,
+\emph{tiles}$(4, 1)$, is within 0.003 of squish on NTIRE and at least as good
+on SocialRF (A 0.973 against 0.958, B 0.966 against 0.962).
+Figure~\ref{fig:tiles} shows the stronger downscale effect on SocialRF,
+where the coverage curves are comparatively flat.
+
+\paragraph{Round-trip resizing control.} Round-trip resizing tests whether
+downscaling helps when each crop retains its original field of view. We
+downscale each region by two, restore its dimensions, and evaluate the
+original crop grid. Let $d_A$ be the AUC difference between this round trip
+and \emph{tiles}$(1,f)$, averaged over $f$, and let $d_V=d_K-d_A$ be the
+residual contrast against \emph{tiles}$(2,f)$. These are the
+\emph{round-trip resize effect} and \emph{residual downscale effect},
+respectively. For DINOv2, $d_A$ is at most approximately 0.004 in magnitude on both
+datasets and branches, with intervals including zero; the residual
+contrast is positive (Table~\ref{tab:decomp}). This pattern is consistent
+with a benefit from wider per-crop context, but does not establish
+equivalence or identify a pure field-of-view effect. The round trip adds
+interpolation, and directly downscaled inputs average about four times
+fewer windows. These changes can affect both detail retention and pooling.
+
+\paragraph{Stronger downscales.} Squish downscales large images 5 to 18
+times, far more than 2. To look at stronger factors we took 2,833 undistorted
+NTIRE images with a short side of at least 800 pixels and applied heavy JPEG
+(quality 30), blur ($\sigma = 2$) or noise ($\sigma = 0.10$) either before or
+after downscaling by $k$, then scored \emph{tiles}$(k, 1)$. $R(k)$ is robust
+AUC with the degradation applied before the downscale minus after it, so a
+positive $R$ favors applying the degradation before downscaling. On branch A,
+$R(2) = +0.022$ [+0.019, +0.026] and $R(4) = +0.036$. On B they are +0.007
+[+0.005, +0.008] and +0.013. $R(4)$ exceeds $R(2)$ on both branches, and noise,
+the degradation a downscale should average away most easily, gives the largest
+$R$ on both (A: +0.030 at 2x, +0.047 at 4x). This fits a downscale that also
+reduces the degradation, more so at stronger factors. It is not proof. The
+same degradation may hurt more when applied to a smaller image, JPEG blocks
+shrink with the image, and the round-trip control uses a different
+contrast. The ordering result is consistent with attenuation, but does
+not isolate it from changes in the effective scale of degradation.
+
+\paragraph{Possible mismatch in each view.} No sampled training view spans
+less than approximately 20\% of the short side, while a 200-pixel crop of a
+3,000-pixel photo spans 7\%. Downscaling moves its field of view toward the
+observed training range, consistent with a train-test mismatch related to
+the scale discrepancy studied by FixRes \cite{touvron2019fixres}.
+However, the effect is not confined to images outside the native training
+size range: for short sides of 416--496 pixels, the separately trained
+fusions score 0.877 under crop and 0.973 under squish
+(Fig.~\ref{fig:size}). Content scale and resampling also vary, so the
+observed range alone does not establish the cause.
+
+\paragraph{CLIP.} We repeat the contrasts on three short crop-trained CLIP
+ViT-L/14 runs (Sec.~\ref{sec:training}) using the same SocialRF images.
+Downscaling improves robust AUC by 5.4 to 7.6 points, while increasing
+coverage provides little additional gain. The residual contrast $d_V$
+is +0.041 to +0.063. The round-trip effect $d_A$ is also positive:
++0.011 to +0.014 on degraded images, with intervals above zero on all
+seeds. However, it improves clean AUC by +0.022 to +0.025 as well.
+The round-trip benefit therefore cannot be attributed specifically to
+degradation removal.
+
+\begin{table}[t]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{2pt}
+\begin{tabular}{llrrrrr}
+\toprule
+data & branch & $d_F$ & $d_K$ & $d_A$ & $d_V$ & $R(4)$ \\
+\midrule
+NTIRE & A & +0.005* & +0.014* & $-0.002$ & +0.016* & +0.036* \\
+      & B & +0.011* & +0.008* & $-0.001$ & +0.010* & +0.013* \\
+SocialRF & A & $-0.004$ & +0.050* & +0.001 & +0.049* & n/a \\
+         & B & +0.001 & +0.027* & +0.004 & +0.023* & n/a \\
+\bottomrule
+\end{tabular}
+\caption{Robust-AUC contrasts for frozen crop-trained branches,
+images with a short side of at least 800 pixels. $d_F$: coverage, from 25\% to 100\% of the image. $d_K$: downscale by 2.
+$d_A$: round-trip resize effect. $d_V$: residual downscale effect
+($d_A+d_V=d_K$); neither is an isolated causal component. $R(4)$: robust AUC with heavy degradation applied before
+a 4x downscale minus after it, on 2,833 undistorted NTIRE images. NTIRE rows pool both validation splits. SocialRF rows
+use our degradation chains. * marks a 95\% interval that excludes zero.}
+\label{tab:decomp}
+\end{table}
+
+
+
+\section{Training and baselines}
+\label{sec:training}
+
+\paragraph{Training under whole-image input.} In short training runs (one tower,
+one epoch on a quarter of the training set, three seeds), squish-trained
+models beat crop-trained ones by +0.083 [+0.062, +0.105], +0.093 [+0.072,
++0.115] and +0.078 [+0.057, +0.102] robust AUC on \texttt{ntire\_val\_hard},
+with clean AUC within noise. We then trained the full branches under squish
+(Table~\ref{tab:branches}). Their robust AUC is close to that of the frozen test-time intervention (A:
+0.943 against 0.948, B: 0.959 against 0.960), with slightly higher clean AUC. The
+fused squish-trained models reach 0.960 robust and 0.995 clean, against 0.886
+and 0.990 for the crop fusion: +0.074 [+0.058, +0.091]. The size gradient is
+gone: across the eight bins of Figure~\ref{fig:size} the squish fusion stays
+between 0.951 and 0.973. In the short runs, training under squish adds 4 to 6
+points beyond the test-time change, with DINOv2 and with CLIP (an
+exploratory comparison). The full branches show no such gap. They
+differ from the short runs in training length, number of views per image and
+loss terms, and we cannot say which of these closes the gap.
+
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llcc}
+\toprule
+branch & model & robust & clean \\
+\midrule
+A & crop-trained & 0.8561 & 0.9913 \\
+  & crop-trained, squish at test & 0.9482 & 0.9906 \\
+  & squish-trained & 0.9425 & 0.9934 \\
+\midrule
+B & crop-trained & 0.8873 & 0.9801 \\
+  & crop-trained, squish at test & 0.9599 & 0.9886 \\
+  & squish-trained & 0.9589 & 0.9898 \\
+\bottomrule
+\end{tabular}
+\caption{Per branch on \texttt{ntire\_val\_hard} (selection split). Training under
+squish yields similar point estimates to presenting the whole image to
+the frozen crop-trained model; this is not an equivalence test. Paired gains over crop-trained: A +0.092 and +0.086, B
++0.073 and +0.072, all intervals clear of zero. The crop-trained rows were
+rescored for this table and differ from Table~\ref{tab:probe} by at most
+0.0001.}
+\label{tab:branches}
+\end{table}
+
+\paragraph{A second backbone.} We repeated the short-run comparison with a CLIP
+ViT-L/14 tower \cite{radford2021clip} in place of DINOv2, every other setting
+unchanged. Over three seeds, training under squish beat crop by +0.139 to
++0.150 robust AUC, with clean AUC near the crop baseline, and showing the crop-trained
+checkpoints the whole image gained +0.094 to +0.111 at test time alone, every
+interval clear of zero. Both gains grow with size: at test time, +0.168 above
+752 pixels against +0.057 below 336. CLIP's crop-trained short runs are weaker
+than DINOv2's (0.748 robust against 0.799) and gain more.
+
+\paragraph{Is the crop baseline fair?} The crop policy enlarges its
+200-pixel window to the input size, 1.12 times for B and 2.59 times for A,
+and averaging native windows may dilute one informative window. We checked
+both. A 224-pixel native window fed at 224, with no enlargement, scores
+within 0.013 of the 200-pixel window, and the squish-trained short runs beat it
+by +0.077 on average over three seeds. At 512 pixels a native 512-pixel
+window beats the enlarged 200-pixel one by +0.042 [+0.025, +0.058] at one
+seed, but it also has 2.56 times the field of view. A 196-pixel window
+fed at 196 pixels approximately matches the 200-pixel window's field of
+view without enlargement, providing a further contrast. On 630 large degraded images
+the native 512-pixel window leads by 0.059. The contrast between native 512- and 196-pixel inputs is +0.048
+[+0.022, +0.072], while the 196-pixel input gains +0.011 [$-0.014$, +0.037], too
+uncertain to call, so whether enlargement handicaps branch A's crop baseline
+remains open.
+Multi-scale training with random resized crops (area 0.20 to 1.00) closes 73
+to 81\% of the gap between crop and squish, and squish stays ahead by +0.019
+on average, every interval clear of zero. On the full frozen branches, a
+learned attention combiner over the nine native windows, fitted on
+\texttt{ntire\_val}, gains about 3 points over averaging them. Squish, which
+is not fitted, still beats it by +0.069 [+0.052, +0.087] on A and +0.023
+[+0.011, +0.036] on B, and ties it on B for images below 336 pixels.
+
+\section{Held-out evidence and where it stops}
+\label{sec:heldout}
+
+\paragraph{External benchmarks.} We compare separately trained crop and
+squish fusions on three external benchmarks that no model was trained or selected on, after removing any image whose content
+digest matched an NTIRE image: AIGIBench SocialRF and CommunityAI
+\cite{li2025aigibench}, and Synthbuster with RAISE-1k reals
+\cite{bammey2024synthbuster,dangnguyen2015raise}. All three have no added degradation in their distributed form, so we
+report pooled AUC on the files as distributed, on every file re-encoded as
+JPEG at quality 95, and on every file passed through one seeded chain from
+our degradation pool. That last reading is our own synthesis, not the
+organisers'.
+
+\begin{table*}[t]
+\centering
+\small
+\begin{tabular}{lccc}
+\toprule
+ & SocialRF & CommunityAI & Synthbuster \\
+\midrule
+n (real/fake) & 2994/3000 & 6000/6000 & 994/8996 \\
+short side p50 & 1366 & 500 & 833 \\
+size-label AUC & 0.694 & 0.916 & 0.519 \\
+format-label AUC & 0.500 & 1.000 & 0.555 \\
+\midrule
+crop fusion & 0.9633 & 0.9809 & 0.9995 \\
+squish fusion & 0.9776 & 0.9920 & 0.9984 \\
+difference & +0.014 & +0.011 & $-0.001$ \\
+\quad 95\% CI & [+0.010, +0.018] & [+0.009, +0.013] & [$-0.002$, $-0.001$] \\
+\midrule
+size-matched, JPEG 95 & +0.016 & +0.005 & n/a \\
+\quad 95\% CI & [+0.009, +0.024] & [$-0.002$, +0.012] & \\
+degraded (ours) & +0.085 & +0.070 & +0.024 \\
+\bottomrule
+\end{tabular}
+\caption{External benchmarks, separately trained crop and squish fusions.
+Size-matched is the size-weighted AUC within native-size deciles containing
+both classes (all 5,994 SocialRF images; 5,920 of 12,000 CommunityAI images). It cannot be computed on Synthbuster
+because no decile holds both classes (Sec.~\ref{sec:leaks}).}
+\label{tab:external}
+\end{table*}
+
+Table~\ref{tab:external} gives the results. On SocialRF, squish wins on the
+files as distributed, after JPEG re-encoding, and within size deciles, and on
+its large degraded images the frozen-model contrasts favor downscaling
+(Sec.~\ref{sec:decomp}). On CommunityAI the pooled gain is confounded: every
+real image is a JPEG and every fake a PNG, and native size alone separates
+the classes with AUC 0.916. The size-matched gain on the re-encoded files does
+not clear zero ([$-0.002$, +0.012]). On Synthbuster squish loses by 0.001,
+with both fusions near ceiling. Under our degradation chains squish wins on
+all three sets, by 2.4 to 8.5 points.
+
+\paragraph{The second test read.} Table~\ref{tab:test} gives both reads of
+the public test split. Read 1 used the crop fusion as frozen on 2026-09-23.
+Read 2 used the squish fusion as frozen before any squish model was scored on
+test. No third test evaluation was performed. Robust AUC rose by
++0.062 [+0.040, +0.083] and clean AUC fell by 0.014 [0.006, 0.024]. These are complete-system
+differences, including training, checkpoint selection, and fusion settings;
+they do not isolate a frozen-model preprocessing effect. On robust
+AUC the squish fusion would sit between the sixth- and seventh-placed
+challenge entries on the open test, where the crop fusion was below all nine.
+We were not a challenge entry and make no ranking claim. The leading entries
+use far more compute, such as committees of DINOv3 models at 512 pixels on 32
+A100 GPUs \cite{gushchin2026ntire}.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lcccc}
+\toprule
+read/system & robust & clean & AUC & TPR@1\% \\
+\midrule
+1, crop & 0.7931 & 0.9856 & 0.9108 & 0.289 \\
+2, squish & 0.8547 & 0.9715 & 0.9211 & 0.300 \\
+\bottomrule
+\end{tabular}
+\caption{Complete-system comparison on \texttt{ntire\_test} (2,500 images).
+The two reads use different trained checkpoints. Read 1's fusion
+weight was fitted on both validation splits ($w = 0.45$), read 2's on
+\texttt{ntire\_val} alone.}
+\label{tab:test}
+\end{table}
+
+\paragraph{The clean cost.} The observed test clean-AUC loss is concentrated
+in branch A on large images.
+Clean AUC of branch A on test images with a short side above 1100 pixels
+falls from 0.974 under crop to 0.880 under squish (366 images). Below 1100
+pixels, and on branch B at every size, the change is under 1.3 points. The
+fake images drive it: their mean score under squish falls with size. The
+validation splits do not show this cost, and the test split carries no
+generator labels. Synthbuster, which has them, shows no single location
+either. The two A models also differ in weight averaging and training round,
+not only in input policy. We tried to remove the cost with a per-image mix of
+squish and grid9, weighted by the branch's predicted degradation. It lost
+robust AUC against squish alone ($-0.005$ [$-0.010$, $-0.001$]), so we did
+not spend a test read on it. Our hypothesis is the trade-off the forensic
+literature predicts: a clean, large generated image keeps fine traces at
+native resolution, and reducing it to 512 pixels discards them. This would
+also reconcile our result with GlobalForge \cite{cui2026globalforge} and
+TextureCrop's CLIP results \cite{konstantinidou2025texturecrop}, both
+measured on clean data. After degradation damages local traces, wider context may become more
+useful. We have not directly tested whether the detector shifts from
+local forensic traces to content cues.
+
+\paragraph{Public detectors.} UnivFD \cite{ojha2023univfd}, a linear probe on
+CLIP ViT-L/14 features trained on 224-pixel crops, is at chance on NTIRE data
+under every presentation (robust AUC 0.49 to 0.51 on the hard split), so it
+says nothing either way. B-Free \cite{guillaro2025bfree} is a DINOv2-B with
+registers that averages five 504-pixel windows taken at native
+resolution.\footnote{Model size and window count from the released weights
+and code, \url{https://github.com/grip-unina/B-Free}.} We scored it with its
+authors' pipeline (native), at its own training field of view (short side to
+its training size, then its crop), and under squish (Table~\ref{tab:public}).
+Squish changes its robust AUC on the hard split by $-0.018$ [$-0.041$,
++0.004], and the change falls with image size instead of rising. Both resized
+presentations lower its clean AUC on every split, by 1.2 to 18.8 points, as
+the advice to avoid resizing predicts for a detector built on
+native-resolution traces. Under controlled degradations its squish deficit
+shrinks, from $-0.114$ with none to $-0.035$ at the heaviest level, but never
+crosses zero. On SocialRF under our degradation chains squish gains it 6.3
+points [+5.1, +7.5]. On large degraded SocialRF images (short side at least 2,016
+pixels), with B-Free's own 504-pixel windows, downscaling before cutting
+windows raises its robust AUC by 7.9 points [+5.3, +10.5] while coverage
+changes it by $-0.003$, and squish scores 0.928 against 0.804 for its native
+five windows. On the clean images of the same set, downscaling costs it 1.7
+points and squish 3.3. B-Free therefore shows a similar preprocessing trade-off on this SocialRF
+subset: downscaling helps degraded inputs but costs clean AUC. Its NTIRE
+results show that this benefit does not hold across all settings.
+
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lccc}
+\toprule
+split & native & train FOV & squish \\
+\midrule
+hard-val, robust & 0.636 & 0.631 & 0.618 \\
+hard-val, clean & 0.909 & 0.753 & 0.722 \\
+\texttt{ntire\_val}, robust & 0.735 & 0.754 & 0.744 \\
+\texttt{ntire\_val}, clean & 0.920 & 0.848 & 0.825 \\
+\midrule
+SocialRF & 0.922 & 0.889 & 0.871 \\
+\quad degraded (ours) & 0.757 & 0.829 & 0.820 \\
+CommunityAI & 0.891 & 0.742 & 0.703 \\
+\quad degraded (ours) & 0.683 & 0.568 & 0.539 \\
+Synthbuster & 0.998 & 0.987 & 0.976 \\
+\quad degraded (ours) & 0.896 & 0.893 & 0.892 \\
+\bottomrule
+\end{tabular}
+\caption{B-Free AUC under three presentations. Native is the authors' own
+five-window test pipeline. Hard-val is \texttt{ntire\_val\_hard}.}
+\label{tab:public}
+\end{table}
+
+\section{Two label leaks}
+\label{sec:leaks}
+
+\paragraph{AIGIBench CommunityAI.} In the evaluated copy, all 6,000 real images are JPEG files and all
+6,000 fake images are PNG files, so container format separates the classes
+perfectly, and native short side separates them with AUC 0.916. Results on this
+subset should be reported after format equalisation and within size strata.
+
+\paragraph{Synthbuster with resized RAISE reals.} Synthbuster ships only
+generated images \cite{bammey2024synthbuster}.\footnote{The dataset record
+states that the RAISE-1k images are not included:
+\url{https://zenodo.org/records/10066460}.} A widely used copy of its RAISE
+reals, released with B-Free \cite{guillaro2025bfree}, was resized so that
+each image's area is about $1024^2$ pixels.\footnote{B-Free README,
+\url{https://github.com/grip-unina/B-Free}.} We used this copy. All 994 reals
+then have a short side of 833 to 835 pixels, while the fakes range from 256
+to 2048. The monotone size-label AUC is 0.519 because the reals sit in the
+middle of the fakes' range, but the rule ``short side within 833 to 835''
+separates the classes almost perfectly. A monotone leak check misses this. In
+the same benchmark, Adobe Firefly images saved with a \texttt{.png} extension
+are JPEG internally \cite{ricker2026biasid}, and 997 of our fakes are JPEG.
+
+\section{Limitations}
+
+Every detector we tested is a vision transformer: our two DINOv2 branches,
+three short CLIP runs and B-Free. The low-level and convolutional detectors
+that motivate the advice to avoid resizing may not share the effect, and
+SAFE's results suggest they do not \cite{li2025safe}. UnivFD is at chance on
+this data. The policy was chosen on \texttt{ntire\_val\_hard}, so its numbers
+there are optimistic. The external sets and the declared test read provide evidence beyond
+policy selection, and their results are mixed. The decomposition uses frozen NTIRE-trained
+models and one held-out set, with short sides of at least 800 pixels
+(2,016 for B-Free). Downscaling widens each view but also changes
+interpolation and leaves fewer windows to average. The resizing controls
+cannot isolate these effects, and intervals including zero do not establish
+equivalence. The order test cannot tell degradation removal apart from
+degradation that hurts more on a smaller image, and it stops at 4x while
+squish downscales large images 5 to 18 times. The 512-pixel comparisons are
+single short runs, and they could not settle how much enlarging the window
+costs. Every training image has a short side of 512 pixels or less, so narrow
+views at native scale were never in training. The clean cost on large test
+images is real, unexplained, and not addressed here. Combining a whole-image
+view with native windows, as HiDA-Net and GLASS do
+\cite{mu2026hidanet,han2026glass}, is the obvious next step, but it would need
+its own held-out test.
+
+\section{Conclusion}
+
+Input resolution alone does not describe what an image detector observes.
+In our experiments, presenting the whole image substantially improves
+robustness for frozen, crop-trained DINOv2 detectors. On degraded SocialRF
+images, downscaling before cropping also benefits CLIP and B-Free, while
+additional coverage at fixed scale contributes little. Resizing controls
+are consistent with a benefit from wider per-crop context, but leave
+interpolation and aggregation effects unresolved. Whole-image presentation
+also incurs clean-image losses in several settings. Detection evaluations
+should therefore report crop field of view, resize factors, and aggregation
+policy alongside input resolution, and assess preprocessing separately on
+clean and degraded images. Combining whole-image context with native
+windows is a useful next step requiring its own held-out evaluation.
+
+\bibliography{refs}
+
+\end{document}
+
+% Revision self-review (author notes, not typeset).
+% Contribution: pass as empirical diagnosis; resizing itself is established.
+% Clarity: frozen checkpoints, trained policies, and full test systems are distinct.
+% Experimental strength: large frozen gains; mixed external and clean outcomes retained.
+% Evaluation completeness: synthetic degradations and one decomposition benchmark limit scope.
+% Design soundness: crop count and interpolation confound causal mechanism; stated explicitly.
+% Reverse outline: Abstract -> problem/intervention/evidence/limitations;
+% Introduction -> context/geometry/question/study/contributions/prior practice;
+% Contrasts -> severity/factorial/round trip/order/mismatch/CLIP;
+% Conclusion -> main result/transfer/causal limits/practical reporting/future work.
+% Claim: frozen robust gain | Evidence: tab:probe, tab:branches | Status: supported on selection split.
+% Claim: downscale helps three detector setups | Evidence: Tests 16,20,21 | Status: supported on synthetic SocialRF.
+% Claim: exclusive field-of-view cause | Evidence: round-trip contrasts | Status: needs evidence; not asserted.
+% Claim: test robust gain and clean cost | Evidence: tab:test | Status: supported as complete-system comparison.
+% Claim: benchmark format/size confounds | Evidence: external_sets.json | Status: supported for evaluated copies.

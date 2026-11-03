@@ -1,0 +1,260 @@
+{
+  "commit": "bbb1306ca202a9d179318def80cead0c66d1cc27",
+  "seed": 20260827,
+  "n_boot": 2000,
+  "strata": "label x is_distorted",
+  "tpr": "score_plan_splits.tpr_at_fpr, 1% FPR, threshold re-derived per draw",
+  "count": {
+    "rows_scored": 66,
+    "rows_with_printed_auc": 50,
+    "auc_values_compared": 76,
+    "auc_values_matched": 76,
+    "per_table": {
+      "tab:probe": {
+        "rows": 8,
+        "rows_with_printed_auc": 8,
+        "auc_values": 16
+      },
+      "tab:aspect": {
+        "rows": 4,
+        "rows_with_printed_auc": 0,
+        "auc_values": 0
+      },
+      "tab:branches": {
+        "rows": 6,
+        "rows_with_printed_auc": 6,
+        "auc_values": 12
+      },
+      "tab:clip": {
+        "rows": 6,
+        "rows_with_printed_auc": 6,
+        "auc_values": 12
+      },
+      "tab:external": {
+        "rows": 18,
+        "rows_with_printed_auc": 6,
+        "auc_values": 6
+      },
+      "tab:public": {
+        "rows": 24,
+        "rows_with_printed_auc": 24,
+        "auc_values": 30
+      }
+    },
+    "rows_without_printed_auc": [
+      "tab:aspect A2 short_center ntire_val_hard",
+      "tab:aspect A2 letterbox ntire_val_hard",
+      "tab:aspect B2swa short_center ntire_val_hard",
+      "tab:aspect B2swa letterbox ntire_val_hard",
+      "tab:external crop fusion ext_aigi_socialrf_jpeg95",
+      "tab:external squish fusion ext_aigi_socialrf_jpeg95",
+      "tab:external crop fusion ext_aigi_socialrf_deg",
+      "tab:external squish fusion ext_aigi_socialrf_deg",
+      "tab:external crop fusion ext_aigi_community_jpeg95",
+      "tab:external squish fusion ext_aigi_community_jpeg95",
+      "tab:external crop fusion ext_aigi_community_deg",
+      "tab:external squish fusion ext_aigi_community_deg",
+      "tab:external crop fusion ext_synthbuster_jpeg95",
+      "tab:external squish fusion ext_synthbuster_jpeg95",
+      "tab:external crop fusion ext_synthbuster_deg",
+      "tab:external squish fusion ext_synthbuster_deg"
+    ]
+  },
+  "E2": {
+    "A2": {
+      "n": 2500,
+      "n_fake": 1250,
+      "rows_for_tpr": "distorted",
+      "base_tpr": {
+        "point": 0.1376,
+        "ci": [
+          0.0256,
+          0.2352
+        ]
+      },
+      "other_tpr": {
+        "point": 0.4,
+        "ci": [
+          0.2816,
+          0.6352
+        ]
+      },
+      "tpr_diff": {
+        "point": 0.2624,
+        "ci": [
+          0.11188,
+          0.5344399999999999
+        ]
+      },
+      "pooled_auc_diff": {
+        "point": 0.03223807999999995,
+        "ci": [
+          0.024363823999999968,
+          0.040309359999999975
+        ]
+      },
+      "paired_diff_check": {
+        "a": 0.94077056,
+        "b": 0.97300864,
+        "diff": 0.03223807999999995,
+        "ci": [
+          0.024363823999999968,
+          0.040309359999999975
+        ]
+      },
+      "n_real_for_threshold": 625,
+      "test12_definition_point": {
+        "base_tpr": 0.1584,
+        "other_tpr": 0.4848
+      },
+      "interval_excludes_zero": true
+    },
+    "B2swa": {
+      "n": 2500,
+      "n_fake": 1250,
+      "rows_for_tpr": "distorted",
+      "base_tpr": {
+        "point": 0.296,
+        "ci": [
+          0.1568,
+          0.3696
+        ]
+      },
+      "other_tpr": {
+        "point": 0.6736,
+        "ci": [
+          0.5056,
+          0.7184
+        ]
+      },
+      "tpr_diff": {
+        "point": 0.3776,
+        "ci": [
+          0.20156000000000002,
+          0.5232
+        ]
+      },
+      "pooled_auc_diff": {
+        "point": 0.034563200000000016,
+        "ci": [
+          0.026941248000000088,
+          0.04289934400000003
+        ]
+      },
+      "paired_diff_check": {
+        "a": 0.94193024,
+        "b": 0.97649344,
+        "diff": 0.034563200000000016,
+        "ci": [
+          0.026941248000000088,
+          0.04289934400000003
+        ]
+      },
+      "n_real_for_threshold": 625,
+      "test12_definition_point": {
+        "base_tpr": 0.3072,
+        "other_tpr": 0.6736
+      },
+      "interval_excludes_zero": true
+    }
+  },
+  "E3": {
+    "ext_aigi_socialrf": {
+      "n": 5994,
+      "n_fake": 3000,
+      "rows_for_tpr": "all",
+      "base_tpr": {
+        "point": 0.5293333333333333,
+        "ci": [
+          0.452325,
+          0.5686749999999999
+        ]
+      },
+      "other_tpr": {
+        "point": 0.469,
+        "ci": [
+          0.2653333333333333,
+          0.6053333333333333
+        ]
+      },
+      "tpr_diff": {
+        "point": -0.06033333333333335,
+        "ci": [
+          -0.26035,
+          0.06767499999999994
+        ]
+      },
+      "pooled_auc_diff": {
+        "point": 0.014228679581384962,
+        "ci": [
+          0.009979408817635224,
+          0.01832204130483184
+        ]
+      },
+      "paired_diff_check": {
+        "a": 0.9633442440436428,
+        "b": 0.9775729236250278,
+        "diff": 0.014228679581384962,
+        "ci": [
+          0.009979408817635224,
+          0.01832204130483184
+        ]
+      },
+      "n_real_for_threshold": 2994,
+      "test12_definition_point": {
+        "base_tpr": 0.5383333333333333,
+        "other_tpr": 0.4816666666666667
+      },
+      "interval_excludes_zero": false
+    },
+    "ext_aigi_socialrf_jpeg95": {
+      "n": 5994,
+      "n_fake": 3000,
+      "rows_for_tpr": "all",
+      "base_tpr": {
+        "point": 0.5573333333333333,
+        "ci": [
+          0.49366666666666664,
+          0.5880083333333332
+        ]
+      },
+      "other_tpr": {
+        "point": 0.47833333333333333,
+        "ci": [
+          0.2759916666666667,
+          0.6023749999999998
+        ]
+      },
+      "tpr_diff": {
+        "point": -0.07900000000000001,
+        "ci": [
+          -0.27901666666666664,
+          0.039000000000000035
+        ]
+      },
+      "pooled_auc_diff": {
+        "point": 0.012579492317969287,
+        "ci": [
+          0.008358016032064156,
+          0.016555054553551565
+        ]
+      },
+      "paired_diff_check": {
+        "a": 0.9652606323758628,
+        "b": 0.9778401246938321,
+        "diff": 0.012579492317969287,
+        "ci": [
+          0.008358016032064156,
+          0.016555054553551565
+        ]
+      },
+      "n_real_for_threshold": 2994,
+      "test12_definition_point": {
+        "base_tpr": 0.5603333333333333,
+        "other_tpr": 0.49033333333333334
+      },
+      "interval_excludes_zero": false
+    }
+  },
+  "E10": "withdrawn by amendment 7; nothing computed"
+}
